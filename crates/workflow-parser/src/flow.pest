@@ -1,0 +1,36 @@
+// Simplified grammar for .flow files
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
+
+// Identifiers and literals
+IDENT = @{ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
+STRING = @{ "\"" ~ CHAR* ~ "\"" }
+CHAR = _{ "\\\\" | "\\n" | "\\t" | "\\\\\"" | (!"\"" ~ ANY) }
+NUMBER = @{ ASCII_DIGIT+ }
+
+// Expressions
+expr = { additive }
+additive = { multiplicative ~ (("+" | "-") ~ multiplicative)* }
+multiplicative = { unary ~ (("*" | "/") ~ unary)* }
+unary = { primary }
+primary = { call | group | literal | var_ref }
+
+literal = { STRING | NUMBER | bool_lit | NULL }
+bool_lit = _{ "true" | "false" }
+NULL = _{ "null" }
+var_ref = { IDENT }
+group = { "(" ~ expr ~ ")" }
+call = { IDENT ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+
+// Statements
+stmt = { var_decl | if_stmt | log_stmt | foreach_stmt | expr_stmt }
+var_decl = { "var" ~ IDENT ~ ("=" ~ expr)? }
+block = { "{" ~ stmt* ~ "}" }
+if_stmt = { "if" ~ "(" ~ expr ~ ")" ~ block }
+log_stmt = { "log" ~ "(" ~ expr ~ ")" }
+foreach_stmt = { "foreach" ~ "(" ~ IDENT ~ "in" ~ expr ~ ")" ~ block }
+expr_stmt = { call }
+
+// Top level
+program = { stmt* }

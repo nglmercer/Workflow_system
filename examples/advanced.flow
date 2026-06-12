@@ -1,0 +1,80 @@
+// Advanced .flow example with loops and complex logic
+
+// Utility functions
+fn formatCurrency(amount, currency) {
+  return currency + " " + amount
+}
+
+fn validateEmail(email) {
+  var length = email.length
+  if (length > 5) {
+    return true
+  }
+  return false
+}
+
+// Workflows
+workflow "User Registration" {
+  on USER_REGISTERED
+  
+  if (validateEmail(data.email)) {
+    log("Valid email: " + data.email)
+  } else {
+    log("Invalid email: " + data.email)
+  }
+  
+  if (data.plan == "premium") {
+    log("Premium user registration")
+  }
+}
+
+workflow "Batch Processing" {
+  on BATCH_START
+  
+  foreach (item in data.items) {
+    log("Processing batch item: " + item.id)
+    if (item.priority == "high") {
+      log("High priority item")
+    }
+  }
+}
+
+workflow "Complex Conditions" {
+  on COMPLEX_EVENT
+  
+  if (data.value > 100 && data.type == "important") {
+    log("Important high value event")
+  } else if (data.value > 50 || data.urgent == true) {
+    log("Medium priority event")
+  } else {
+    log("Low priority event")
+  }
+}
+
+workflow "Nested Loops" {
+  on NESTED_DATA
+  
+  foreach (user in data.users) {
+    log("User: " + user.name)
+    foreach (order in user.orders) {
+      log("  Order: " + order.id)
+      if (order.total > 100) {
+        log("    High value order")
+      }
+    }
+  }
+}
+
+workflow "Math Operations" {
+  on CALCULATE
+  
+  var x = 10
+  var y = 20
+  var result = x + y * 2
+  
+  if (result > 50) {
+    log("Result is large: " + result)
+  } else {
+    log("Result is small: " + result)
+  }
+}

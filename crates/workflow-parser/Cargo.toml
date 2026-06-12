@@ -1,0 +1,15 @@
+[package]
+name = "workflow-parser"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pest = { workspace = true }
+pest_derive = { workspace = true }
+workflow-domain = { path = "../workflow-domain" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+pretty_assertions = "1"

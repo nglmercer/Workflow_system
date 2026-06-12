@@ -1,0 +1,18 @@
+[package]
+name = "workflow-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "flow-lsp"
+path = "src/main.rs"
+
+[dependencies]
+workflow-parser = { path = "../workflow-parser" }
+workflow-domain = { path = "../workflow-domain" }
+workflow-engine = { path = "../workflow-engine" }
+serde_json = { workspace = true }
+lsp-server = "0.7"
+lsp-types = "0.95"
+crossbeam-channel = "0.5"

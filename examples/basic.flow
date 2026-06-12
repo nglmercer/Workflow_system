@@ -1,0 +1,71 @@
+// Global variables
+var API_URL = "https://api.example.com"
+var MAX_RETRIES = 3
+var DEFAULT_MESSAGE = "Hello World"
+
+// Global functions
+fn greet(name) {
+  log("Hello " + name + "!")
+  return true
+}
+
+fn processItem(item) {
+  log("Processing: " + item.name)
+  return item.active == true
+}
+
+fn calculateTotal(items) {
+  var total = 0
+  foreach (item in items) {
+    total = total + item.price
+  }
+  return total
+}
+
+// Workflows
+workflow "Welcome New User" {
+  on USER_REGISTERED
+  
+  var userName = data.user.name
+  
+  if (data.plan == "premium") {
+    greet(userName)
+    log("Premium user detected!")
+  } else {
+    greet(userName)
+  }
+}
+
+workflow "Process Order" {
+  on ORDER_RECEIVED
+  
+  if (data.items.length > 0) {
+    var total = calculateTotal(data.items)
+    log("Order total: " + total)
+  } else {
+    log("Empty order")
+  }
+}
+
+workflow "High Value Alert" {
+  on PAYMENT_RECEIVED
+  
+  if (data.amount > 1000) {
+    log("High value transaction: " + data.amount)
+    if (data.currency == "USD") {
+      log("USD transaction")
+    }
+  }
+}
+
+workflow "User Activity" {
+  on USER_ACTIVITY
+  
+  if (data.action == "purchase") {
+    log("Purchase by " + data.userId)
+  } else if (data.action == "login") {
+    log("Login by " + data.userId)
+  } else {
+    log("Other activity: " + data.action)
+  }
+}
