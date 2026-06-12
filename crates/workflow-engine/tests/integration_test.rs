@@ -11,7 +11,7 @@ fn rules_dir() -> String {
 #[test]
 fn test_load_yaml_rules() {
     let rules = TriggerLoader::load_rules_from_dir(&rules_dir()).unwrap();
-    assert!(rules.len() > 0);
+    assert!(!rules.is_empty());
     println!("Loaded {} rules", rules.len());
 }
 
@@ -107,6 +107,10 @@ async fn test_engine_condition_group() {
             }),
             delay: None,
             probability: None,
+            retry: None,
+            foreach: None,
+            r#while: None,
+            repeat: None,
         }),
     }];
 
@@ -172,12 +176,20 @@ fn test_rule_builder_pattern() {
                 params: None,
                 delay: None,
                 probability: None,
+                retry: None,
+                foreach: None,
+                r#while: None,
+                repeat: None,
             },
             Action {
                 action_type: "noop".to_string(),
                 params: None,
                 delay: None,
                 probability: None,
+                retry: None,
+                foreach: None,
+                r#while: None,
+                repeat: None,
             },
         ]),
     };

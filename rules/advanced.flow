@@ -1,0 +1,138 @@
+# Workflow System - Advanced .flow Example
+# Demonstrates: loops, retries, expressions, state machine
+
+# Example 1: Process array items with foreach
+- id: process-items
+  name: Process Array Items
+  description: Iterate over an array and process each item
+  priority: 10
+  on: PROCESS_DATA
+  if:
+    field: data.items
+    operator: IS_EMPTY
+    value: false
+  do:
+    type: noop
+    foreach:
+      field: data.items
+      item_var: item
+      index_var: index
+      actions:
+        - type: log_message
+          params:
+            message: "Processing item ${vars.index}: ${vars.item.name}"
+            level: info
+        - type: set_var
+          params:
+            key: "processed_${vars.index}"
+            value: true
+
+# Example 2: Retry with exponential backoff
+- id: flaky-api-call
+  name: Flaky API Call
+  description: Call an API with retry on failure
+  priority: 20
+  on: API_REQUEST
+  do:
+    type: log_message
+    retry:
+      max_attempts: 3
+      initial_delay_ms: 1000
+      backoff_multiplier: 2.0
+      max_delay_ms: 10000
+      retry_on:
+        - timeout
+        - network_error
+    params:
+      message: "Calling API for user: ${data.userId}"
+      level: info
+
+# Example 3: Repeat N times
+- id: batch-process
+  name: Batch Processing
+  description: Process items in batches
+  priority: 15
+  on: BATCH_START
+  do:
+    type: noop
+    repeat:
+      count: "${data.batchCount}"
+      index_var: batch
+      delay_ms: 100
+      actions:
+        - type: log_message
+          params:
+            message: "Processing batch ${vars.batch}"
+            level: info
+        - type: set_var
+          params:
+            key: "batch_${vars.batch}_status"
+            value: processing
+
+# Example 4: While loop with condition
+- id: polling-loop
+  name: Polling Loop
+  description: Poll until condition is met
+  priority: 25
+  on: START_POLLING
+  do:
+    type: noop
+    while:
+      condition:
+        field: data.status
+        operator: NEQ
+        value: complete
+      max_iterations: 100
+      delay_ms: 500
+      actions:
+        - type: log_message
+          params:
+            message: "Polling... status: ${data.status}"
+            level: info
+        - type: set_var
+          params:
+            key: poll_count
+            value: "${vars.poll_count + 1}"
+
+# Example 5: Nested foreach with expressions
+- id: nested-processing
+  name: Nested Processing
+  description: Process nested data structures
+  priority: 30
+  on: COMPLEX_DATA
+  if:
+    field: data.users
+    operator: IS_EMPTY
+    value: false
+  do:
+    type: noop
+    foreach:
+      field: data.users
+      item_var: user
+      index_var: user_index
+      actions:
+        - type: log_message
+          params:
+            message: "User ${vars.user_index}: ${vars.user.name} (${vars.user.email})"
+            level: info
+
+# Example 6: Conditional retry with fallback
+- id: resilient-operation
+  name: Resilient Operation
+  description: Operation with retry and fallback action
+  priority: 35
+  on: CRITICAL_OPERATION
+  do:
+    mode: EITHER
+    actions:
+      - type: log_message
+        retry:
+          max_attempts: 2
+          initial_delay_ms: 500
+        params:
+          message: "Primary operation for ${data.operationId}"
+          level: info
+      - type: log_message
+        params:
+          message: "Fallback operation for ${data.operationId}"
+          level: warn

@@ -37,6 +37,9 @@ pub enum WorkflowError {
 
     #[error("Rule disabled: {0}")]
     RuleDisabled(String),
+
+    #[error("Invalid state transition: {0}")]
+    InvalidTransition(String),
 }
 
 pub type WorkflowResult<T> = Result<T, WorkflowError>;
