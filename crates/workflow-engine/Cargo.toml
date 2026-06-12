@@ -1,0 +1,25 @@
+[package]
+name = "workflow-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+delay = ["tokio/time"]
+
+[dependencies]
+workflow-domain = { path = "../workflow-domain" }
+serde_json = { workspace = true }
+regex = { workspace = true }
+chrono = { workspace = true }
+flume = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["time"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+workflow-actions = { path = "../workflow-actions" }
+workflow-serialize = { path = "../workflow-serialize", default-features = false }
+serde_yaml = { workspace = true }

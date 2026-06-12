@@ -1,0 +1,19 @@
+[package]
+name = "workflow-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "workflow"
+path = "src/main.rs"
+
+[dependencies]
+workflow-domain = { path = "../workflow-domain" }
+workflow-engine = { path = "../workflow-engine" }
+workflow-actions = { path = "../workflow-actions" }
+workflow-serialize = { path = "../workflow-serialize" }
+serde_json = { workspace = true }
+clap = { workspace = true }
+thiserror = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "signal"] }

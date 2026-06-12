@@ -1,0 +1,12 @@
+[package]
+name = "workflow-actions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+workflow-domain = { path = "../workflow-domain" }
+workflow-engine = { path = "../workflow-engine" }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }

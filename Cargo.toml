@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/workflow-domain",
+    "crates/workflow-engine",
+    "crates/workflow-actions",
+    "crates/workflow-serialize",
+    "crates/workflow-cli",
+    "crates/workflow-wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/user/workflow-system"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+toml = "0.8"
+regex = "1"
+chrono = { version = "0.4", features = ["serde"] }
+flume = "0.11"
+async-trait = "0.1"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+wasm-bindgen = { version = "0.2" }
+serde-wasm-bindgen = "0.6"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3

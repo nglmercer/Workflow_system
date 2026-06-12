@@ -1,0 +1,118 @@
+- id: welcome-new-user
+  name: Welcome New User
+  description: Log a message when a new user registers
+  on: USER_REGISTERED
+  do:
+    type: log_message
+    params:
+      message: "New user registered: ${data.userId}"
+      level: info
+
+- id: welcome-premium-user
+  name: Welcome Premium User
+  description: Special welcome for premium users
+  on: USER_REGISTERED
+  if:
+    field: data.plan
+    operator: EQ
+    value: premium
+  do:
+    - type: log_message
+      params:
+        message: "Premium user registered: ${data.userId}"
+        level: info
+    - type: set_var
+      params:
+        key: welcome_type
+        value: premium
+
+- id: high-value-transaction
+  name: High Value Transaction Alert
+  description: Alert on high value USD transactions
+  on: TRANSACTION_PROCESSED
+  if:
+    operator: AND
+    conditions:
+      - field: data.amount
+        operator: GT
+        value: 1000
+      - field: data.currency
+        operator: EQ
+        value: USD
+      - field: data.status
+        operator: EQ
+        value: completed
+  do:
+    type: log_message
+    params:
+      message: "High value transaction: $${data.amount}"
+      level: warn
+
+- id: fraud-detection
+  name: Fraud Detection
+  description: Flag potentially fraudulent transactions
+  on: TRANSACTION_INITIATED
+  if:
+    operator: AND
+    conditions:
+      - operator: OR
+        conditions:
+          - field: data.amount
+            operator: GT
+            value: 5000
+          - field: data.foreignTransaction
+            operator: EQ
+            value: true
+      - field: data.userAccountAge
+        operator: LT
+        value: 30
+  do:
+    type: log_message
+    params:
+      message: "Potential fraud detected for transaction: ${data.transactionId}"
+      level: error
+
+- id: admin-privileges
+  name: Admin Privileges Check
+  description: Grant admin access to admin/moderator roles
+  on: PERMISSION_CHECK
+  if:
+    field: data.userRole
+    operator: IN
+    value:
+      - admin
+      - moderator
+      - superuser
+  do:
+    type: log_message
+    params:
+      message: "Admin privileges granted to user: ${data.userId}"
+      level: info
+
+- id: email-validation
+  name: Email Validation
+  description: Validate email format on registration
+  on: USER_REGISTERED
+  if:
+    field: data.email
+    operator: MATCHES
+    value: "^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$"
+  do:
+    type: log_message
+    params:
+      message: "Valid email format: ${data.email}"
+      level: info
+
+- id: rate-limiting
+  name: Rate Limiting
+  description: Flag users with too many requests
+  on: API_REQUEST
+  if:
+    field: data.requestCount
+    operator: GT
+    value: 100
+  do:
+    type: log_message
+    params:
+      message: "Rate limit exceeded for user: ${data.userId}"
+      level: warn

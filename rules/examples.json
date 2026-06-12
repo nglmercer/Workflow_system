@@ -1,0 +1,67 @@
+[
+  {
+    "id": "threshold-alert",
+    "name": "Threshold Alert",
+    "description": "Alert when value exceeds threshold",
+    "on": "METRIC_UPDATED",
+    "if": {
+      "field": "data.value",
+      "operator": "GT",
+      "value": 80
+    },
+    "do": {
+      "type": "log_message",
+      "params": {
+        "message": "Threshold exceeded: ${data.value}",
+        "level": "warn"
+      }
+    }
+  },
+  {
+    "id": "multi-condition",
+    "name": "Multi Condition Rule",
+    "description": "Multiple conditions with AND/OR logic",
+    "on": "USER_ACTIVITY",
+    "if": {
+      "operator": "AND",
+      "conditions": [
+        {
+          "field": "data.userType",
+          "operator": "EQ",
+          "value": "premium"
+        },
+        {
+          "operator": "OR",
+          "conditions": [
+            {
+              "field": "data.action",
+              "operator": "EQ",
+              "value": "purchase"
+            },
+            {
+              "field": "data.action",
+              "operator": "EQ",
+              "value": "upgrade"
+            }
+          ]
+        }
+      ]
+    },
+    "do": [
+      {
+        "type": "log_message",
+        "params": {
+          "message": "Premium user activity: ${data.action}",
+          "level": "info"
+        }
+      },
+      {
+        "type": "set_var",
+        "params": {
+          "key": "last_premium_action",
+          "value": "${data.action}"
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,91 @@
+# Workflow System - Example .flow file
+# .flow files use YAML syntax for workflow definitions
+
+- id: user-onboarding
+  name: User Onboarding Flow
+  description: Complete onboarding sequence for new users
+  priority: 10
+  on: USER_REGISTERED
+  if:
+    field: data.isFirstTime
+    operator: EQ
+    value: true
+  do:
+    - type: log_message
+      params:
+        message: "Starting onboarding for user: ${data.userId}"
+        level: info
+    - type: set_var
+      params:
+        key: onboarding_started
+        value: true
+    - type: log_message
+      params:
+        message: "Welcome email sent to: ${data.email}"
+        level: info
+
+- id: premium-upgrade
+  name: Premium Upgrade Flow
+  description: Handle premium user upgrades
+  priority: 20
+  on: USER_UPGRADED
+  if:
+    operator: AND
+    conditions:
+      - field: data.newPlan
+        operator: EQ
+        value: premium
+      - field: data.oldPlan
+        operator: NEQ
+        value: premium
+  do:
+    - type: log_message
+      params:
+        message: "Premium upgrade: ${data.userId} from ${data.oldPlan} to ${data.newPlan}"
+        level: info
+    - type: set_var
+      params:
+        key: premium_users
+        value: "${data.userId}"
+
+- id: security-alert
+  name: Security Alert Flow
+  description: Alert on suspicious activity
+  priority: 30
+  on: LOGIN_ATTEMPT
+  if:
+    operator: OR
+    conditions:
+      - field: data.failedAttempts
+        operator: GT
+        value: 5
+      - field: data.foreignIP
+        operator: EQ
+        value: true
+  do:
+    type: log_message
+    params:
+      message: "Security alert: suspicious login for user ${data.userId} from ${data.ip}"
+      level: error
+
+- id: data-export
+  name: Data Export Flow
+  description: Handle data export requests
+  priority: 5
+  on: DATA_EXPORT_REQUESTED
+  if:
+    field: data.format
+    operator: IN
+    value:
+      - csv
+      - json
+      - xml
+  do:
+    - type: log_message
+      params:
+        message: "Processing ${data.format} export for user: ${data.userId}"
+        level: info
+    - type: set_var
+      params:
+        key: export_status
+        value: processing
