@@ -102,6 +102,9 @@
   cursor: pointer;
   font-size: 12px;
   font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .autocomplete-item:hover,
@@ -110,10 +113,84 @@
   color: var(--bg);
 }
 
+.autocomplete-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: var(--border);
+  color: var(--text);
+}
+
+.autocomplete-item:hover .autocomplete-kind,
+.autocomplete-item.selected .autocomplete-kind {
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--bg);
+}
+
+.autocomplete-detail {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+  opacity: 0.8;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.autocomplete-item:hover .autocomplete-detail,
+.autocomplete-item.selected .autocomplete-detail {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.hover-tooltip {
+  position: absolute;
+  z-index: 200;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  max-width: 320px;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  pointer-events: none;
+}
+
+.hover-tooltip-title {
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 4px;
+  white-space: pre;
+}
+
+.hover-tooltip-line {
+  color: var(--text);
+  white-space: pre;
+}
+
+.hover-tooltip-prop {
+  color: var(--muted);
+  white-space: pre;
+  font-size: 11px;
+}
+
 @media (max-width: 600px) {
   #editor,
   #highlight {
     padding: 12px;
     font-size: 12px;
+  }
+
+  .hover-tooltip {
+    max-width: 240px;
   }
 }

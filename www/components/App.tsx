@@ -2,6 +2,7 @@ import { h } from 'preact';
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 import { Parser } from '@src/parser.ts';
 import { FlowEvaluator } from '@src/evaluator.ts';
+import type { FlowProgram } from '@src/types.ts';
 import { tokenize } from '../highlight.ts';
 import { loadSchemasFromProgram, type SchemaType } from '../schema.ts';
 import { EXAMPLES, type LogEntry, type EventLogEntry, type TabName } from '../types.ts';
@@ -38,13 +39,36 @@ export function App() {
   const [pendingEventData, setPendingEventData] = useState<string | null>(null);
   const [wasmLoaded, setWasmLoaded] = useState(false);
   const [currentSchema, setCurrentSchema] = useState<SchemaType>({});
+  const [parsedProgram, setParsedProgram] = useState<FlowProgram | null>(null);
 
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const highlightRef = useRef<HTMLPreElement>(null);
 
+  const parseTimeoutRef = useRef<number | null>(null);
+
   useEffect(() => {
     initWasm().then(setWasmLoaded);
     highlightCode(code);
+    debouncedParse(code);
+  }, []);
+
+  const debouncedParse = useCallback((codeToParse: string) => {
+    if (parseTimeoutRef.current) {
+      clearTimeout(parseTimeoutRef.current);
+    }
+    parseTimeoutRef.current = window.setTimeout(() => {
+      try {
+        const parser = new Parser(codeToParse);
+        const program = parser.parseProgram();
+        setParsedProgram(program);
+
+        loadSchemasFromProgram(program).then(schema => {
+          setCurrentSchema(schema);
+        });
+      } catch {
+        setParsedProgram(null);
+      }
+    }, 300);
   }, []);
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {
@@ -78,13 +102,15 @@ export function App() {
   const handleCodeChange = useCallback((value: string) => {
     setCode(value);
     highlightCode(value);
-  }, [highlightCode]);
+    debouncedParse(value);
+  }, [highlightCode, debouncedParse]);
 
   const loadExample = useCallback((index: number) => {
     const ex = EXAMPLES[index];
     if (ex.code) {
       setCode(ex.code);
       highlightCode(ex.code);
+      debouncedParse(ex.code);
     }
     if (ex.eventData) {
       setPendingEventData(ex.eventData);
@@ -92,7 +118,7 @@ export function App() {
       setPendingEventData(null);
     }
     clearLogs();
-  }, [highlightCode, clearLogs]);
+  }, [highlightCode, clearLogs, debouncedParse]);
 
   const parseCode = useCallback(async () => {
     clearLogs();
@@ -130,6 +156,7 @@ export function App() {
       const parser = new Parser(code);
       const program = parser.parseProgram();
       setAstText(JSON.stringify(program, null, 2));
+      setParsedProgram(program);
 
       loadSchemasFromProgram(program).then(schema => {
         setCurrentSchema(schema);
@@ -272,6 +299,14 @@ export function App() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [executeCode, parseCode]);
 
+  useEffect(() => {
+    return () => {
+      if (parseTimeoutRef.current) {
+        clearTimeout(parseTimeoutRef.current);
+      }
+    };
+  }, []);
+
   return h('div', { class: 'app' },
     h(Header, {
       onParse: parseCode,
@@ -290,6 +325,7 @@ export function App() {
         highlightRef,
         onCursorChange: setCursorPos,
         schema: currentSchema,
+        program: parsedProgram,
       }),
       h(OutputPanel, {
         logs,

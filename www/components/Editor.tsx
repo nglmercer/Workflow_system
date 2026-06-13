@@ -1,7 +1,11 @@
 import { h } from 'preact';
-import { useCallback, useEffect, useRef } from 'preact/hooks';
+import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import type { FlowProgram } from '@src/types.ts';
 import type { SchemaType } from '../schema.ts';
 import type { RefObject } from 'preact';
+import { getCompletions, type CompletionItem } from '../autocomplete.ts';
+import { getHoverInfo, type HoverInfo } from '../hover.ts';
+import { HoverTooltip } from './HoverTooltip.tsx';
 
 interface EditorProps {
   code: string;
@@ -10,13 +14,20 @@ interface EditorProps {
   highlightRef: RefObject<HTMLPreElement>;
   onCursorChange: (pos: { line: number; col: number }) => void;
   schema: SchemaType;
+  program: FlowProgram | null;
 }
 
-export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange, schema }: EditorProps) {
+export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange, schema, program }: EditorProps) {
   const autocompleteRef = useRef<HTMLDivElement>(null);
   const autocompleteVisible = useRef(false);
-  const autocompleteItems = useRef<string[]>([]);
+  const autocompleteItems = useRef<CompletionItem[]>([]);
   const autocompleteIndex = useRef(0);
+
+  const [hoverInfo, setHoverInfo] = useState<HoverInfo | null>(null);
+  const [hoverPosition, setHoverPosition] = useState({ left: 0, top: 0 });
+  const [hoverVisible, setHoverVisible] = useState(false);
+  const hoverTimeoutRef = useRef<number | null>(null);
+  const lastHoverPos = useRef(-1);
 
   const syncScroll = useCallback(() => {
     if (editorRef.current && highlightRef.current) {
@@ -60,7 +71,7 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
     };
   }, [editorRef]);
 
-  const showAutocomplete = useCallback((items: string[]) => {
+  const showAutocomplete = useCallback((items: CompletionItem[]) => {
     if (items.length === 0 || !autocompleteRef.current) {
       hideAutocomplete();
       return;
@@ -70,8 +81,14 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
     autocompleteIndex.current = 0;
     autocompleteVisible.current = true;
 
+    const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
     autocompleteRef.current.innerHTML = items
-      .map((item, i) => `<div class="autocomplete-item${i === 0 ? ' selected' : ''}" data-index="${i}">${item.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`)
+      .map((item, i) => {
+        const kindIcon = getKindIcon(item.kind);
+        const detail = item.detail ? `<span class="autocomplete-detail">${escapeHtml(item.detail)}</span>` : '';
+        return `<div class="autocomplete-item${i === 0 ? ' selected' : ''}" data-index="${i}"><span class="autocomplete-kind">${kindIcon}</span>${escapeHtml(item.label)}${detail}</div>`;
+      })
       .join('');
 
     const pos = getEditorCursorPos();
@@ -80,7 +97,7 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
     autocompleteRef.current.style.display = 'block';
   }, [getEditorCursorPos, hideAutocomplete]);
 
-  const insertAutocompleteItem = useCallback((item: string) => {
+  const insertAutocompleteItem = useCallback((item: CompletionItem) => {
     if (!editorRef.current) return;
     const pos = editorRef.current.selectionStart;
     const text = editorRef.current.value;
@@ -90,11 +107,11 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
     const dotMatch = before.match(/(\w+(?:\.\w+)*)\.(\w*)$/);
     if (dotMatch) {
       const prefix = before.substring(0, before.length - dotMatch[2].length);
-      onChange(prefix + item + after);
-      editorRef.current.selectionStart = editorRef.current.selectionEnd = prefix.length + item.length;
+      onChange(prefix + item.insertText + after);
+      editorRef.current.selectionStart = editorRef.current.selectionEnd = prefix.length + item.insertText.length;
     } else {
-      onChange(before + item + after);
-      editorRef.current.selectionStart = editorRef.current.selectionEnd = pos + item.length;
+      onChange(before + item.insertText + after);
+      editorRef.current.selectionStart = editorRef.current.selectionEnd = pos + item.insertText.length;
     }
 
     hideAutocomplete();
@@ -104,32 +121,17 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
   const checkAutocomplete = useCallback(() => {
     if (!editorRef.current) return;
     const pos = editorRef.current.selectionStart;
-    const text = editorRef.current.value;
-    const before = text.substring(0, pos);
+    const items = getCompletions(code, pos, schema, program);
 
-    const dotMatch = before.match(/(\w+(?:\.\w+)*)\.$/);
-    if (dotMatch) {
-      const path = dotMatch[1];
-      const parts = path.split('.');
-
-      if (parts[0] === 'data' && Object.keys(schema).length > 0) {
-        const dataPath = parts.slice(1).join('.');
-        const subSchema = dataPath
-          ? (schema[dataPath.split('.')[0]] as SchemaType)
-          : schema;
-
-        if (subSchema && typeof subSchema === 'object') {
-          showAutocomplete(Object.keys(subSchema));
-          return;
-        }
-      }
-    }
-
-    if (autocompleteVisible.current) {
+    if (items.length > 0) {
+      showAutocomplete(items);
+    } else if (autocompleteVisible.current) {
+      const text = editorRef.current.value;
+      const before = text.substring(0, pos);
       const wordMatch = before.match(/(\w+)$/);
       if (wordMatch) {
         const word = wordMatch[1].toLowerCase();
-        const filtered = autocompleteItems.current.filter(item => item.toLowerCase().startsWith(word));
+        const filtered = autocompleteItems.current.filter(item => item.label.toLowerCase().startsWith(word));
         if (filtered.length > 0) {
           showAutocomplete(filtered);
         } else {
@@ -139,7 +141,59 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
         hideAutocomplete();
       }
     }
-  }, [editorRef, schema, showAutocomplete, hideAutocomplete]);
+  }, [code, schema, program, showAutocomplete, hideAutocomplete]);
+
+  const checkHover = useCallback((e: MouseEvent) => {
+    if (!editorRef.current) return;
+
+    const rect = editorRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left + editorRef.current.scrollLeft;
+    const y = e.clientY - rect.top + editorRef.current.scrollTop;
+
+    const lineHeight = 20.8;
+    const charWidth = 7.8;
+
+    const line = Math.floor((y - 16) / lineHeight);
+    const col = Math.floor((x - 16) / charWidth);
+
+    const lines = code.split('\n');
+    if (line < 0 || line >= lines.length) {
+      setHoverVisible(false);
+      return;
+    }
+
+    const lineText = lines[line];
+    if (col < 0 || col >= lineText.length) {
+      setHoverVisible(false);
+      return;
+    }
+
+    let charIndex = 0;
+    for (let i = 0; i < line; i++) {
+      charIndex += lines[i].length + 1;
+    }
+    charIndex += col;
+
+    if (charIndex === lastHoverPos.current) return;
+    lastHoverPos.current = charIndex;
+
+    const info = getHoverInfo(code, charIndex, schema, program);
+    if (info) {
+      setHoverInfo(info);
+      setHoverPosition({
+        left: e.clientX - rect.left,
+        top: e.clientY - rect.top,
+      });
+      setHoverVisible(true);
+    } else {
+      setHoverVisible(false);
+    }
+  }, [code, schema, program, editorRef]);
+
+  const hideHover = useCallback(() => {
+    setHoverVisible(false);
+    lastHoverPos.current = -1;
+  }, []);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
     if (autocompleteVisible.current) {
@@ -186,30 +240,42 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
     const editor = editorRef.current;
     if (!editor) return;
 
-    editor.addEventListener('input', () => {
-      checkAutocomplete();
-    });
-    editor.addEventListener('scroll', syncScroll);
-    editor.addEventListener('keyup', updateCursor);
-    editor.addEventListener('click', () => {
+    const onInput = () => checkAutocomplete();
+    const onScroll = () => syncScroll();
+    const onKeyUp = () => updateCursor();
+    const onClick = () => {
       updateCursor();
       hideAutocomplete();
-    });
+    };
+    const onMouseMove = (e: MouseEvent) => checkHover(e);
+    const onMouseLeave = () => hideHover();
+
+    editor.addEventListener('input', onInput);
+    editor.addEventListener('scroll', onScroll);
+    editor.addEventListener('keyup', onKeyUp);
+    editor.addEventListener('click', onClick);
+    editor.addEventListener('mousemove', onMouseMove);
+    editor.addEventListener('mouseleave', onMouseLeave);
     editor.addEventListener('keydown', handleKeyDown);
 
     return () => {
-      editor.removeEventListener('input', () => {
-        checkAutocomplete();
-      });
-      editor.removeEventListener('scroll', syncScroll);
-      editor.removeEventListener('keyup', updateCursor);
-      editor.removeEventListener('click', () => {
-        updateCursor();
-        hideAutocomplete();
-      });
+      editor.removeEventListener('input', onInput);
+      editor.removeEventListener('scroll', onScroll);
+      editor.removeEventListener('keyup', onKeyUp);
+      editor.removeEventListener('click', onClick);
+      editor.removeEventListener('mousemove', onMouseMove);
+      editor.removeEventListener('mouseleave', onMouseLeave);
       editor.removeEventListener('keydown', handleKeyDown);
     };
-  }, [editorRef, syncScroll, updateCursor, checkAutocomplete, handleKeyDown, hideAutocomplete]);
+  }, [editorRef, syncScroll, updateCursor, checkAutocomplete, checkHover, hideHover, handleKeyDown, hideAutocomplete]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return h('div', { class: 'editor-panel' },
     h('div', { class: 'panel-header' },
@@ -232,6 +298,22 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
         class: 'autocomplete-popup',
         style: { display: 'none' },
       }),
+      h(HoverTooltip, {
+        content: hoverInfo?.content || '',
+        position: hoverPosition,
+        visible: hoverVisible,
+      }),
     ),
   );
+}
+
+function getKindIcon(kind: CompletionItem['kind']): string {
+  switch (kind) {
+    case 'keyword': return 'K';
+    case 'function': return 'F';
+    case 'variable': return 'V';
+    case 'property': return 'P';
+    case 'snippet': return 'S';
+    default: return '?';
+  }
 }

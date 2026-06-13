@@ -56,6 +56,26 @@ function normalizeSchema(obj: unknown): SchemaType {
   return schema;
 }
 
+export function getSchemaType(value: SchemaType | SchemaType[] | string): string {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    if (value.length > 0 && typeof value[0] === 'object') {
+      const inner = getSchemaType(value[0]);
+      return `Array<${inner}>`;
+    }
+    return 'array';
+  }
+  if (typeof value === 'object' && value !== null) {
+    const keys = Object.keys(value);
+    if (keys.length <= 3) {
+      const props = keys.map(k => `${k}: ${getSchemaType(value[k])}`).join(', ');
+      return `{${props}}`;
+    }
+    return `object (${keys.length} props)`;
+  }
+  return 'any';
+}
+
 export function getSchemaForPath(schema: SchemaType, path: string): SchemaType | null {
   const parts = path.split('.');
   let current: Record<string, unknown> = schema as Record<string, unknown>;
