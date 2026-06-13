@@ -246,7 +246,12 @@ export class Parser {
 
   private parseOn(): Stmt {
     const event = this.parseIdent();
-    return { type: 'On', event };
+    let params: string[] = [];
+    this.skip();
+    if (this.peek() === '(') {
+      params = this.parseDestructureParams();
+    }
+    return { type: 'On', event, params };
   }
 
   private parseReturn(): Stmt {
@@ -291,11 +296,22 @@ export class Parser {
 
   private parseWorkflowDef(): WorkflowDef {
     const name = this.parseString();
-    this.skip();
-    let params: string[] = [];
-    if (this.peek() === '(') params = this.parseDestructureParams();
     const body = this.parseBlock();
-    return { type: 'WorkflowDef', name, params, body };
+
+    let event = '';
+    let params: string[] = [];
+    const filteredBody: Stmt[] = [];
+
+    for (const stmt of body) {
+      if (stmt.type === 'On') {
+        event = stmt.event;
+        params = stmt.params;
+      } else {
+        filteredBody.push(stmt);
+      }
+    }
+
+    return { type: 'WorkflowDef', name, event, params, body: filteredBody };
   }
 
   parseProgram(): FlowProgram {

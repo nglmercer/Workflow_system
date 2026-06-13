@@ -173,12 +173,26 @@ fn parse_foreach(pair: pest::iterators::Pair<Rule>) -> Stmt {
 }
 
 fn parse_on(pair: pest::iterators::Pair<Rule>) -> Stmt {
-    Stmt::On(
-        pair.into_inner()
-            .next()
-            .map(|p| p.as_str().to_string())
-            .unwrap_or_default(),
-    )
+    let mut event = String::new();
+    let mut params = Vec::new();
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::IDENT => {
+                event = inner.as_str().to_string();
+            }
+            Rule::destructure_params => {
+                for param_pair in inner.into_inner() {
+                    if param_pair.as_rule() == Rule::destructure_list {
+                        params = parse_destructure_params(param_pair.as_str());
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Stmt::On { event, params }
 }
 
 fn parse_block(pair: pest::iterators::Pair<Rule>) -> Vec<Stmt> {
@@ -226,15 +240,16 @@ fn parse_workflow_def(pair: pest::iterators::Pair<Rule>) -> WorkflowDef {
                 let s = inner.as_str();
                 name = s[1..s.len() - 1].to_string();
             }
-            Rule::destructure_list => {
-                params = parse_destructure_params(inner.as_str());
-            }
             Rule::block => {
                 let block_stmts = parse_block(inner);
                 for stmt in block_stmts {
                     match &stmt {
-                        Stmt::On(evt) => {
+                        Stmt::On {
+                            event: evt,
+                            params: p,
+                        } => {
                             event = evt.clone();
+                            params = p.clone();
                         }
                         _ => {
                             body.push(stmt);
@@ -242,14 +257,7 @@ fn parse_workflow_def(pair: pest::iterators::Pair<Rule>) -> WorkflowDef {
                     }
                 }
             }
-            _ => {
-                let text = inner.as_str().trim();
-                if text.starts_with("({")
-                    || (text.contains(',') && !text.contains('"') && !text.contains('{'))
-                {
-                    params = parse_destructure_params(text);
-                }
-            }
+            _ => {}
         }
     }
 
@@ -574,7 +582,10 @@ mod tests {
         let stmts = FlowParser::parse_program(code).unwrap();
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
-            Stmt::On(evt) => assert_eq!(evt, "TEST_EVENT"),
+            Stmt::On { event, params } => {
+                assert_eq!(event, "TEST_EVENT");
+                assert!(params.is_empty());
+            }
             _ => panic!("Expected On"),
         }
     }
@@ -605,21 +616,24 @@ mod tests {
 
     #[test]
     fn test_parse_workflow_with_destructure() {
-        let code = r#"workflow "Nested Loops" ({users,meta}) {
-  on NESTED_DATA
+        let code = r#"workflow "Nested Loops" {
+  on NESTED_DATA ({users, meta})
   log("Users: " + users.length + ", Meta: " + meta.length)
 }"#;
         let program = FlowParser::parse_flow_program(code).unwrap();
         assert_eq!(program.workflows.len(), 1);
         assert_eq!(program.workflows[0].name, "Nested Loops");
         assert_eq!(program.workflows[0].event, "NESTED_DATA");
-        assert_eq!(program.workflows[0].params, vec!["users", "meta"]);
+        assert_eq!(
+            program.workflows[0].params,
+            vec!["users".to_string(), "meta".to_string()]
+        );
     }
 
     #[test]
     fn test_parse_nested_foreach() {
-        let code = r#"workflow "Nested Loops" ({users,meta}) {
-  on NESTED_DATA
+        let code = r#"workflow "Nested Loops" {
+  on NESTED_DATA ({users, meta})
   foreach (user in users) {
     log("User: " + user.name)
     foreach (order in user.orders) {

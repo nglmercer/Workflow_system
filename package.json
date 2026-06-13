@@ -5,6 +5,11 @@
   "scripts": {
     "dev": "bun run www/server.ts",
     "playground": "bun run www/server.ts playground",
-    "serve": "bun run www/server.ts"
+    "serve": "bun run www/server.ts",
+    "build": "bun build www/playground.ts --outdir dist --target browser --format esm",
+    "typecheck": "bun x tsc --noEmit"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.14"
   }
 }

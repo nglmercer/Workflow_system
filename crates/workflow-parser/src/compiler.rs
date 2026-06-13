@@ -225,7 +225,7 @@ impl FlowCompiler {
                         repeat: None,
                     });
                 }
-                Stmt::On(_) => {}
+                Stmt::On { .. } => {}
             }
         }
 

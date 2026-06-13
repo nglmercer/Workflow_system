@@ -19,6 +19,7 @@ export interface FnDef {
 export interface WorkflowDef {
   type: 'WorkflowDef';
   name: string;
+  event: string;
   params: string[];
   body: Stmt[];
 }
@@ -28,7 +29,7 @@ export type Stmt =
   | { type: 'If'; condition: Expr; thenBody: Stmt[]; elseBody: Stmt[] | null }
   | { type: 'Log'; expr: Expr }
   | { type: 'Foreach'; itemVar: string; iterable: Expr; body: Stmt[] }
-  | { type: 'On'; event: string }
+  | { type: 'On'; event: string; params: string[] }
   | { type: 'Return'; value: Expr }
   | { type: 'Expr'; expr: Expr };
 

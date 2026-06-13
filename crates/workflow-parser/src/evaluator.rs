@@ -206,7 +206,7 @@ impl FlowEvaluator {
                 }
                 Ok(false)
             }
-            Stmt::On(_) => {
+            Stmt::On { .. } => {
                 // On is handled at workflow level, skip during body execution
                 Ok(false)
             }

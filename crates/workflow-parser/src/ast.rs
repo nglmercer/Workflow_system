@@ -54,7 +54,10 @@ pub enum Stmt {
         iterable: Expr,
         body: Vec<Stmt>,
     },
-    On(String),
+    On {
+        event: String,
+        params: Vec<String>,
+    },
 }
 
 /// Expression types

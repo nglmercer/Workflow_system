@@ -51,8 +51,8 @@ workflow "Complex Conditions" {
   }
 }
 
-workflow "Nested Loops" ({users,meta}) {
-  on NESTED_DATA
+workflow "Nested Loops" {
+  on NESTED_DATA ({users, meta})
   //data.users and data.meta
   log("Users: " + users.length + ", Meta: " + meta.length)
   foreach (user in users) {

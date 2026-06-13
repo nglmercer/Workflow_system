@@ -77,7 +77,24 @@ mod parser_tests {
         let stmts = FlowParser::parse_program(code).unwrap();
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
-            Stmt::On(evt) => assert_eq!(evt, "TEST_EVENT"),
+            Stmt::On { event, params } => {
+                assert_eq!(event, "TEST_EVENT");
+                assert!(params.is_empty());
+            }
+            _ => panic!("Expected On"),
+        }
+    }
+
+    #[test]
+    fn test_parse_on_with_params() {
+        let code = "on TEST_EVENT ({users, meta})";
+        let stmts = FlowParser::parse_program(code).unwrap();
+        assert_eq!(stmts.len(), 1);
+        match &stmts[0] {
+            Stmt::On { event, params } => {
+                assert_eq!(event, "TEST_EVENT");
+                assert_eq!(params, &vec!["users".to_string(), "meta".to_string()]);
+            }
             _ => panic!("Expected On"),
         }
     }
@@ -103,17 +120,20 @@ mod parser_tests {
 
     #[test]
     fn test_parse_workflow_with_destructure() {
-        let code = "workflow \"Nested Loops\" ({users,meta}) {\n  on NESTED_DATA\n  log(\"Users: \" + users.length + \", Meta: \" + meta.length)\n}";
+        let code = "workflow \"Nested Loops\" {\n  on NESTED_DATA ({users, meta})\n  log(\"Users: \" + users.length + \", Meta: \" + meta.length)\n}";
         let program = FlowParser::parse_flow_program(code).unwrap();
         assert_eq!(program.workflows.len(), 1);
         assert_eq!(program.workflows[0].name, "Nested Loops");
         assert_eq!(program.workflows[0].event, "NESTED_DATA");
-        assert_eq!(program.workflows[0].params, vec!["users", "meta"]);
+        assert_eq!(
+            program.workflows[0].params,
+            vec!["users".to_string(), "meta".to_string()]
+        );
     }
 
     #[test]
     fn test_parse_nested_foreach() {
-        let code = "workflow \"Nested Loops\" ({users,meta}) {\n  on NESTED_DATA\n  foreach (user in users) {\n    log(\"User: \" + user.name)\n    foreach (order in user.orders) {\n      log(\"  Order: \" + order.id)\n      if (order.total > 100) {\n        log(\"    High value order\")\n      }\n    }\n  }\n}";
+        let code = "workflow \"Nested Loops\" {\n  on NESTED_DATA ({users, meta})\n  foreach (user in users) {\n    log(\"User: \" + user.name)\n    foreach (order in user.orders) {\n      log(\"  Order: \" + order.id)\n      if (order.total > 100) {\n        log(\"    High value order\")\n      }\n    }\n  }\n}";
         let program = FlowParser::parse_flow_program(code).unwrap();
         assert_eq!(program.workflows.len(), 1);
         assert_eq!(program.workflows[0].body.len(), 1);
@@ -137,7 +157,7 @@ mod parser_tests {
 
     #[test]
     fn test_compile_with_params() {
-        let code = "workflow \"Nested Loops\" ({users,meta}) {\n  on NESTED_DATA\n  log(\"Users: \" + users.length)\n}";
+        let code = "workflow \"Nested Loops\" {\n  on NESTED_DATA ({users, meta})\n  log(\"Users: \" + users.length)\n}";
         let program = FlowParser::parse_flow_program(code).unwrap();
         let rules = FlowCompiler::compile(&program).unwrap();
         assert_eq!(rules.len(), 1);
@@ -146,20 +166,23 @@ mod parser_tests {
 
     #[test]
     fn test_parse_full_nested_example() {
-        let code = "fn formatCurrency(amount, currency) {\n  return currency + \" \" + amount\n}\n\nworkflow \"Nested Loops\" ({users,meta}) {\n  on NESTED_DATA\n  log(\"Users: \" + users.length + \", Meta: \" + meta.length)\n  foreach (user in users) {\n    log(\"User: \" + user.name)\n    foreach (order in user.orders) {\n      log(\"  Order: \" + order.id)\n      if (order.total > 100) {\n        log(\"    High value order\")\n      }\n    }\n  }\n}";
+        let code = "fn formatCurrency(amount, currency) {\n  return currency + \" \" + amount\n}\n\nworkflow \"Nested Loops\" {\n  on NESTED_DATA ({users, meta})\n  log(\"Users: \" + users.length + \", Meta: \" + meta.length)\n  foreach (user in users) {\n    log(\"User: \" + user.name)\n    foreach (order in user.orders) {\n      log(\"  Order: \" + order.id)\n      if (order.total > 100) {\n        log(\"    High value order\")\n      }\n    }\n  }\n}";
         let program = FlowParser::parse_flow_program(code).unwrap();
         assert_eq!(program.functions.len(), 1);
         assert_eq!(program.functions[0].name, "formatCurrency");
         assert_eq!(program.workflows.len(), 1);
         assert_eq!(program.workflows[0].name, "Nested Loops");
-        assert_eq!(program.workflows[0].params, vec!["users", "meta"]);
+        assert_eq!(
+            program.workflows[0].params,
+            vec!["users".to_string(), "meta".to_string()]
+        );
         assert_eq!(program.workflows[0].body.len(), 2);
     }
 
     #[test]
     fn test_evaluate_with_destructure() {
         let code =
-            "workflow \"Test\" ({users}) {\n  on TEST_EVENT\n  log(\"Count: \" + users.length)\n}";
+            "workflow \"Test\" {\n  on TEST_EVENT ({users})\n  log(\"Count: \" + users.length)\n}";
         let program = FlowParser::parse_flow_program(code).unwrap();
         let mut evaluator = FlowEvaluator::new();
         evaluator.load_program(&program);
@@ -186,7 +209,7 @@ mod parser_tests {
 
     #[test]
     fn test_evaluate_nested_foreach() {
-        let code = "workflow \"Test\" ({users}) {\n  on TEST_EVENT\n  foreach (user in users) {\n    log(\"User: \" + user.name)\n  }\n}";
+        let code = "workflow \"Test\" {\n  on TEST_EVENT ({users})\n  foreach (user in users) {\n    log(\"User: \" + user.name)\n  }\n}";
         let program = FlowParser::parse_flow_program(code).unwrap();
         let mut evaluator = FlowEvaluator::new();
         evaluator.load_program(&program);

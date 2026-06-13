@@ -32,7 +32,7 @@ block = { "{" ~ stmt* ~ "}" }
 if_stmt = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ block)? }
 log_stmt = { "log" ~ "(" ~ expr ~ ")" }
 foreach_stmt = { "foreach" ~ "(" ~ IDENT ~ "in" ~ expr ~ ")" ~ block }
-on_stmt = { "on" ~ IDENT }
+on_stmt = { "on" ~ IDENT ~ destructure_params? }
 return_stmt = { "return" ~ expr? }
 expr_stmt = { IDENT ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
 
@@ -45,7 +45,7 @@ destructure_params = { "({" ~ destructure_list ~ "})" }
 fn_def = { "fn" ~ IDENT ~ "(" ~ (IDENT ~ ("," ~ IDENT)*)? ~ ")" ~ block }
 
 // Workflow definition
-workflow_def = { "workflow" ~ STRING ~ destructure_params? ~ block }
+workflow_def = { "workflow" ~ STRING ~ block }
 
 // Top level
 program = { (fn_def | workflow_def | stmt)* }
