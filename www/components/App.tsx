@@ -44,6 +44,7 @@ export function App() {
 
   useEffect(() => {
     initWasm().then(setWasmLoaded);
+    highlightCode(code);
   }, []);
 
   const addLog = useCallback((message: string, type: LogEntry['type'] = 'info') => {

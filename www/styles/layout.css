@@ -1,8 +1,9 @@
 .main {
   display: flex;
-  flex: 1;
+  flex: 1 1 0%;
   overflow: hidden;
   min-height: 0;
+  min-width: 0;
 }
 
 /* Desktop: side by side */
@@ -13,11 +14,15 @@
 
   .editor-panel {
     border-right: 1px solid var(--border);
-    flex: 1;
+    flex: 1 1 0%;
+    min-width: 0;
+    min-height: 0;
   }
 
   .output-panel {
-    flex: 1;
+    flex: 1 1 0%;
+    min-width: 0;
+    min-height: 0;
   }
 }
 
@@ -28,13 +33,13 @@
   }
 
   .editor-panel {
-    flex: 1;
+    flex: 1 1 0%;
     border-bottom: 1px solid var(--border);
-    min-height: 200px;
+    min-height: 0;
   }
 
   .output-panel {
-    flex: 1;
-    min-height: 200px;
+    flex: 1 1 0%;
+    min-height: 0;
   }
 }
