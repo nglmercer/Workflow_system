@@ -7,7 +7,7 @@ export default defineConfig({
       '@src': resolve(__dirname, 'src'),
       '@www': resolve(__dirname, 'www'),
     },
-    extensions: ['.ts', '.js', '.json', '.wasm'],
+    extensions: ['.ts', '.tsx', '.js', '.jsx', '.json', '.wasm'],
   },
   root: 'www',
   server: {

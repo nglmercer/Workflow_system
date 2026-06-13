@@ -4,6 +4,8 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "types": ["bun-types"],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -16,9 +18,11 @@
     "rootDir": ".",
     "paths": {
       "@src/*": ["./src/*"],
-      "@www/*": ["./www/*"]
+      "@www/*": ["./www/*"],
+      "react": ["./node_modules/preact/compat"],
+      "react-dom": ["./node_modules/preact/compat"]
     }
   },
-  "include": ["src/**/*.ts", "www/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "www/**/*.ts", "www/**/*.tsx"],
   "exclude": ["node_modules", "dist", "target"]
 }

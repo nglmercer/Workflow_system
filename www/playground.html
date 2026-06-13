@@ -13,6 +13,7 @@
             --purple: #bc8cff; --orange: #f0883e;
         }
         body { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+        #app { display: flex; flex-direction: column; height: 100vh; }
 
         header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
         header h1 { font-size: 16px; font-weight: 600; color: var(--accent); }
@@ -97,55 +98,7 @@
     </style>
 </head>
 <body>
-    <header>
-        <h1>.flow Playground</h1>
-        <span class="badge">v0.1</span>
-        <div class="toolbar">
-            <button class="btn primary" id="btn-parse" title="Parse .flow code">Parse</button>
-            <button class="btn primary" id="btn-run" title="Execute workflow">Run</button>
-            <button class="btn" id="btn-clear">Clear</button>
-        </div>
-    </header>
-
-    <div class="examples" id="examples"></div>
-
-    <div class="main">
-        <div class="editor-panel">
-            <div class="panel-header">
-                <span class="dot green"></span>
-                <span>.flow</span>
-            </div>
-            <div class="editor-wrap">
-                <pre id="highlight"></pre>
-                <textarea id="editor" spellcheck="false" placeholder="Write your .flow code here..."></textarea>
-            </div>
-        </div>
-
-        <div class="output-panel">
-            <div class="tabs">
-                <div class="tab active" data-tab="output">Output</div>
-                <div class="tab" data-tab="ast">AST</div>
-                <div class="tab" data-tab="events">Events</div>
-            </div>
-            <div class="tab-content" id="tab-output">
-                <div id="output"></div>
-            </div>
-            <div class="tab-content" id="tab-ast" style="display:none">
-                <pre id="astOutput"></pre>
-            </div>
-            <div class="tab-content" id="tab-events" style="display:none">
-                <div id="eventsOutput">
-                    <div style="color:var(--muted);">No events processed yet.</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="status-bar">
-        <span id="statusText">Ready</span>
-        <span id="cursorPos">Ln 1, Col 1</span>
-    </div>
-
-    <script type="module" src="./playground.ts"></script>
+    <div id="app"></div>
+    <script type="module" src="./index.tsx"></script>
 </body>
 </html>
