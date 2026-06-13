@@ -3,9 +3,17 @@ use serde::{Deserialize, Serialize};
 /// Top-level AST node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlowProgram {
+    pub imports: Vec<ImportStmt>,
     pub globals: Vec<GlobalVar>,
     pub functions: Vec<FunctionDef>,
     pub workflows: Vec<WorkflowDef>,
+}
+
+/// Import statement
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImportStmt {
+    pub name: String,
+    pub path: String,
 }
 
 /// Global variable declaration

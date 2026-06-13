@@ -79,6 +79,20 @@
         .log-entry.error .msg { color: var(--red); }
         .log-entry.warn .msg { color: var(--yellow); }
 
+        .autocomplete-popup {
+            position: absolute; z-index: 100; background: var(--surface);
+            border: 1px solid var(--border); border-radius: 6px;
+            max-height: 200px; overflow-y: auto; min-width: 150px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        .autocomplete-item {
+            padding: 4px 8px; cursor: pointer; font-size: 12px;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        }
+        .autocomplete-item:hover, .autocomplete-item.selected {
+            background: var(--accent); color: var(--bg);
+        }
+
         .status-bar { background: var(--surface); border-top: 1px solid var(--border); padding: 4px 16px; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
     </style>
 </head>
@@ -132,6 +146,6 @@
         <span id="cursorPos">Ln 1, Col 1</span>
     </div>
 
-    <script type="module" src="/playground.ts"></script>
+    <script type="module" src="./playground.ts"></script>
 </body>
 </html>

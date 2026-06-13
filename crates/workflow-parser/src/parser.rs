@@ -28,6 +28,7 @@ impl FlowParser {
             FlowParser::parse(Rule::program, input).map_err(|e| format!("Parse error: {}", e))?;
 
         let mut program = FlowProgram {
+            imports: Vec::new(),
             globals: Vec::new(),
             functions: Vec::new(),
             workflows: Vec::new(),
@@ -36,6 +37,9 @@ impl FlowParser {
         for pair in pairs {
             for inner in pair.into_inner() {
                 match inner.as_rule() {
+                    Rule::import_stmt => {
+                        program.imports.push(parse_import(inner));
+                    }
                     Rule::fn_def => {
                         program.functions.push(parse_fn_def(inner));
                     }
@@ -198,6 +202,26 @@ fn parse_block(pair: pest::iterators::Pair<Rule>) -> Vec<Stmt> {
         }
     }
     stmts
+}
+
+fn parse_import(pair: pest::iterators::Pair<Rule>) -> ImportStmt {
+    let mut name = String::new();
+    let mut path = String::new();
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::IDENT => {
+                name = inner.as_str().to_string();
+            }
+            Rule::STRING => {
+                let s = inner.as_str();
+                path = s[1..s.len() - 1].to_string();
+            }
+            _ => {}
+        }
+    }
+
+    ImportStmt { name, path }
 }
 
 fn parse_fn_def(pair: pest::iterators::Pair<Rule>) -> FunctionDef {

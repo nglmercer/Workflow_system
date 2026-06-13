@@ -44,8 +44,11 @@ destructure_params = { "({" ~ destructure_list ~ "})" }
 // Function definition
 fn_def = { "fn" ~ IDENT ~ "(" ~ (IDENT ~ ("," ~ IDENT)*)? ~ ")" ~ block }
 
+// Import statement
+import_stmt = { "import" ~ IDENT ~ "from" ~ STRING }
+
 // Workflow definition
 workflow_def = { "workflow" ~ STRING ~ block }
 
 // Top level
-program = { (fn_def | workflow_def | stmt)* }
+program = { (import_stmt | fn_def | workflow_def | stmt)* }

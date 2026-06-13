@@ -395,8 +395,29 @@ impl FlowEvaluator {
                 }
             }
             _ => {
-                if let Some(_func) = self.functions.get(name) {
-                    Value::Null
+                if let Some(func) = self.functions.get(name).cloned() {
+                    let mut local_vars = HashMap::new();
+                    for (i, param) in func.params.iter().enumerate() {
+                        let val = args.get(i).cloned().unwrap_or(Value::Null);
+                        local_vars.insert(param.clone(), val);
+                    }
+                    let mut result = Value::Null;
+                    for stmt in &func.body {
+                        match stmt {
+                            Stmt::Return { value } => {
+                                if let Some(expr) = value {
+                                    result = self.eval_expr(expr, &local_vars);
+                                }
+                                break;
+                            }
+                            _ => {
+                                if self.exec_stmt(stmt, &mut local_vars).is_err() {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    result
                 } else {
                     Value::Null
                 }

@@ -76,7 +76,25 @@ export class FlowEvaluator {
       }
       case 'to_string': return String(args[0] ?? '');
       case 'to_number': return Number(args[0]) || 0;
-      default: return null;
+      default: {
+        const fn = this.globals[name];
+        if (fn) {
+          const localVars: Vars = {};
+          for (let i = 0; i < fn.params.length; i++) {
+            localVars[fn.params[i]] = args[i] ?? null;
+          }
+          let result: unknown = null;
+          for (const stmt of fn.body) {
+            if (stmt.type === 'Return') {
+              result = this.evalExpr(stmt.value, localVars);
+              break;
+            }
+            this.execStmt(stmt, localVars);
+          }
+          return result;
+        }
+        return null;
+      }
     }
   }
 

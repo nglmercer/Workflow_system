@@ -1,8 +1,9 @@
 use wasm_bindgen::prelude::*;
 
 use workflow_actions::builtin_handlers;
-use workflow_domain::RuleEngineConfig;
+use workflow_domain::{RuleEngineConfig, TriggerContext};
 use workflow_engine::RuleEngine;
+use workflow_parser::{FlowEvaluator, FlowParser};
 use workflow_serialize::RuleExporter;
 
 #[wasm_bindgen]
@@ -138,6 +139,91 @@ pub fn validate_rules(rules_json: &str) -> Result<JsValue, JsError> {
         .map_err(|e| JsError::new(&format!("Invalid rules JSON: {}", e)))?;
 
     let result = workflow_domain::TriggerValidator::validate_all(&rules);
+
+    serde_wasm_bindgen::to_value(&result)
+        .map_err(|e| JsError::new(&format!("Serialization error: {}", e)))
+}
+
+#[derive(serde::Serialize)]
+struct FlowResult {
+    workflow: String,
+    logs: Vec<String>,
+    success: bool,
+    error: Option<String>,
+}
+
+#[wasm_bindgen(js_name = executeFlow)]
+pub fn execute_flow(source: &str, event_data_json: &str) -> Result<JsValue, JsError> {
+    let program = FlowParser::parse_flow_program(source)
+        .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
+
+    let event_data: serde_json::Value = serde_json::from_str(event_data_json)
+        .map_err(|e| JsError::new(&format!("Invalid event data JSON: {}", e)))?;
+
+    let mut evaluator = FlowEvaluator::new();
+    evaluator.load_program(&program);
+
+    let mut results = Vec::new();
+
+    for workflow in &program.workflows {
+        let context = TriggerContext::new(&workflow.event, event_data.clone());
+
+        match evaluator.execute_workflow(workflow, &context) {
+            Ok(logs) => {
+                results.push(FlowResult {
+                    workflow: workflow.name.clone(),
+                    logs,
+                    success: true,
+                    error: None,
+                });
+            }
+            Err(e) => {
+                results.push(FlowResult {
+                    workflow: workflow.name.clone(),
+                    logs: Vec::new(),
+                    success: false,
+                    error: Some(e.to_string()),
+                });
+            }
+        }
+    }
+
+    serde_wasm_bindgen::to_value(&results)
+        .map_err(|e| JsError::new(&format!("Serialization error: {}", e)))
+}
+
+#[derive(serde::Serialize)]
+struct FlowParseResult {
+    functions: Vec<String>,
+    workflows: Vec<WorkflowInfo>,
+    imports: Vec<String>,
+}
+
+#[derive(serde::Serialize)]
+struct WorkflowInfo {
+    name: String,
+    event: String,
+    params: Vec<String>,
+}
+
+#[wasm_bindgen(js_name = parseFlow)]
+pub fn parse_flow(source: &str) -> Result<JsValue, JsError> {
+    let program = FlowParser::parse_flow_program(source)
+        .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
+
+    let result = FlowParseResult {
+        functions: program.functions.iter().map(|f| f.name.clone()).collect(),
+        workflows: program
+            .workflows
+            .iter()
+            .map(|w| WorkflowInfo {
+                name: w.name.clone(),
+                event: w.event.clone(),
+                params: w.params.clone(),
+            })
+            .collect(),
+        imports: program.imports.iter().map(|i| i.name.clone()).collect(),
+    };
 
     serde_wasm_bindgen::to_value(&result)
         .map_err(|e| JsError::new(&format!("Serialization error: {}", e)))

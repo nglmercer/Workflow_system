@@ -1706,6 +1706,7 @@ dependencies = [
  "workflow-actions",
  "workflow-domain",
  "workflow-engine",
+ "workflow-parser",
  "workflow-serialize",
 ]
 

@@ -17,7 +17,7 @@ export interface Token {
 
 const KEYWORDS = new Set([
   'workflow', 'fn', 'var', 'if', 'else', 'foreach', 'in', 'on', 'return',
-  'true', 'false', 'null',
+  'true', 'false', 'null', 'import', 'from',
 ]);
 
 const BUILTIN_FUNCS = new Set([

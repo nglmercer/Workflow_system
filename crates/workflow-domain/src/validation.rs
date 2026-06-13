@@ -212,7 +212,10 @@ mod tests {
         };
         let result = TriggerValidator::validate(&rule);
         assert!(result.valid);
-        assert!(result.issues.iter().any(|i| i.severity == IssueSeverity::Warning));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.severity == IssueSeverity::Warning));
     }
 
     #[test]
@@ -233,7 +236,10 @@ mod tests {
         ];
         let result = TriggerValidator::validate_all(&rules);
         assert!(!result.valid);
-        assert!(result.issues.iter().any(|i| i.message.contains("Duplicate")));
+        assert!(result
+            .issues
+            .iter()
+            .any(|i| i.message.contains("Duplicate")));
     }
 
     #[test]

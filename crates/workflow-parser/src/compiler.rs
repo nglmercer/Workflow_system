@@ -314,6 +314,7 @@ mod tests {
     #[test]
     fn test_compile_simple_workflow() {
         let program = FlowProgram {
+            imports: vec![],
             globals: vec![],
             functions: vec![],
             workflows: vec![WorkflowDef {
@@ -332,6 +333,7 @@ mod tests {
     #[test]
     fn test_compile_workflow_with_params() {
         let program = FlowProgram {
+            imports: vec![],
             globals: vec![],
             functions: vec![],
             workflows: vec![WorkflowDef {
@@ -364,6 +366,7 @@ mod tests {
     #[test]
     fn test_compile_foreach() {
         let program = FlowProgram {
+            imports: vec![],
             globals: vec![],
             functions: vec![],
             workflows: vec![WorkflowDef {

@@ -1,4 +1,4 @@
-import type { FlowProgram, FnDef, WorkflowDef, Stmt, Expr } from './types.ts';
+import type { FlowProgram, FnDef, WorkflowDef, Stmt, Expr, ImportStmt } from './types.ts';
 
 export class Parser {
   private input: string;
@@ -315,11 +315,13 @@ export class Parser {
   }
 
   parseProgram(): FlowProgram {
-    const program: FlowProgram = { functions: [], workflows: [], stmts: [] };
+    const program: FlowProgram = { imports: [], functions: [], workflows: [], stmts: [] };
     while (!this.eof()) {
       this.skip();
       if (this.eof()) break;
-      if (this.matchKeyword('fn')) {
+      if (this.matchKeyword('import')) {
+        program.imports.push(this.parseImport());
+      } else if (this.matchKeyword('fn')) {
         program.functions.push(this.parseFnDef());
       } else if (this.matchKeyword('workflow')) {
         program.workflows.push(this.parseWorkflowDef());
@@ -328,5 +330,12 @@ export class Parser {
       }
     }
     return program;
+  }
+
+  private parseImport(): ImportStmt {
+    const name = this.parseIdent();
+    this.matchKeyword('from');
+    const path = this.parseString();
+    return { type: 'Import', name, path };
   }
 }

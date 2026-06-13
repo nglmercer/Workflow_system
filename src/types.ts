@@ -4,9 +4,16 @@ export interface ASTNode {
 }
 
 export interface FlowProgram {
+  imports: ImportStmt[];
   functions: FnDef[];
   workflows: WorkflowDef[];
   stmts: Stmt[];
+}
+
+export interface ImportStmt {
+  type: 'Import';
+  name: string;
+  path: string;
 }
 
 export interface FnDef {
