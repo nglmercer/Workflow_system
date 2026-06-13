@@ -1,0 +1,10 @@
+{
+  "name": "workflow-system",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun run www/server.ts",
+    "playground": "bun run www/server.ts playground",
+    "serve": "bun run www/server.ts"
+  }
+}

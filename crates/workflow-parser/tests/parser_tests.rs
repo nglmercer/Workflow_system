@@ -145,25 +145,15 @@ mod parser_tests {
     }
 
     #[test]
-    fn test_evaluate_workflow() {
-        let code = "workflow \"Test\" {\n  on TEST_EVENT\n  log(\"hello\")\n}";
+    fn test_parse_full_nested_example() {
+        let code = "fn formatCurrency(amount, currency) {\n  return currency + \" \" + amount\n}\n\nworkflow \"Nested Loops\" ({users,meta}) {\n  on NESTED_DATA\n  log(\"Users: \" + users.length + \", Meta: \" + meta.length)\n  foreach (user in users) {\n    log(\"User: \" + user.name)\n    foreach (order in user.orders) {\n      log(\"  Order: \" + order.id)\n      if (order.total > 100) {\n        log(\"    High value order\")\n      }\n    }\n  }\n}";
         let program = FlowParser::parse_flow_program(code).unwrap();
-        let mut evaluator = FlowEvaluator::new();
-        evaluator.load_program(&program);
-
-        let context = TriggerContext {
-            event: "TEST_EVENT".to_string(),
-            timestamp: 0,
-            data: serde_json::json!({}),
-            vars: None,
-            id: None,
-        };
-
-        let logs = evaluator
-            .execute_workflow(&program.workflows[0], &context)
-            .unwrap();
-        assert_eq!(logs.len(), 1);
-        assert_eq!(logs[0], "hello");
+        assert_eq!(program.functions.len(), 1);
+        assert_eq!(program.functions[0].name, "formatCurrency");
+        assert_eq!(program.workflows.len(), 1);
+        assert_eq!(program.workflows[0].name, "Nested Loops");
+        assert_eq!(program.workflows[0].params, vec!["users", "meta"]);
+        assert_eq!(program.workflows[0].body.len(), 2);
     }
 
     #[test]

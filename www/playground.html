@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>.flow Playground</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0d1117; --surface: #161b22; --border: #30363d;
+            --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+            --green: #3fb950; --red: #f85149; --yellow: #d29922;
+            --purple: #bc8cff; --orange: #f0883e;
+        }
+        body { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); height: 100vh; display: flex; flex-direction: column; }
+
+        header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 20px; display: flex; align-items: center; gap: 16px; }
+        header h1 { font-size: 16px; font-weight: 600; color: var(--accent); }
+        header .badge { font-size: 11px; background: var(--accent); color: var(--bg); padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+
+        .toolbar { display: flex; gap: 8px; margin-left: auto; }
+        .btn { background: var(--border); color: var(--text); border: 1px solid var(--border); padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 12px; font-family: inherit; transition: all 0.15s; }
+        .btn:hover { background: #484f58; }
+        .btn.primary { background: #238636; border-color: #2ea043; color: #fff; }
+        .btn.primary:hover { background: #2ea043; }
+        .btn.danger { background: #da3633; border-color: #f85149; color: #fff; }
+
+        .main { display: flex; flex: 1; overflow: hidden; }
+
+        .editor-panel { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 0; }
+        .panel-header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 16px; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+        .panel-header .dot { width: 8px; height: 8px; border-radius: 50%; }
+        .panel-header .dot.green { background: var(--green); }
+        .panel-header .dot.red { background: var(--red); }
+
+        #editor {
+            flex: 1; width: 100%; background: var(--bg); color: var(--text);
+            border: none; resize: none; padding: 16px; font-size: 13px;
+            line-height: 1.6; tab-size: 2; outline: none;
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+        }
+
+        .output-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        .tabs { display: flex; background: var(--surface); border-bottom: 1px solid var(--border); }
+        .tab { padding: 8px 16px; font-size: 12px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+        .tab:hover { color: var(--text); }
+        .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+        .tab-content { flex: 1; overflow: auto; padding: 16px; font-size: 13px; line-height: 1.6; }
+        .tab-content pre { white-space: pre-wrap; word-break: break-word; }
+
+        .examples { display: flex; gap: 6px; padding: 8px 16px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+        .example-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 3px 10px; border-radius: 12px; cursor: pointer; font-size: 11px; font-family: inherit; transition: all 0.15s; }
+        .example-btn:hover { color: var(--text); border-color: var(--accent); }
+
+        .log-entry { padding: 2px 0; }
+        .log-entry .ts { color: var(--muted); margin-right: 8px; }
+        .log-entry.info .msg { color: var(--text); }
+        .log-entry.success .msg { color: var(--green); }
+        .log-entry.error .msg { color: var(--red); }
+        .log-entry.warn .msg { color: var(--yellow); }
+
+        .ast-tree { font-size: 12px; }
+        .ast-node { padding-left: 16px; border-left: 1px solid var(--border); margin: 2px 0; }
+        .ast-key { color: var(--purple); }
+        .ast-val { color: var(--green); }
+        .ast-type { color: var(--orange); font-weight: 600; }
+
+        .status-bar { background: var(--surface); border-top: 1px solid var(--border); padding: 4px 16px; font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; }
+
+        .split-handle { width: 4px; background: var(--border); cursor: col-resize; }
+        .split-handle:hover { background: var(--accent); }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>.flow Playground</h1>
+        <span class="badge">v0.1</span>
+        <div class="toolbar">
+            <button class="btn primary" onclick="parseCode()" title="Parse .flow code">Parse</button>
+            <button class="btn primary" onclick="executeCode()" title="Execute workflow">Run</button>
+            <button class="btn" onclick="clearOutput()">Clear</button>
+        </div>
+    </header>
+
+    <div class="examples" id="examples"></div>
+
+    <div class="main">
+        <div class="editor-panel">
+            <div class="panel-header">
+                <span class="dot green"></span>
+                <span>.flow</span>
+            </div>
+            <textarea id="editor" spellcheck="false" placeholder="Write your .flow code here..."></textarea>
+        </div>
+
+        <div class="output-panel">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('output')">Output</div>
+                <div class="tab" onclick="switchTab('ast')">AST</div>
+                <div class="tab" onclick="switchTab('events')">Events</div>
+            </div>
+            <div class="tab-content" id="tab-output">
+                <div id="output"></div>
+            </div>
+            <div class="tab-content" id="tab-ast" style="display:none">
+                <pre id="astOutput"></pre>
+            </div>
+            <div class="tab-content" id="tab-events" style="display:none">
+                <div id="eventsOutput">
+                    <div style="color:var(--muted);">No events processed yet.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="status-bar">
+        <span id="statusText">Ready</span>
+        <span id="cursorPos">Ln 1, Col 1</span>
+    </div>
+
+<script>
+// ─── .flow Parser (JavaScript port of the PEG grammar) ───────────────────────
+
+class FlowParser {
+    constructor(input) {
+        this.input = input;
+        this.pos = 0;
+    }
+
+    peek() { return this.pos < this.input.length ? this.input[this.pos] : null; }
+    advance() { return this.input[this.pos++]; }
+    eof() { return this.pos >= this.input.length; }
+
+    skip() {
+        while (!this.eof()) {
+            const c = this.peek();
+            if (/\s/.test(c)) { this.pos++; continue; }
+            if (c === '/' && this.input[this.pos + 1] === '/') {
+                this.pos += 2;
+                while (!this.eof() && this.peek() !== '\n') this.pos++;
+                continue;
+            }
+            break;
+        }
+    }
+
+    at(s) {
+        this.skip();
+        return this.input.startsWith(s, this.pos);
+    }
+
+    match(s) {
+        this.skip();
+        if (this.input.startsWith(s, this.pos)) { this.pos += s.length; return true; }
+        return false;
+    }
+
+    expect(s) {
+        if (!this.match(s)) throw new Error(`Expected '${s}' near '${this.input.slice(this.pos, this.pos + 20)}'`);
+    }
+
+    matchKeyword(kw) {
+        this.skip();
+        const rest = this.input.slice(this.pos);
+        if (rest.startsWith(kw) && !/[a-zA-Z0-9_]/.test(rest[kw.length] || '')) {
+            this.pos += kw.length;
+            return true;
+        }
+        return false;
+    }
+
+    parseIdent() {
+        this.skip();
+        const start = this.pos;
+        if (this.eof() || !/[a-zA-Z_]/.test(this.peek() ?? '')) throw new Error(`Expected identifier at '${this.input.slice(this.pos, this.pos + 20)}'`);
+        while (!this.eof() && /[a-zA-Z0-9_]/.test(this.peek())) this.pos++;
+        return this.input.slice(start, this.pos);
+    }
+
+    parseString() {
+        this.skip();
+        this.expect('"');
+        let s = '';
+        while (!this.eof() && this.peek() !== '"') {
+            if (this.peek() === '\\') { this.pos++; s += this.advance(); }
+            else s += this.advance();
+        }
+        this.expect('"');
+        return s;
+    }
+
+    parseNumber() {
+        this.skip();
+        const start = this.pos;
+        if (this.peek() === '-') this.pos++;
+        while (!this.eof() && /[0-9]/.test(this.peek())) this.pos++;
+        if (!this.eof() && this.peek() === '.') {
+            this.pos++;
+            while (!this.eof() && /[0-9]/.test(this.peek())) this.pos++;
+        }
+        return parseFloat(this.input.slice(start, this.pos));
+    }
+
+    parseExpr() { return this.parseOr(); }
+
+    parseOr() {
+        let left = this.parseAnd();
+        while (this.match('||')) {
+            left = { type: 'BinaryOp', op: '||', left, right: this.parseAnd() };
+        }
+        return left;
+    }
+
+    parseAnd() {
+        let left = this.parseComparison();
+        while (this.match('&&')) {
+            left = { type: 'BinaryOp', op: '&&', left, right: this.parseComparison() };
+        }
+        return left;
+    }
+
+    parseComparison() {
+        let left = this.parseAdditive();
+        const ops = ['==', '!=', '<=', '>=', '<', '>'];
+        this.skip();
+        for (const op of ops) {
+            if (this.input.startsWith(op, this.pos)) {
+                this.pos += op.length;
+                left = { type: 'BinaryOp', op, left, right: this.parseAdditive() };
+                return left;
+            }
+        }
+        return left;
+    }
+
+    parseAdditive() {
+        let left = this.parseMultiplicative();
+        while (true) {
+            this.skip();
+            if (this.peek() === '+') { this.pos++; left = { type: 'BinaryOp', op: '+', left, right: this.parseMultiplicative() }; }
+            else if (this.peek() === '-') { this.pos++; left = { type: 'BinaryOp', op: '-', left, right: this.parseMultiplicative() }; }
+            else break;
+        }
+        return left;
+    }
+
+    parseMultiplicative() {
+        let left = this.parseUnary();
+        while (true) {
+            this.skip();
+            if (this.peek() === '*') { this.pos++; left = { type: 'BinaryOp', op: '*', left, right: this.parseUnary() }; }
+            else if (this.peek() === '/') { this.pos++; left = { type: 'BinaryOp', op: '/', left, right: this.parseUnary() }; }
+            else break;
+        }
+        return left;
+    }
+
+    parseUnary() {
+        this.skip();
+        if (this.peek() === '!') { this.pos++; return { type: 'UnaryOp', op: '!', operand: this.parseUnary() }; }
+        if (this.peek() === '-') { this.pos++; return { type: 'UnaryOp', op: '-', operand: this.parseUnary() }; }
+        return this.parsePrimary();
+    }
+
+    parsePrimary() {
+        this.skip();
+        if (this.peek() === '"') return { type: 'String', value: this.parseString() };
+        if ((/[0-9]/.test(this.peek() ?? '')) || (this.peek() === '-' && /[0-9]/.test(this.input[this.pos + 1]))) return { type: 'Number', value: this.parseNumber() };
+        if (this.peek() === '(') { this.pos++; const e = this.parseExpr(); this.expect(')'); return e; }
+        if (this.peek() === '[') return this.parseArray();
+        const ident = this.parseIdent();
+        if (ident === 'true') return { type: 'Bool', value: true };
+        if (ident === 'false') return { type: 'Bool', value: false };
+        if (ident === 'null') return { type: 'Null' };
+        this.skip();
+        if (this.peek() === '(') {
+            this.pos++;
+            const args = [];
+            this.skip();
+            if (this.peek() !== ')') {
+                args.push(this.parseExpr());
+                while (this.match(',')) args.push(this.parseExpr());
+            }
+            this.expect(')');
+            return { type: 'Call', name: ident, args };
+        }
+        let obj = { type: 'Var', name: ident };
+        while (this.at('.')) {
+            this.pos++;
+            const prop = this.parseIdent();
+            obj = { type: 'Member', object: obj, property: prop };
+        }
+        return obj;
+    }
+
+    parseArray() {
+        this.expect('[');
+        const elems = [];
+        this.skip();
+        if (this.peek() !== ']') {
+            elems.push(this.parseExpr());
+            while (this.match(',')) elems.push(this.parseExpr());
+        }
+        this.expect(']');
+        return { type: 'Array', elements: elems };
+    }
+
+    parseBlock() {
+        this.expect('{');
+        const stmts = [];
+        let lastPos = -1;
+        while (!this.at('}')) {
+            if (this.pos === lastPos) throw new Error(`Unexpected token at '${this.input.slice(this.pos, this.pos + 20)}'`);
+            lastPos = this.pos;
+            stmts.push(this.parseStmt());
+        }
+        this.expect('}');
+        return stmts;
+    }
+
+    parseStmt() {
+        this.skip();
+        if (this.matchKeyword('var')) return this.parseVarDecl();
+        if (this.matchKeyword('if')) return this.parseIf();
+        if (this.matchKeyword('log')) return this.parseLog();
+        if (this.matchKeyword('foreach')) return this.parseForeach();
+        if (this.matchKeyword('on')) return this.parseOn();
+        if (this.matchKeyword('return')) return this.parseReturn();
+        return this.parseExprStmt();
+    }
+
+    parseVarDecl() {
+        const name = this.parseIdent();
+        let value = { type: 'Null' };
+        if (this.match('=')) value = this.parseExpr();
+        return { type: 'VarDecl', name, value };
+    }
+
+    parseIf() {
+        this.expect('(');
+        const condition = this.parseExpr();
+        this.expect(')');
+        const thenBody = this.parseBlock();
+        let elseBody = null;
+        if (this.matchKeyword('else')) {
+            elseBody = this.parseBlock();
+        }
+        return { type: 'If', condition, thenBody, elseBody };
+    }
+
+    parseLog() {
+        this.expect('(');
+        const expr = this.parseExpr();
+        this.expect(')');
+        return { type: 'Log', expr };
+    }
+
+    parseForeach() {
+        this.expect('(');
+        const itemVar = this.parseIdent();
+        this.expect('in');
+        const iterable = this.parseExpr();
+        this.expect(')');
+        const body = this.parseBlock();
+        return { type: 'Foreach', itemVar, iterable, body };
+    }
+
+    parseOn() {
+        const event = this.parseIdent();
+        return { type: 'On', event };
+    }
+
+    parseReturn() {
+        let value = { type: 'Null' };
+        this.skip();
+        if (this.peek() !== '}' && !this.eof()) {
+            value = this.parseExpr();
+        }
+        return { type: 'Return', value };
+    }
+
+    parseExprStmt() {
+        const expr = this.parseExpr();
+        return { type: 'Expr', expr };
+    }
+
+    parseFnDef() {
+        const name = this.parseIdent();
+        this.expect('(');
+        const params = [];
+        this.skip();
+        if (this.peek() !== ')') {
+            params.push(this.parseIdent());
+            while (this.match(',')) params.push(this.parseIdent());
+        }
+        this.expect(')');
+        const body = this.parseBlock();
+        return { type: 'FnDef', name, params, body };
+    }
+
+    parseDestructureParams() {
+        this.expect('(');
+        this.expect('{');
+        const params = [];
+        this.skip();
+        if (this.peek() !== '}') {
+            params.push(this.parseIdent());
+            while (this.match(',')) params.push(this.parseIdent());
+        }
+        this.expect('}');
+        this.expect(')');
+        return params;
+    }
+
+    parseWorkflowDef() {
+        const name = this.parseString();
+        this.skip();
+        let params = [];
+        if (this.peek() === '(') {
+            params = this.parseDestructureParams();
+        }
+        const body = this.parseBlock();
+        return { type: 'WorkflowDef', name, params, body };
+    }
+
+    parseProgram() {
+        const program = { functions: [], workflows: [], stmts: [] };
+        while (!this.eof()) {
+            this.skip();
+            if (this.eof()) break;
+            if (this.matchKeyword('fn')) {
+                program.functions.push(this.parseFnDef());
+            } else if (this.matchKeyword('workflow')) {
+                program.workflows.push(this.parseWorkflowDef());
+            } else {
+                program.stmts.push(this.parseStmt());
+            }
+        }
+        return program;
+    }
+}
+
+// ─── Flow Evaluator ──────────────────────────────────────────────────────────
+
+class FlowEvaluator {
+    constructor() {
+        this.globals = {};
+        this.logs = [];
+        this.events = [];
+    }
+
+    evalExpr(expr, vars) {
+        switch (expr.type) {
+            case 'String': return expr.value;
+            case 'Number': return expr.value;
+            case 'Bool': return expr.value;
+            case 'Null': return null;
+            case 'Var': return vars[expr.name] ?? this.globals[expr.name] ?? null;
+            case 'Member': {
+                const obj = this.evalExpr(expr.object, vars);
+                if (obj === null || obj === undefined) return null;
+                if (expr.property === 'length') {
+                    if (Array.isArray(obj)) return obj.length;
+                    if (typeof obj === 'string') return obj.length;
+                    if (typeof obj === 'object') return Object.keys(obj).length;
+                    return 0;
+                }
+                if (typeof obj === 'object' && obj !== null) return obj[expr.property] ?? null;
+                return null;
+            }
+            case 'BinaryOp': {
+                const l = this.evalExpr(expr.left, vars);
+                const r = this.evalExpr(expr.right, vars);
+                return this.evalBinary(expr.op, l, r);
+            }
+            case 'UnaryOp': {
+                const val = this.evalExpr(expr.operand, vars);
+                if (expr.op === '!') return !val;
+                if (expr.op === '-') return -(val || 0);
+                return null;
+            }
+            case 'Call': {
+                const args = expr.args.map(a => this.evalExpr(a, vars));
+                return this.callFn(expr.name, args);
+            }
+            case 'Array': return expr.elements.map(e => this.evalExpr(e, vars));
+            default: return null;
+        }
+    }
+
+    evalBinary(op, l, r) {
+        switch (op) {
+            case '+': return typeof l === 'string' || typeof r === 'string' ? String(l ?? '') + String(r ?? '') : (l || 0) + (r || 0);
+            case '-': return (l || 0) - (r || 0);
+            case '*': return (l || 0) * (r || 0);
+            case '/': return (r || 0) !== 0 ? (l || 0) / r : null;
+            case '%': return (l || 0) % (r || 0);
+            case '==': return l === r;
+            case '!=': return l !== r;
+            case '<': return l < r;
+            case '>': return l > r;
+            case '<=': return l <= r;
+            case '>=': return l >= r;
+            case '&&': return !!l && !!r;
+            case '||': return !!l || !!r;
+            default: return null;
+        }
+    }
+
+    callFn(name, args) {
+        switch (name) {
+            case 'log': this.logs.push(String(args[0] ?? '')); return null;
+            case 'len': {
+                const v = args[0];
+                if (Array.isArray(v)) return v.length;
+                if (typeof v === 'string') return v.length;
+                return 0;
+            }
+            case 'to_string': return String(args[0] ?? '');
+            case 'to_number': return Number(args[0]) || 0;
+            default: return null;
+        }
+    }
+
+    execStmt(stmt, vars) {
+        switch (stmt.type) {
+            case 'VarDecl':
+                vars[stmt.name] = this.evalExpr(stmt.value, vars);
+                break;
+            case 'If': {
+                const cond = this.evalExpr(stmt.condition, vars);
+                if (cond) {
+                    for (const s of stmt.thenBody) this.execStmt(s, vars);
+                } else if (stmt.elseBody) {
+                    for (const s of stmt.elseBody) this.execStmt(s, vars);
+                }
+                break;
+            }
+            case 'Log': {
+                const val = this.evalExpr(stmt.expr, vars);
+                this.logs.push(String(val ?? ''));
+                break;
+            }
+            case 'Foreach': {
+                const arr = this.evalExpr(stmt.iterable, vars);
+                if (Array.isArray(arr)) {
+                    for (const item of arr) {
+                        vars[stmt.itemVar] = item;
+                        for (const s of stmt.body) this.execStmt(s, vars);
+                    }
+                }
+                break;
+            }
+            case 'On': break;
+            case 'Return': break;
+            case 'Expr': this.evalExpr(stmt.expr, vars); break;
+            default: break;
+        }
+    }
+
+    executeWorkflow(workflow, eventData) {
+        this.logs = [];
+        const vars = { data: eventData };
+
+        // Destructure params from data
+        if (workflow.params && workflow.params.length > 0) {
+            for (const p of workflow.params) {
+                vars[p] = eventData[p] ?? null;
+            }
+        }
+
+        for (const stmt of workflow.body) {
+            this.execStmt(stmt, vars);
+        }
+
+        return this.logs;
+    }
+
+    loadProgram(program) {
+        for (const fn of program.functions) {
+            this.globals[fn.name] = fn;
+        }
+    }
+}
+
+// ─── Playground UI ───────────────────────────────────────────────────────────
+
+const EXAMPLES = [
+    {
+        name: 'Hello World',
+        code: `workflow "Hello World" {\n  on GREET\n  log("Hello, World!")\n}`
+    },
+    {
+        name: 'Nested Loops',
+        code: `workflow "Nested Loops" ({users, meta}) {\n  on NESTED_DATA\n  log("Users: " + users.length + ", Meta: " + meta.length)\n  foreach (user in users) {\n    log("User: " + user.name)\n    foreach (order in user.orders) {\n      log("  Order: " + order.id)\n      if (order.total > 100) {\n        log("    High value order")\n      }\n    }\n  }\n}`
+    },
+    {
+        name: 'If/Else',
+        code: `workflow "User Check" {\n  on USER_LOGIN\n  if (data.plan == "premium") {\n    log("Welcome back, premium user!")\n  } else {\n    log("Free tier user")\n  }\n}`
+    },
+    {
+        name: 'Functions',
+        code: `fn double(x) {\n  return x * 2\n}\n\nfn greet(name) {\n  log("Hello, " + name + "!")\n}\n\nworkflow "With Functions" {\n  on CALCULATE\n  var result = double(data.value)\n  log("Doubled: " + result)\n  greet(data.name)\n}`
+    },
+    {
+        name: 'Batch Process',
+        code: `workflow "Batch" {\n  on BATCH_START\n  var total = 0\n  foreach (item in data.items) {\n    log("Processing: " + item.name)\n    var total = total + item.amount\n  }\n  log("Total: " + total)\n}`
+    },
+    {
+        name: 'Complex Logic',
+        code: `workflow "Fraud Check" {\n  on TRANSACTION\n  if (data.amount > 1000 && data.country != "US") {\n    log("ALERT: High value international transaction")\n    log("Amount: " + data.amount)\n  } else if (data.amount > 500) {\n    log("Review: Medium value transaction")\n  } else {\n    log("OK: Normal transaction")\n  }\n}`
+    },
+    {
+        name: 'Nested Loops + JSON',
+        code: null,
+        eventData: `{\n  "users": [\n    {\n      "name": "Alice",\n      "orders": [\n        { "id": "ORD-001", "total": 250 },\n        { "id": "ORD-002", "total": 75 }\n      ]\n    },\n    {\n      "name": "Bob",\n      "orders": [\n        { "id": "ORD-003", "total": 500 }\n      ]\n    }\n  ],\n  "meta": [\n    { "key": "source", "value": "web" }\n  ]\n}`
+    }
+];
+
+const editor = document.getElementById('editor');
+const output = document.getElementById('output');
+const astOutput = document.getElementById('astOutput');
+const eventsOutput = document.getElementById('eventsOutput');
+const statusText = document.getElementById('statusText');
+const cursorPos = document.getElementById('cursorPos');
+
+let eventLog = [];
+
+// Load examples
+const examplesEl = document.getElementById('examples');
+EXAMPLES.forEach((ex, i) => {
+    const btn = document.createElement('button');
+    btn.className = 'example-btn';
+    btn.textContent = ex.name;
+    btn.onclick = () => loadExample(i);
+    examplesEl.appendChild(btn);
+});
+
+function loadExample(i) {
+    const ex = EXAMPLES[i];
+    if (ex.code) editor.value = ex.code;
+    if (ex.eventData) {
+        document.getElementById('tab-events').querySelector('pre') ||
+        (eventsOutput.innerHTML = `<pre style="color:var(--muted)">Event data loaded. Click Run to execute.</pre>`);
+        window._pendingEventData = ex.eventData;
+    }
+    clearOutput();
+}
+
+function loadDefault() {
+    editor.value = EXAMPLES[1].code; // Nested Loops
+}
+
+function parseCode() {
+    clearOutput();
+    try {
+        const code = editor.value;
+        const parser = new FlowParser(code);
+        const program = parser.parseProgram();
+        astOutput.textContent = JSON.stringify(program, null, 2);
+        log('Parse successful', 'success');
+        log(`Functions: ${program.functions.length}, Workflows: ${program.workflows.length}`, 'info');
+        for (const fn of program.functions) {
+            log(`  fn ${fn.name}(${fn.params.join(', ')})`, 'info');
+        }
+        for (const wf of program.workflows) {
+            log(`  workflow "${wf.name}" on ${wf.body.find(s => s.type === 'On')?.event ?? '?'}`, 'info');
+            if (wf.params.length > 0) {
+                log(`    params: ({${wf.params.join(', ')}})`, 'info');
+            }
+        }
+        statusText.textContent = 'Parsed OK';
+        switchTab('output');
+    } catch (e) {
+        log(`Parse error: ${e.message}`, 'error');
+        statusText.textContent = 'Parse Error';
+    }
+}
+
+function executeCode() {
+    clearOutput();
+    try {
+        const code = editor.value;
+        const parser = new FlowParser(code);
+        const program = parser.parseProgram();
+        astOutput.textContent = JSON.stringify(program, null, 2);
+
+        const evaluator = new FlowEvaluator();
+        evaluator.loadProgram(program);
+
+        let eventData = { userId: 'user123', plan: 'premium' };
+        if (window._pendingEventData) {
+            try {
+                eventData = JSON.parse(window._pendingEventData);
+            } catch (e) {}
+        } else {
+            try {
+                const edText = editor.value.match(/\/\/ event:\s*(.+)/);
+                if (edText) eventData = JSON.parse(edText[1]);
+            } catch (e) {}
+        }
+
+        log('Executing workflows...', 'info');
+        log(`Event data: ${JSON.stringify(eventData)}`, 'info');
+        log('─'.repeat(40), 'info');
+
+        for (const wf of program.workflows) {
+            log(`▶ workflow "${wf.name}"`, 'info');
+            const logs = evaluator.executeWorkflow(wf, eventData);
+            for (const l of logs) {
+                log(`  ${l}`, 'info');
+            }
+            eventLog.push({
+                time: new Date().toISOString(),
+                workflow: wf.name,
+                logs,
+                data: eventData
+            });
+        }
+
+        log('─'.repeat(40), 'info');
+        log('Execution complete', 'success');
+        statusText.textContent = 'Executed OK';
+        updateEventsPanel();
+        switchTab('output');
+    } catch (e) {
+        log(`Runtime error: ${e.message}`, 'error');
+        statusText.textContent = 'Runtime Error';
+    }
+}
+
+function log(msg, type = 'info') {
+    const el = document.createElement('div');
+    el.className = `log-entry ${type}`;
+    const ts = new Date().toLocaleTimeString();
+    el.innerHTML = `<span class="ts">${ts}</span><span class="msg">${escapeHtml(msg)}</span>`;
+    output.appendChild(el);
+    output.scrollTop = output.scrollHeight;
+}
+
+function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function clearOutput() {
+    output.innerHTML = '';
+    astOutput.textContent = '';
+}
+
+function switchTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.style.display = 'none');
+    document.querySelector(`.tab:nth-child(${name === 'output' ? 1 : name === 'ast' ? 2 : 3})`).classList.add('active');
+    document.getElementById(`tab-${name}`).style.display = '';
+}
+
+function updateEventsPanel() {
+    if (eventLog.length === 0) {
+        eventsOutput.innerHTML = '<div style="color:var(--muted)">No events processed yet.</div>';
+        return;
+    }
+    let html = '';
+    for (let i = eventLog.length - 1; i >= 0; i--) {
+        const ev = eventLog[i];
+        html += `<div style="margin-bottom:16px;border:1px solid var(--border);border-radius:6px;padding:12px;">`;
+        html += `<div style="color:var(--accent);font-weight:600;margin-bottom:4px;">${escapeHtml(ev.workflow)}</div>`;
+        html += `<div style="color:var(--muted);font-size:11px;margin-bottom:8px;">${ev.time}</div>`;
+        html += `<div style="color:var(--muted);font-size:12px;margin-bottom:8px;">Data: <code style="color:var(--green)">${escapeHtml(JSON.stringify(ev.data).slice(0, 120))}</code></div>`;
+        html += `<div style="font-size:12px;">`;
+        for (const l of ev.logs) html += `<div style="color:var(--text);padding:1px 0;">${escapeHtml(l)}</div>`;
+        html += `</div></div>`;
+    }
+    eventsOutput.innerHTML = html;
+}
+
+// Editor cursor tracking
+editor.addEventListener('keyup', updateCursor);
+editor.addEventListener('click', updateCursor);
+function updateCursor() {
+    const val = editor.value;
+    const pos = editor.selectionStart;
+    const lines = val.substr(0, pos).split('\n');
+    cursorPos.textContent = `Ln ${lines.length}, Col ${lines[lines.length - 1].length + 1}`;
+}
+
+// Tab key support
+editor.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        const start = editor.selectionStart;
+        editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(editor.selectionEnd);
+        editor.selectionStart = editor.selectionEnd = start + 2;
+    }
+});
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        executeCode();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key === 'p') {
+        e.preventDefault();
+        parseCode();
+    }
+});
+
+loadDefault();
+</script>
+</body>
+</html>
