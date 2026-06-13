@@ -124,6 +124,11 @@ fn parse_if(pair: pest::iterators::Pair<Rule>) -> Stmt {
             Rule::block => {
                 else_body = Some(parse_block(inner));
             }
+            Rule::if_stmt => {
+                // else if - wrap in a single-element vec
+                let else_if_stmt = parse_if(inner);
+                else_body = Some(vec![else_if_stmt]);
+            }
             _ => {}
         }
     }

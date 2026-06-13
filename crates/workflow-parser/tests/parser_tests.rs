@@ -234,6 +234,58 @@ mod parser_tests {
         assert_eq!(logs[0], "User: Alice");
         assert_eq!(logs[1], "User: Bob");
     }
+
+    #[test]
+    fn test_parse_if_else_if() {
+        let code = r#"workflow "Test" {
+  on TEST_EVENT
+  if (data.amount > 1000) {
+    log("high")
+  } else if (data.amount > 500) {
+    log("medium")
+  } else {
+    log("low")
+  }
+}"#;
+        let program = FlowParser::parse_flow_program(code).unwrap();
+        assert_eq!(program.workflows.len(), 1);
+
+        let mut evaluator = FlowEvaluator::new();
+        evaluator.load_program(&program);
+
+        // Test high branch
+        let context = TriggerContext {
+            event: "TEST_EVENT".to_string(),
+            timestamp: 0,
+            data: serde_json::json!({"amount": 1500}),
+            vars: None,
+            id: None,
+        };
+        let logs = evaluator.execute_workflow(&program.workflows[0], &context).unwrap();
+        assert_eq!(logs, vec!["high"]);
+
+        // Test medium branch
+        let context = TriggerContext {
+            event: "TEST_EVENT".to_string(),
+            timestamp: 0,
+            data: serde_json::json!({"amount": 750}),
+            vars: None,
+            id: None,
+        };
+        let logs = evaluator.execute_workflow(&program.workflows[0], &context).unwrap();
+        assert_eq!(logs, vec!["medium"]);
+
+        // Test low branch
+        let context = TriggerContext {
+            event: "TEST_EVENT".to_string(),
+            timestamp: 0,
+            data: serde_json::json!({"amount": 200}),
+            vars: None,
+            id: None,
+        };
+        let logs = evaluator.execute_workflow(&program.workflows[0], &context).unwrap();
+        assert_eq!(logs, vec!["low"]);
+    }
 }
 
 #[cfg(test)]

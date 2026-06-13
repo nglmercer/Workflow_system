@@ -29,7 +29,7 @@ NULL = _{ "null" }
 stmt = { var_decl | if_stmt | log_stmt | foreach_stmt | on_stmt | return_stmt | expr_stmt }
 var_decl = { "var" ~ IDENT ~ ("=" ~ expr)? }
 block = { "{" ~ stmt* ~ "}" }
-if_stmt = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ block)? }
+if_stmt = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ (if_stmt | block))? }
 log_stmt = { "log" ~ "(" ~ expr ~ ")" }
 foreach_stmt = { "foreach" ~ "(" ~ IDENT ~ "in" ~ expr ~ ")" ~ block }
 on_stmt = { "on" ~ IDENT ~ destructure_params? }
