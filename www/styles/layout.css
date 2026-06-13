@@ -1,0 +1,40 @@
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Desktop: side by side */
+@media (min-width: 601px) {
+  .main {
+    flex-direction: row;
+  }
+
+  .editor-panel {
+    border-right: 1px solid var(--border);
+    flex: 1;
+  }
+
+  .output-panel {
+    flex: 1;
+  }
+}
+
+/* Mobile: stacked */
+@media (max-width: 600px) {
+  .main {
+    flex-direction: column;
+  }
+
+  .editor-panel {
+    flex: 1;
+    border-bottom: 1px solid var(--border);
+    min-height: 200px;
+  }
+
+  .output-panel {
+    flex: 1;
+    min-height: 200px;
+  }
+}
