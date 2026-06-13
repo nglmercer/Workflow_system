@@ -38,6 +38,7 @@ export type Stmt =
   | { type: 'Foreach'; itemVar: string; iterable: Expr; body: Stmt[] }
   | { type: 'On'; event: string; params: string[] }
   | { type: 'Return'; value: Expr }
+  | { type: 'Emit'; workflow: string; data: Expr }
   | { type: 'Expr'; expr: Expr };
 
 export type Expr =

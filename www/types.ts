@@ -59,5 +59,10 @@ export const EXAMPLES: Example[] = [
     name: 'Nested Loops + JSON',
     code: null,
     eventData: `{"users": [{"name": "Alice", "orders": [{"id": "ORD-001", "total": 250}, {"id": "ORD-002", "total": 75}]}, {"name": "Bob", "orders": [{"id": "ORD-003", "total": 500}]}], "meta": [{"key": "source", "value": "web"}]}`
+  },
+  {
+    name: 'Emit Workflows',
+    code: `workflow "User Router" {\n  on USER_EVENT\n  log("Processing user: " + data.userId)\n  if (data.role == "admin") {\n    emit("Admin Handler", {userId: data.userId, action: "elevate"})\n  } else {\n    emit("User Handler", {userId: data.userId, action: "standard"})\n  }\n}\n\nworkflow "Admin Handler" {\n  on ADMIN_EVENT\n  log("Admin action for: " + data.userId)\n  log("Action: " + data.action)\n}\n\nworkflow "User Handler" {\n  on USER_ACTION\n  log("Standard user: " + data.userId)\n  log("Action: " + data.action)\n}`,
+    eventData: `{"userId": "user123", "role": "admin"}`
   }
 ];

@@ -207,6 +207,7 @@ export class Parser {
     if (this.matchKeyword('foreach')) return this.parseForeach();
     if (this.matchKeyword('on')) return this.parseOn();
     if (this.matchKeyword('return')) return this.parseReturn();
+    if (this.matchKeyword('emit')) return this.parseEmit();
     return this.parseExprStmt();
   }
 
@@ -232,6 +233,17 @@ export class Parser {
     const expr = this.parseExpr();
     this.expect(')');
     return { type: 'Log', expr };
+  }
+
+  private parseEmit(): Stmt {
+    this.expect('(');
+    const workflow = this.parseString();
+    let data: Expr = { type: 'Null' };
+    if (this.match(',')) {
+      data = this.parseExpr();
+    }
+    this.expect(')');
+    return { type: 'Emit', workflow, data };
   }
 
   private parseForeach(): Stmt {

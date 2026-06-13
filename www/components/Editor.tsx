@@ -7,6 +7,47 @@ import { getCompletions, type CompletionItem } from '../autocomplete.ts';
 import { getHoverInfo, type HoverInfo } from '../hover.ts';
 import { HoverTooltip } from './HoverTooltip.tsx';
 
+function isInsideString(text: string): boolean {
+  let inString = false;
+  let stringChar = '';
+  let escaped = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (ch === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      if (inString && ch === stringChar) {
+        inString = false;
+        stringChar = '';
+      } else if (!inString) {
+        inString = true;
+        stringChar = ch;
+      }
+    }
+  }
+
+  return inString;
+}
+
+function isInsideComment(text: string): boolean {
+  for (let i = 0; i < text.length - 1; i++) {
+    if (text[i] === '/' && text[i + 1] === '/') {
+      return true;
+    }
+  }
+  return false;
+}
+
 interface EditorProps {
   code: string;
   onChange: (value: string) => void;
@@ -28,6 +69,7 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
   const [hoverVisible, setHoverVisible] = useState(false);
   const hoverTimeoutRef = useRef<number | null>(null);
   const lastHoverPos = useRef(-1);
+  const justInsertedRef = useRef(false);
 
   const syncScroll = useCallback(() => {
     if (editorRef.current && highlightRef.current) {
@@ -104,14 +146,66 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
     const before = text.substring(0, pos);
     const after = text.substring(pos);
 
+    justInsertedRef.current = true;
+    setTimeout(() => { justInsertedRef.current = false; }, 100);
+
+    let insertText = item.insertText;
+    let selectStart = -1;
+    let selectEnd = -1;
+
+    const snippetMatch = insertText.match(/\$\{(\d+):([^}]*)\}/);
+    if (snippetMatch) {
+      const snippetParts = insertText.split(/\$\{(\d+):([^}]*)\}/);
+      let cleanText = '';
+      let i = 0;
+      while (i < snippetParts.length) {
+        cleanText += snippetParts[i];
+        if (i + 2 < snippetParts.length) {
+          const placeholder = snippetParts[i + 2];
+          selectStart = cleanText.length;
+          cleanText += placeholder;
+          selectEnd = cleanText.length;
+          i += 3;
+        } else {
+          i++;
+        }
+      }
+      insertText = cleanText;
+    }
+
     const dotMatch = before.match(/(\w+(?:\.\w+)*)\.(\w*)$/);
     if (dotMatch) {
       const prefix = before.substring(0, before.length - dotMatch[2].length);
-      onChange(prefix + item.insertText + after);
-      editorRef.current.selectionStart = editorRef.current.selectionEnd = prefix.length + item.insertText.length;
+      const newValue = prefix + insertText + after;
+      onChange(newValue);
+      if (selectStart >= 0) {
+        editorRef.current.selectionStart = prefix.length + selectStart;
+        editorRef.current.selectionEnd = prefix.length + selectEnd;
+      } else {
+        editorRef.current.selectionStart = editorRef.current.selectionEnd = prefix.length + insertText.length;
+      }
     } else {
-      onChange(before + item.insertText + after);
-      editorRef.current.selectionStart = editorRef.current.selectionEnd = pos + item.insertText.length;
+      const wordMatch = before.match(/(\w+)$/);
+      if (wordMatch) {
+        const wordStart = before.length - wordMatch[1].length;
+        const prefix = before.substring(0, wordStart);
+        const newValue = prefix + insertText + after;
+        onChange(newValue);
+        if (selectStart >= 0) {
+          editorRef.current.selectionStart = prefix.length + selectStart;
+          editorRef.current.selectionEnd = prefix.length + selectEnd;
+        } else {
+          editorRef.current.selectionStart = editorRef.current.selectionEnd = prefix.length + insertText.length;
+        }
+      } else {
+        onChange(before + insertText + after);
+        if (selectStart >= 0) {
+          editorRef.current.selectionStart = pos + selectStart;
+          editorRef.current.selectionEnd = pos + selectEnd;
+        } else {
+          editorRef.current.selectionStart = editorRef.current.selectionEnd = pos + insertText.length;
+        }
+      }
     }
 
     hideAutocomplete();
@@ -119,27 +213,31 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
   }, [editorRef, onChange, hideAutocomplete]);
 
   const checkAutocomplete = useCallback(() => {
-    if (!editorRef.current) return;
+    if (!editorRef.current || justInsertedRef.current) return;
     const pos = editorRef.current.selectionStart;
+    const text = editorRef.current.value;
+    const before = text.substring(0, pos);
+
+    const inString = isInsideString(before);
+    const inComment = isInsideComment(before);
+
+    if (inString || inComment) {
+      hideAutocomplete();
+      return;
+    }
+
+    const wordMatch = before.match(/(\w+)$/);
+    if (wordMatch && wordMatch[1].length < 1) {
+      hideAutocomplete();
+      return;
+    }
+
     const items = getCompletions(code, pos, schema, program);
 
     if (items.length > 0) {
       showAutocomplete(items);
-    } else if (autocompleteVisible.current) {
-      const text = editorRef.current.value;
-      const before = text.substring(0, pos);
-      const wordMatch = before.match(/(\w+)$/);
-      if (wordMatch) {
-        const word = wordMatch[1].toLowerCase();
-        const filtered = autocompleteItems.current.filter(item => item.label.toLowerCase().startsWith(word));
-        if (filtered.length > 0) {
-          showAutocomplete(filtered);
-        } else {
-          hideAutocomplete();
-        }
-      } else {
-        hideAutocomplete();
-      }
+    } else {
+      hideAutocomplete();
     }
   }, [code, schema, program, showAutocomplete, hideAutocomplete]);
 

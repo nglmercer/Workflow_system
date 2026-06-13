@@ -4,8 +4,10 @@ type Vars = Record<string, unknown>;
 
 export class FlowEvaluator {
   private globals: Record<string, FnDef> = {};
+  private workflows: Map<string, WorkflowDef> = new Map();
   logs: string[] = [];
   events: string[] = [];
+  emittedEvents: Array<{ workflow: string; data: unknown }> = [];
 
   evalExpr(expr: Expr, vars: Vars): unknown {
     switch (expr.type) {
@@ -127,6 +129,16 @@ export class FlowEvaluator {
         }
         break;
       }
+      case 'Emit': {
+        const workflow = this.workflows.get(stmt.workflow);
+        if (workflow) {
+          const data = this.evalExpr(stmt.data, vars);
+          const emitData = (typeof data === 'object' && data !== null ? data : { value: data }) as Record<string, unknown>;
+          this.emittedEvents.push({ workflow: stmt.workflow, data: emitData });
+          this.executeWorkflow(workflow, emitData);
+        }
+        break;
+      }
       case 'On': break;
       case 'Return': break;
       case 'Expr': this.evalExpr(stmt.expr, vars); break;
@@ -154,6 +166,9 @@ export class FlowEvaluator {
   loadProgram(program: FlowProgram): void {
     for (const fn of program.functions) {
       this.globals[fn.name] = fn;
+    }
+    for (const wf of program.workflows) {
+      this.workflows.set(wf.name, wf);
     }
   }
 }

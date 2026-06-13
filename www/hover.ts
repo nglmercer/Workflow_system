@@ -1,6 +1,7 @@
 import type { FlowProgram } from '@src/types.ts';
 import type { SchemaType } from './schema.ts';
 import { getSchemaType, getSchemaForPath } from './schema.ts';
+import { buildScope, type ScopeInfo } from './scope.ts';
 
 export interface HoverInfo {
   content: string;
@@ -20,6 +21,8 @@ export function getHoverInfo(
   schema: SchemaType,
   program: FlowProgram | null
 ): HoverInfo | null {
+  const scope = program ? buildScope(program, schema, cursorPos, code) : null;
+
   const wordRange = getWordAtPos(code, cursorPos);
   if (!wordRange) return null;
 
@@ -27,7 +30,7 @@ export function getHoverInfo(
 
   const dotExpr = getDotExpressionAtPos(code, cursorPos);
   if (dotExpr) {
-    const hoverInfo = getSchemaHoverInfo(dotExpr, schema);
+    const hoverInfo = getDotExpressionHoverInfo(dotExpr, schema, scope);
     if (hoverInfo) {
       return {
         content: hoverInfo,
@@ -51,11 +54,25 @@ export function getHoverInfo(
         range: wordRange,
       };
     }
+  }
 
-    const varHover = getVariableHoverInfo(word, code, cursorPos, schema);
-    if (varHover) {
+  if (scope) {
+    const varInfo = scope.variables.get(word);
+    if (varInfo && varInfo.type !== 'any') {
+      let content = `var ${word}: ${varInfo.type}`;
+      if (varInfo.schema) {
+        const keys = Object.keys(varInfo.schema);
+        if (keys.length > 0 && keys.length <= 5) {
+          const props = keys.map(k => {
+            const val = varInfo.schema![k];
+            const t = getSchemaType(val);
+            return `  ${k}: ${t}`;
+          }).join('\n');
+          content += `\n{\n${props}\n}`;
+        }
+      }
       return {
-        content: varHover,
+        content,
         range: wordRange,
       };
     }
@@ -106,32 +123,74 @@ function getDotExpressionAtPos(code: string, pos: number): DotExpr | null {
   return { full: expr, start, end };
 }
 
-function getSchemaHoverInfo(dotExpr: DotExpr, schema: SchemaType): string | null {
+function getDotExpressionHoverInfo(
+  dotExpr: DotExpr,
+  schema: SchemaType,
+  scope: ScopeInfo | null
+): string | null {
   const parts = dotExpr.full.split('.');
-  if (parts[0] !== 'data') return null;
 
-  const dataPath = parts.slice(1).join('.');
-  const subSchema = getSchemaForPath(schema, dataPath);
+  if (parts[0] === 'data') {
+    const dataPath = parts.slice(1).join('.');
+    const subSchema = getSchemaForPath(schema, dataPath);
 
-  if (subSchema && typeof subSchema === 'object') {
-    const typeStr = getSchemaType(subSchema);
-    const keys = Object.keys(subSchema);
+    if (subSchema && typeof subSchema === 'object') {
+      const typeStr = getSchemaType(subSchema);
+      const keys = Object.keys(subSchema);
 
-    if (keys.length <= 5) {
-      const props = keys.map(k => {
-        const val = subSchema[k];
-        const t = getSchemaType(val);
-        return `  ${k}: ${t}`;
-      }).join('\n');
-      return `data.${dataPath}: ${typeStr}\n{\n${props}\n}`;
+      if (keys.length <= 5) {
+        const props = keys.map(k => {
+          const val = subSchema[k];
+          const t = getSchemaType(val);
+          return `  ${k}: ${t}`;
+        }).join('\n');
+        return `data.${dataPath}: ${typeStr}\n{\n${props}\n}`;
+      }
+      return `data.${dataPath}: ${typeStr}\n${keys.length} properties`;
     }
-    return `data.${dataPath}: ${typeStr}\n${keys.length} properties`;
+
+    const topLevel = schema[parts[1]];
+    if (topLevel) {
+      const typeStr = getSchemaType(topLevel);
+      return `data.${parts[1]}: ${typeStr}`;
+    }
   }
 
-  const topLevel = schema[parts[1]];
-  if (topLevel) {
-    const typeStr = getSchemaType(topLevel);
-    return `data.${parts[1]}: ${typeStr}`;
+  if (scope) {
+    const varName = parts[0];
+    const varInfo = scope.variables.get(varName);
+    if (varInfo && varInfo.schema) {
+      let currentSchema: SchemaType | undefined = varInfo.schema;
+      for (let i = 1; i < parts.length && currentSchema; i++) {
+        const propValue = currentSchema[parts[i]];
+        if (propValue === undefined) return null;
+
+        if (i === parts.length - 1) {
+          const typeStr = getSchemaType(propValue);
+          if (typeof propValue === 'object' && !Array.isArray(propValue) && propValue !== null) {
+            const keys = Object.keys(propValue);
+            if (keys.length <= 5) {
+              const props = keys.map(k => {
+                const val = propValue[k];
+                const t = getSchemaType(val);
+                return `  ${k}: ${t}`;
+              }).join('\n');
+              return `${dotExpr.full}: ${typeStr}\n{\n${props}\n}`;
+            }
+            return `${dotExpr.full}: ${typeStr}\n${keys.length} properties`;
+          }
+          return `${dotExpr.full}: ${typeStr}`;
+        }
+
+        if (typeof propValue === 'object' && !Array.isArray(propValue) && propValue !== null) {
+          currentSchema = propValue as SchemaType;
+        } else if (Array.isArray(propValue) && propValue.length > 0 && typeof propValue[0] === 'object') {
+          currentSchema = propValue[0] as SchemaType;
+        } else {
+          return null;
+        }
+      }
+    }
   }
 
   return null;
@@ -144,64 +203,15 @@ function getFunctionHoverInfo(name: string, program: FlowProgram): string | null
       return `fn ${name}(${params})\nUser-defined function`;
     }
   }
-  return null;
-}
 
-function getVariableHoverInfo(
-  name: string,
-  code: string,
-  cursorPos: number,
-  schema: SchemaType
-): string | null {
-  const upToCursor = code.substring(0, cursorPos);
-
-  const varRegex = new RegExp(`var\\s+${escapeRegex(name)}\\s*=\\s*(.+)`, 'g');
-  const match = varRegex.exec(upToCursor);
-  if (match) {
-    const initExpr = match[1].trim();
-    const inferredType = inferType(initExpr, schema);
-    return `var ${name}: ${inferredType}`;
-  }
-
-  const foreachRegex = new RegExp(`foreach\\s*\\(\\s*${escapeRegex(name)}\\s+in\\s+(\\w+)`, 'g');
-  const foreachMatch = foreachRegex.exec(upToCursor);
-  if (foreachMatch) {
-    const iterable = foreachMatch[1];
-    if (iterable === 'data') {
-      const topKeys = Object.keys(schema);
-      return `var ${name}: any (iterating data)`;
+  for (const wf of program.workflows) {
+    if (wf.name === name) {
+      const params = wf.params.length > 0 ? `({${wf.params.join(', ')}})` : '';
+      return `workflow "${wf.name}"\non ${wf.event}${params}`;
     }
-    return `var ${name}: any`;
   }
 
   return null;
-}
-
-function inferType(expr: string, schema: SchemaType): string {
-  if (/^".*"$/.test(expr)) return 'string';
-  if (/^-?\d+(\.\d+)?$/.test(expr)) return 'number';
-  if (/^(true|false)$/.test(expr)) return 'boolean';
-  if (/^null$/.test(expr)) return 'null';
-  if (/^\[.*\]$/.test(expr)) return 'array';
-
-  if (/^\w+\(.*\)$/.test(expr)) {
-    const fnMatch = expr.match(/^(\w+)\(/);
-    if (fnMatch) {
-      const fnName = fnMatch[1];
-      if (fnName === 'len') return 'number';
-      if (fnName === 'to_string') return 'string';
-      if (fnName === 'to_number') return 'number';
-    }
-    return 'any';
-  }
-
-  if (/^data\./.test(expr)) {
-    const dataPath = expr.replace(/^data\./, '');
-    const subSchema = getSchemaForPath(schema, dataPath);
-    if (subSchema) return getSchemaType(subSchema);
-  }
-
-  return 'any';
 }
 
 function getKeywordHoverInfo(word: string): string | null {
@@ -214,6 +224,7 @@ function getKeywordHoverInfo(word: string): string | null {
     'foreach': 'foreach (item in collection) { ... }\nIterate over array',
     'in': 'Used in foreach: foreach (item in collection)',
     'on': 'on EVENT_NAME\nTrigger workflow on event',
+    'emit': 'emit("WORKFLOW_NAME", data)\nTrigger another workflow with data',
     'return': 'return value\nReturn from function',
     'true': 'Boolean literal: true',
     'false': 'Boolean literal: false',
@@ -223,8 +234,4 @@ function getKeywordHoverInfo(word: string): string | null {
   };
 
   return keywords[word] || null;
-}
-
-function escapeRegex(str: string): string {
-  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
