@@ -70,6 +70,8 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
   const hoverTimeoutRef = useRef<number | null>(null);
   const lastHoverPos = useRef(-1);
   const justInsertedRef = useRef(false);
+  const autocompleteTimeoutRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
 
   const syncScroll = useCallback(() => {
     if (editorRef.current && highlightRef.current) {
@@ -232,60 +234,77 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
       return;
     }
 
-    const items = getCompletions(code, pos, schema, program);
-
-    if (items.length > 0) {
-      showAutocomplete(items);
-    } else {
-      hideAutocomplete();
+    if (autocompleteTimeoutRef.current) {
+      clearTimeout(autocompleteTimeoutRef.current);
     }
+
+    autocompleteTimeoutRef.current = window.setTimeout(() => {
+      const items = getCompletions(code, pos, schema, program);
+      if (items.length > 0) {
+        showAutocomplete(items);
+      } else {
+        hideAutocomplete();
+      }
+    }, 50);
   }, [code, schema, program, showAutocomplete, hideAutocomplete]);
 
   const checkHover = useCallback((e: MouseEvent) => {
-    if (!editorRef.current) return;
-
-    const rect = editorRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left + editorRef.current.scrollLeft;
-    const y = e.clientY - rect.top + editorRef.current.scrollTop;
-
-    const lineHeight = 20.8;
-    const charWidth = 7.8;
-
-    const line = Math.floor((y - 16) / lineHeight);
-    const col = Math.floor((x - 16) / charWidth);
-
-    const lines = code.split('\n');
-    if (line < 0 || line >= lines.length) {
-      setHoverVisible(false);
-      return;
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
     }
 
-    const lineText = lines[line];
-    if (col < 0 || col >= lineText.length) {
-      setHoverVisible(false);
-      return;
-    }
+    rafRef.current = requestAnimationFrame(() => {
+      if (!editorRef.current) return;
 
-    let charIndex = 0;
-    for (let i = 0; i < line; i++) {
-      charIndex += lines[i].length + 1;
-    }
-    charIndex += col;
+      const rect = editorRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left + editorRef.current.scrollLeft;
+      const y = e.clientY - rect.top + editorRef.current.scrollTop;
 
-    if (charIndex === lastHoverPos.current) return;
-    lastHoverPos.current = charIndex;
+      const lineHeight = 20.8;
+      const charWidth = 7.8;
 
-    const info = getHoverInfo(code, charIndex, schema, program);
-    if (info) {
-      setHoverInfo(info);
-      setHoverPosition({
-        left: e.clientX - rect.left,
-        top: e.clientY - rect.top,
-      });
-      setHoverVisible(true);
-    } else {
-      setHoverVisible(false);
-    }
+      const line = Math.floor((y - 16) / lineHeight);
+      const col = Math.floor((x - 16) / charWidth);
+
+      const lines = code.split('\n');
+      if (line < 0 || line >= lines.length) {
+        setHoverVisible(false);
+        return;
+      }
+
+      const lineText = lines[line];
+      if (col < 0 || col >= lineText.length) {
+        setHoverVisible(false);
+        return;
+      }
+
+      let charIndex = 0;
+      for (let i = 0; i < line; i++) {
+        charIndex += lines[i].length + 1;
+      }
+      charIndex += col;
+
+      if (charIndex === lastHoverPos.current) return;
+      lastHoverPos.current = charIndex;
+
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current);
+      }
+
+      hoverTimeoutRef.current = window.setTimeout(() => {
+        const info = getHoverInfo(code, charIndex, schema, program);
+        if (info) {
+          setHoverInfo(info);
+          setHoverPosition({
+            left: e.clientX - rect.left,
+            top: e.clientY - rect.top,
+          });
+          setHoverVisible(true);
+        } else {
+          setHoverVisible(false);
+        }
+      }, 200);
+    });
   }, [code, schema, program, editorRef]);
 
   const hideHover = useCallback(() => {
@@ -371,6 +390,12 @@ export function Editor({ code, onChange, editorRef, highlightRef, onCursorChange
     return () => {
       if (hoverTimeoutRef.current) {
         clearTimeout(hoverTimeoutRef.current);
+      }
+      if (autocompleteTimeoutRef.current) {
+        clearTimeout(autocompleteTimeoutRef.current);
+      }
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
       }
     };
   }, []);

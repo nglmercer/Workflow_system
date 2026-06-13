@@ -192,7 +192,7 @@ export class Parser {
   private parseBlock(): Stmt[] {
     this.expect('{');
     const stmts: Stmt[] = [];
-    while (!this.at('}')) {
+    while (!this.at('}') && !this.eof()) {
       stmts.push(this.parseStmt());
     }
     this.expect('}');

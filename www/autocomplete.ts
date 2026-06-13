@@ -41,13 +41,39 @@ const BUILTIN_FUNCS: Record<string, { signature: string; args: ArgInfo[] }> = {
   },
 };
 
-function isInsideString(code: string, pos: number): boolean {
+let cachedScope: ScopeInfo | null = null;
+let cachedScopeKey = '';
+
+function getOrBuildScope(
+  program: FlowProgram | null,
+  schema: SchemaType,
+  cursorPos: number,
+  code: string
+): ScopeInfo | null {
+  if (!program) return null;
+
+  const key = `${code.length}:${cursorPos}:${JSON.stringify(schema).length}`;
+  if (cachedScopeKey === key && cachedScope) {
+    return cachedScope;
+  }
+
+  cachedScope = buildScope(program, schema, cursorPos, code);
+  cachedScopeKey = key;
+  return cachedScope;
+}
+
+export function invalidateScopeCache(): void {
+  cachedScope = null;
+  cachedScopeKey = '';
+}
+
+function isInsideString(text: string): boolean {
   let inString = false;
   let stringChar = '';
   let escaped = false;
 
-  for (let i = 0; i < pos; i++) {
-    const ch = code[i];
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
 
     if (escaped) {
       escaped = false;
@@ -73,16 +99,14 @@ function isInsideString(code: string, pos: number): boolean {
   return inString;
 }
 
-function isInsideComment(code: string, pos: number): boolean {
-  for (let i = 0; i < pos - 1; i++) {
-    if (code[i] === '/' && code[i + 1] === '/') {
-      let lineEnd = code.indexOf('\n', i);
-      if (lineEnd === -1) lineEnd = code.length;
-      if (pos <= lineEnd) return true;
-      i = lineEnd;
+function isInsideComment(text: string): boolean {
+  let lastCommentStart = -1;
+  for (let i = 0; i < text.length - 1; i++) {
+    if (text[i] === '/' && text[i + 1] === '/') {
+      lastCommentStart = i;
     }
   }
-  return false;
+  return lastCommentStart >= 0;
 }
 
 export function getCompletions(
@@ -91,12 +115,13 @@ export function getCompletions(
   schema: SchemaType,
   program: FlowProgram | null
 ): CompletionItem[] {
-  if (isInsideString(code, cursorPos) || isInsideComment(code, cursorPos)) {
+  const before = code.substring(0, cursorPos);
+
+  if (isInsideString(before) || isInsideComment(before)) {
     return [];
   }
 
-  const scope = program ? buildScope(program, schema, cursorPos, code) : null;
-  const before = code.substring(0, cursorPos);
+  const scope = getOrBuildScope(program, schema, cursorPos, code);
   const items: CompletionItem[] = [];
 
   const funcCallMatch = before.match(/(\w+)\(([^)]*)$/);

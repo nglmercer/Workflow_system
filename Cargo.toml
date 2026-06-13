@@ -9,6 +9,7 @@ members = [
     "crates/workflow-wasm",
     "crates/workflow-parser",
     "crates/workflow-lsp",
+    "crates/workflow-native-editor",
 ]
 
 [workspace.package]

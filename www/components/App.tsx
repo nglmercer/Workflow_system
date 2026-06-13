@@ -80,23 +80,31 @@ export function App() {
     setAstText('');
   }, []);
 
+  const highlightRafRef = useRef<number | null>(null);
+
   const highlightCode = useCallback((value: string) => {
-    const tokens = tokenize(value);
-    let html = '';
-    for (const token of tokens) {
-      const escaped = token.value
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      if (token.kind === 'text') {
-        html += escaped;
-      } else {
-        html += `<span class="tok-${token.kind}">${escaped}</span>`;
+    if (highlightRafRef.current) {
+      cancelAnimationFrame(highlightRafRef.current);
+    }
+
+    highlightRafRef.current = requestAnimationFrame(() => {
+      const tokens = tokenize(value);
+      let html = '';
+      for (const token of tokens) {
+        const escaped = token.value
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+        if (token.kind === 'text') {
+          html += escaped;
+        } else {
+          html += `<span class="tok-${token.kind}">${escaped}</span>`;
+        }
       }
-    }
-    if (highlightRef.current) {
-      highlightRef.current.innerHTML = html + '\n';
-    }
+      if (highlightRef.current) {
+        highlightRef.current.innerHTML = html + '\n';
+      }
+    });
   }, []);
 
   const handleCodeChange = useCallback((value: string) => {
@@ -303,6 +311,9 @@ export function App() {
     return () => {
       if (parseTimeoutRef.current) {
         clearTimeout(parseTimeoutRef.current);
+      }
+      if (highlightRafRef.current) {
+        cancelAnimationFrame(highlightRafRef.current);
       }
     };
   }, []);
