@@ -91,12 +91,17 @@ fn parse_foreach(pair: pest::iterators::Pair<Rule>) -> Stmt {
     let mut body = Vec::new();
 
     for inner in pair.into_inner() {
-        if matches!(inner.as_rule(), Rule::IDENT) && item_var.is_none() {
-            item_var = Some(inner.as_str().to_string());
-        } else if matches!(inner.as_rule(), Rule::expr) {
-            iterable = Some(parse_expr(inner));
-        } else if matches!(inner.as_rule(), Rule::block) {
-            body = parse_block(inner);
+        match inner.as_rule() {
+            Rule::IDENT if item_var.is_none() => {
+                item_var = Some(inner.as_str().to_string());
+            }
+            Rule::expr => {
+                iterable = Some(parse_expr(inner));
+            }
+            Rule::block => {
+                body = parse_block(inner);
+            }
+            _ => {}
         }
     }
 
@@ -120,10 +125,6 @@ fn parse_block(pair: pest::iterators::Pair<Rule>) -> Vec<Stmt> {
 }
 
 fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
-    parse_additive(pair)
-}
-
-fn parse_additive(pair: pest::iterators::Pair<Rule>) -> Expr {
     let mut children: Vec<_> = pair.into_inner().collect();
     let mut result = parse_multiplicative(children.remove(0));
 
@@ -231,25 +232,26 @@ mod tests {
 
     #[test]
     fn test_parse_if() {
-        let code = r#"
-if (x > 10) {
-  log("high")
-}
-"#;
-        let stmts = FlowParser::parse_program(code).unwrap();
+        let stmts = FlowParser::parse_program("if (x > 10) { log(\"high\") }").unwrap();
         assert_eq!(stmts.len(), 1);
         assert!(matches!(&stmts[0], Stmt::If { .. }));
     }
 
     #[test]
     fn test_parse_multiple() {
-        let code = r#"
-var x = 10
-if (x > 5) {
-  log("high")
-}
-"#;
+        let code = "var x = 10\nif (x > 5) { log(\"high\") }";
         let stmts = FlowParser::parse_program(code).unwrap();
         assert_eq!(stmts.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_foreach() {
+        let code = "foreach (user in data.users) { log(user.name) }";
+        let stmts = FlowParser::parse_program(code).unwrap();
+        assert_eq!(stmts.len(), 1);
+        match &stmts[0] {
+            Stmt::Foreach { item_var, .. } => assert_eq!(item_var, "user"),
+            _ => panic!("Expected Foreach"),
+        }
     }
 }

@@ -6,7 +6,7 @@ COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
 // Identifiers and literals
 IDENT = @{ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
 STRING = @{ "\"" ~ CHAR* ~ "\"" }
-CHAR = _{ "\\\\" | "\\n" | "\\t" | "\\\\\"" | (!"\"" ~ ANY) }
+CHAR = { "\\\\" | "\\n" | "\\t" | "\\\\\"" | (!"\"" ~ ANY) }
 NUMBER = @{ ASCII_DIGIT+ }
 
 // Expressions
