@@ -77,8 +77,8 @@ fn parse_stmt(pair: pest::iterators::Pair<Rule>) -> Option<Stmt> {
         Rule::foreach_stmt => Some(parse_foreach(inner)),
         Rule::on_stmt => Some(parse_on(inner)),
         Rule::expr_stmt => {
-            let expr_pair = inner.into_inner().next()?;
-            Some(Stmt::Expr(parse_call(expr_pair)))
+            let text = inner.as_str().to_string();
+            Some(Stmt::Expr(parse_expr_text(&text)))
         }
         _ => None,
     }
@@ -528,17 +528,6 @@ fn is_ident(text: &str) -> bool {
     let mut chars = text.chars();
     matches!(chars.next(), Some(ch) if ch.is_ascii_alphabetic() || ch == '_')
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-}
-
-fn parse_call(pair: pest::iterators::Pair<Rule>) -> Expr {
-    let mut inner = pair.into_inner();
-    let name = inner.next().unwrap().as_str().to_string();
-    let args = inner
-        .filter(|p| p.as_rule() == Rule::expr)
-        .map(parse_expr)
-        .collect();
-
-    Expr::call(name, args)
 }
 
 #[cfg(test)]

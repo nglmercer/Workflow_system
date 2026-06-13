@@ -154,6 +154,26 @@ struct FlowResult {
 
 #[wasm_bindgen(js_name = executeFlow)]
 pub fn execute_flow(source: &str, event_data_json: &str) -> Result<JsValue, JsError> {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        execute_flow_inner(source, event_data_json)
+    }));
+
+    match result {
+        Ok(inner_result) => inner_result,
+        Err(panic) => {
+            let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "Unknown panic".to_string()
+            };
+            Err(JsError::new(&format!("Panic: {}", msg)))
+        }
+    }
+}
+
+fn execute_flow_inner(source: &str, event_data_json: &str) -> Result<JsValue, JsError> {
     let program = FlowParser::parse_flow_program(source)
         .map_err(|e| JsError::new(&format!("Parse error: {}", e)))?;
 

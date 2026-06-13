@@ -236,6 +236,43 @@ mod parser_tests {
     }
 
     #[test]
+    fn test_evaluate_user_defined_function() {
+        let code = r#"fn double(x) {
+  return x * 2
+}
+
+fn greet(name) {
+  log("Hello, " + name + "!")
+}
+
+workflow "Test" {
+  on CALCULATE
+  var result = double(data.value)
+  log("Doubled: " + result)
+  greet(data.name)
+}"#;
+        let program = FlowParser::parse_flow_program(code).unwrap();
+        assert_eq!(program.functions.len(), 2);
+        assert_eq!(program.workflows.len(), 1);
+
+        let mut evaluator = FlowEvaluator::new();
+        evaluator.load_program(&program);
+
+        let context = TriggerContext {
+            event: "CALCULATE".to_string(),
+            timestamp: 0,
+            data: serde_json::json!({"value": 21, "name": "World"}),
+            vars: None,
+            id: None,
+        };
+
+        let logs = evaluator
+            .execute_workflow(&program.workflows[0], &context)
+            .unwrap();
+        assert_eq!(logs, vec!["Doubled: 42", "Hello, World!"]);
+    }
+
+    #[test]
     fn test_parse_if_else_if() {
         let code = r#"workflow "Test" {
   on TEST_EVENT
@@ -261,7 +298,9 @@ mod parser_tests {
             vars: None,
             id: None,
         };
-        let logs = evaluator.execute_workflow(&program.workflows[0], &context).unwrap();
+        let logs = evaluator
+            .execute_workflow(&program.workflows[0], &context)
+            .unwrap();
         assert_eq!(logs, vec!["high"]);
 
         // Test medium branch
@@ -272,7 +311,9 @@ mod parser_tests {
             vars: None,
             id: None,
         };
-        let logs = evaluator.execute_workflow(&program.workflows[0], &context).unwrap();
+        let logs = evaluator
+            .execute_workflow(&program.workflows[0], &context)
+            .unwrap();
         assert_eq!(logs, vec!["medium"]);
 
         // Test low branch
@@ -283,7 +324,9 @@ mod parser_tests {
             vars: None,
             id: None,
         };
-        let logs = evaluator.execute_workflow(&program.workflows[0], &context).unwrap();
+        let logs = evaluator
+            .execute_workflow(&program.workflows[0], &context)
+            .unwrap();
         assert_eq!(logs, vec!["low"]);
     }
 }
