@@ -2,17 +2,13 @@ mod capabilities;
 mod handlers;
 mod state;
 
-use crossbeam_channel::select;
-use lsp_server::{Connection, Message, Notification, Request};
-use lsp_types::{
-    DidChangeTextDocumentNotification, DidOpenTextDocumentNotification, InitializeParams,
-    InitializeResult, ServerInfo,
-};
+use lsp_server::{Connection, Message};
+use lsp_types::{InitializeParams, InitializeResult, ServerInfo};
 
 use state::ServerState;
 
 fn main() {
-    let (connection, io_threads) = Connection::stdio();
+    let (connection, _io_threads) = Connection::stdio();
 
     let server_capabilities = capabilities::server_capabilities();
 

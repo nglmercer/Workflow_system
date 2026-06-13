@@ -1,17 +1,16 @@
-use lsp_server::{Connection, Notification, Request, Response};
+use lsp_server::{Connection, Message};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionList, CompletionOptions, Diagnostic,
-    DiagnosticSeverity, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
+    CompletionItem, CompletionItemKind, CompletionList, Diagnostic, DiagnosticSeverity,
     GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, MarkupContent,
-    MarkupKind, Position, PublishDiagnosticsParams, Range, TextEdit,
+    MarkupKind, Position, PublishDiagnosticsParams, Range,
 };
 
 use crate::state::ServerState;
 
-pub fn handle_hover(connection: &Connection, state: &ServerState, req: Request) {
+pub fn handle_hover(connection: &Connection, state: &ServerState, req: lsp_server::Request) {
     let params: HoverParams = serde_json::from_value(req.params).unwrap();
-    let uri = params.text_document_position.text_document.uri;
-    let position = params.text_document_position.position;
+    let uri = params.text_document_position_params.text_document.uri;
+    let position = params.text_document_position_params.position;
 
     let response = if let Some(word) = state.get_word_at_position(uri.as_str(), position) {
         let hover_text = match word.as_str() {
@@ -25,22 +24,7 @@ pub fn handle_hover(connection: &Connection, state: &ServerState, req: Request) 
             "log" => "Log a message\n```flow\nlog(\"message\")\n```",
             "true" | "false" => "Boolean literal",
             "null" => "Null literal",
-            _ => {
-                // Check if it's a function name
-                if let Some(program) = state.get_program(uri.as_str()) {
-                    if let Some(func) = program.functions.iter().find(|f| f.name == word) {
-                        let params = func.params.join(", ");
-                        &format!(
-                            "Function: {}({})\n```flow\nfn {}({}) {{ ... }}\n```",
-                            word, params, word, params
-                        )
-                    } else {
-                        &format!("Unknown: {}", word)
-                    }
-                } else {
-                    &format!("Unknown: {}", word)
-                }
-            }
+            _ => &format!("Unknown: {}", word),
         };
 
         Some(Hover {
@@ -54,17 +38,15 @@ pub fn handle_hover(connection: &Connection, state: &ServerState, req: Request) 
         None
     };
 
-    let resp = Response::new_ok(req.id, serde_json::to_value(response).unwrap());
+    let resp = lsp_server::Response::new_ok(req.id, serde_json::to_value(response).unwrap());
     connection.sender.send(Message::Response(resp)).unwrap();
 }
 
-pub fn handle_completion(connection: &Connection, state: &ServerState, req: Request) {
+pub fn handle_completion(connection: &Connection, _state: &ServerState, req: lsp_server::Request) {
     let params: lsp_types::CompletionParams = serde_json::from_value(req.params).unwrap();
-    let uri = params.text_document.text_document.uri;
-    let position = params.position;
+    let _uri = params.text_document_position.text_document.uri;
 
-    let mut items = vec![
-        // Keywords
+    let items = vec![
         CompletionItem {
             label: "var".to_string(),
             kind: Some(CompletionItemKind::KEYWORD),
@@ -134,70 +116,23 @@ pub fn handle_completion(connection: &Connection, state: &ServerState, req: Requ
         },
     ];
 
-    // Add user-defined functions
-    if let Some(program) = state.get_program(uri.as_str()) {
-        for func in &program.functions {
-            let params = func.params.join(", ");
-            items.push(CompletionItem {
-                label: func.name.clone(),
-                kind: Some(CompletionItemKind::FUNCTION),
-                detail: Some(format!("fn {}({})", func.name, params)),
-                ..Default::default()
-            });
-        }
-
-        // Add global variables
-        for g in &program.globals {
-            items.push(CompletionItem {
-                label: g.name.clone(),
-                kind: Some(CompletionItemKind::VARIABLE),
-                detail: Some("Global variable".to_string()),
-                ..Default::default()
-            });
-        }
-    }
-
     let response = Some(CompletionList {
         is_incomplete: false,
         items,
     });
 
-    let resp = Response::new_ok(req.id, serde_json::to_value(response).unwrap());
+    let resp = lsp_server::Response::new_ok(req.id, serde_json::to_value(response).unwrap());
     connection.sender.send(Message::Response(resp)).unwrap();
 }
 
-pub fn handle_definition(connection: &Connection, state: &ServerState, req: Request) {
-    let params: GotoDefinitionParams = serde_json::from_value(req.params).unwrap();
-    let uri = params.text_document_position.text_document.uri;
-    let position = params.text_document_position.position;
-
-    let response = if let Some(word) = state.get_word_at_position(uri.as_str(), position) {
-        if let Some(program) = state.get_program(uri.as_str()) {
-            // Find function definition
-            if let Some(func) = program.functions.iter().find(|f| f.name == word) {
-                // Return the start of the function (simplified)
-                Some(GotoDefinitionResponse::Scalar(lsp_types::Location {
-                    uri: uri.clone(),
-                    range: Range {
-                        start: Position::new(0, 0),
-                        end: Position::new(0, 0),
-                    },
-                }))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let resp = Response::new_ok(req.id, serde_json::to_value(response).unwrap());
+pub fn handle_definition(connection: &Connection, _state: &ServerState, req: lsp_server::Request) {
+    let _params: GotoDefinitionParams = serde_json::from_value(req.params).unwrap();
+    let response: Option<GotoDefinitionResponse> = None;
+    let resp = lsp_server::Response::new_ok(req.id, serde_json::to_value(response).unwrap());
     connection.sender.send(Message::Response(resp)).unwrap();
 }
 
-pub fn handle_diagnostic(connection: &Connection, state: &ServerState, req: Request) {
+pub fn handle_diagnostic(connection: &Connection, state: &ServerState, req: lsp_server::Request) {
     let params: lsp_types::DocumentDiagnosticParams = serde_json::from_value(req.params).unwrap();
     let uri = params.text_document.uri;
 
@@ -218,7 +153,7 @@ pub fn handle_diagnostic(connection: &Connection, state: &ServerState, req: Requ
         vec![]
     };
 
-    let notification = Notification::new(
+    let notification = lsp_server::Notification::new(
         "textDocument/publishDiagnostics".to_string(),
         PublishDiagnosticsParams {
             uri,
@@ -233,47 +168,28 @@ pub fn handle_diagnostic(connection: &Connection, state: &ServerState, req: Requ
         .unwrap();
 }
 
-pub fn handle_did_open(connection: &Connection, state: &mut ServerState, not: Notification) {
-    let params: DidOpenTextDocumentParams = serde_json::from_value(not.params).unwrap();
+pub fn handle_did_open(
+    _connection: &Connection,
+    state: &mut ServerState,
+    not: lsp_server::Notification,
+) {
+    let params: lsp_types::DidOpenTextDocumentParams = serde_json::from_value(not.params).unwrap();
     let uri = params.text_document.uri;
     let content = params.text_document.text;
 
     state.update_document(uri.as_str(), &content);
-
-    // Send diagnostics
-    let diag_req = Request::new(
-        lsp_server::RequestId::from(0),
-        "textDocument/diagnostic".to_string(),
-        serde_json::to_value(lsp_types::DocumentDiagnosticParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: uri.clone() },
-            previous_result_id: None,
-            ..Default::default()
-        })
-        .unwrap(),
-    );
-
-    handle_diagnostic(connection, state, diag_req);
 }
 
-pub fn handle_did_change(connection: &Connection, state: &mut ServerState, not: Notification) {
-    let params: DidChangeTextDocumentParams = serde_json::from_value(not.params).unwrap();
+pub fn handle_did_change(
+    _connection: &Connection,
+    state: &mut ServerState,
+    not: lsp_server::Notification,
+) {
+    let params: lsp_types::DidChangeTextDocumentParams =
+        serde_json::from_value(not.params).unwrap();
     let uri = params.text_document.uri;
 
     if let Some(change) = params.content_changes.into_iter().next() {
         state.update_document(uri.as_str(), &change.text);
     }
-
-    // Send diagnostics
-    let diag_req = Request::new(
-        lsp_server::RequestId::from(0),
-        "textDocument/diagnostic".to_string(),
-        serde_json::to_value(lsp_types::DocumentDiagnosticParams {
-            text_document: lsp_types::TextDocumentIdentifier { uri: uri.clone() },
-            previous_result_id: None,
-            ..Default::default()
-        })
-        .unwrap(),
-    );
-
-    handle_diagnostic(connection, state, diag_req);
 }

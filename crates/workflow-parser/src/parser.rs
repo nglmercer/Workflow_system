@@ -9,8 +9,8 @@ pub struct FlowParser;
 
 impl FlowParser {
     pub fn parse_program(input: &str) -> Result<Vec<Stmt>, String> {
-        let pairs = FlowParser::parse(Rule::program, input)
-            .map_err(|e| format!("Parse error: {}", e))?;
+        let pairs =
+            FlowParser::parse(Rule::program, input).map_err(|e| format!("Parse error: {}", e))?;
 
         let mut stmts = Vec::new();
         for pair in pairs {
@@ -45,39 +45,30 @@ fn parse_var_decl(pair: pest::iterators::Pair<Rule>) -> Stmt {
     let mut name = None;
     let mut value = None;
     for inner in pair.into_inner() {
-        match inner.as_rule() {
-            Rule::IDENT => {
-                if name.is_none() {
-                    name = Some(inner.as_str().to_string());
-                }
-            }
-            Rule::expr => {
-                value = Some(parse_expr(inner));
-            }
-            _ => {}
+        if matches!(inner.as_rule(), Rule::IDENT) && name.is_none() {
+            name = Some(inner.as_str().to_string());
+        } else if matches!(inner.as_rule(), Rule::expr) {
+            value = Some(parse_expr(inner));
         }
     }
-    Stmt::VarDecl { name: name.unwrap_or_default(), value }
+    Stmt::VarDecl {
+        name: name.unwrap_or_default(),
+        value,
+    }
 }
 
 fn parse_if(pair: pest::iterators::Pair<Rule>) -> Stmt {
     let mut condition = None;
     let mut then_body = Vec::new();
-    
+
     for inner in pair.into_inner() {
-        match inner.as_rule() {
-            Rule::expr => {
-                if condition.is_none() {
-                    condition = Some(parse_expr(inner));
-                }
-            }
-            Rule::block => {
-                then_body = parse_block(inner);
-            }
-            _ => {}
+        if matches!(inner.as_rule(), Rule::expr) && condition.is_none() {
+            condition = Some(parse_expr(inner));
+        } else if matches!(inner.as_rule(), Rule::block) {
+            then_body = parse_block(inner);
         }
     }
-    
+
     Stmt::If {
         condition: condition.unwrap_or(Expr::Bool(true)),
         then_body,
@@ -86,7 +77,11 @@ fn parse_if(pair: pest::iterators::Pair<Rule>) -> Stmt {
 }
 
 fn parse_log(pair: pest::iterators::Pair<Rule>) -> Stmt {
-    let expr = pair.into_inner().next().map(|p| parse_expr(p)).unwrap_or(Expr::Null);
+    let expr = pair
+        .into_inner()
+        .next()
+        .map(|p| parse_expr(p))
+        .unwrap_or(Expr::Null);
     Stmt::Log(expr)
 }
 
@@ -94,24 +89,17 @@ fn parse_foreach(pair: pest::iterators::Pair<Rule>) -> Stmt {
     let mut item_var = None;
     let mut iterable = None;
     let mut body = Vec::new();
-    
+
     for inner in pair.into_inner() {
-        match inner.as_rule() {
-            Rule::IDENT => {
-                if item_var.is_none() {
-                    item_var = Some(inner.as_str().to_string());
-                }
-            }
-            Rule::expr => {
-                iterable = Some(parse_expr(inner));
-            }
-            Rule::block => {
-                body = parse_block(inner);
-            }
-            _ => {}
+        if matches!(inner.as_rule(), Rule::IDENT) && item_var.is_none() {
+            item_var = Some(inner.as_str().to_string());
+        } else if matches!(inner.as_rule(), Rule::expr) {
+            iterable = Some(parse_expr(inner));
+        } else if matches!(inner.as_rule(), Rule::block) {
+            body = parse_block(inner);
         }
     }
-    
+
     Stmt::Foreach {
         item_var: item_var.unwrap_or_default(),
         iterable: iterable.unwrap_or(Expr::Null),
@@ -138,13 +126,17 @@ fn parse_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
 fn parse_additive(pair: pest::iterators::Pair<Rule>) -> Expr {
     let mut children: Vec<_> = pair.into_inner().collect();
     let mut result = parse_multiplicative(children.remove(0));
-    
+
     while !children.is_empty() {
         let op_str = children.remove(0).as_str();
         let right = parse_multiplicative(children.remove(0));
         result = Expr::binary(
-            match op_str { "+" => BinaryOp::Add, _ => BinaryOp::Sub },
-            result, right
+            match op_str {
+                "+" => BinaryOp::Add,
+                _ => BinaryOp::Sub,
+            },
+            result,
+            right,
         );
     }
     result
@@ -153,13 +145,17 @@ fn parse_additive(pair: pest::iterators::Pair<Rule>) -> Expr {
 fn parse_multiplicative(pair: pest::iterators::Pair<Rule>) -> Expr {
     let mut children: Vec<_> = pair.into_inner().collect();
     let mut result = parse_unary(children.remove(0));
-    
+
     while !children.is_empty() {
         let op_str = children.remove(0).as_str();
         let right = parse_unary(children.remove(0));
         result = Expr::binary(
-            match op_str { "*" => BinaryOp::Mul, _ => BinaryOp::Div },
-            result, right
+            match op_str {
+                "*" => BinaryOp::Mul,
+                _ => BinaryOp::Div,
+            },
+            result,
+            right,
         );
     }
     result
@@ -186,7 +182,7 @@ fn parse_literal(pair: pest::iterators::Pair<Rule>) -> Expr {
     match inner.as_rule() {
         Rule::STRING => {
             let s = inner.as_str();
-            Expr::String(s[1..s.len()-1].to_string())
+            Expr::String(s[1..s.len() - 1].to_string())
         }
         Rule::NUMBER => {
             let n: f64 = inner.as_str().parse().unwrap_or(0.0);
@@ -202,13 +198,13 @@ fn parse_call(pair: pest::iterators::Pair<Rule>) -> Expr {
     let mut inner = pair.into_inner();
     let name = inner.next().unwrap().as_str().to_string();
     let mut args = Vec::new();
-    
+
     for p in inner {
         if p.as_rule() == Rule::expr {
             args.push(parse_expr(p));
         }
     }
-    
+
     Expr::call(name, args)
 }
 

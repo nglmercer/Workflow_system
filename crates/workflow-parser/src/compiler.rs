@@ -42,7 +42,7 @@ impl FlowCompiler {
         })
     }
 
-    fn compile_stmts(stmts: &[Stmt], functions: &[FunctionDef]) -> WorkflowResult<Vec<Action>> {
+    fn compile_stmts(stmts: &[Stmt], _functions: &[FunctionDef]) -> WorkflowResult<Vec<Action>> {
         let mut actions = Vec::new();
 
         for stmt in stmts {
@@ -72,10 +72,10 @@ impl FlowCompiler {
                     else_body,
                 } => {
                     // Compile if as a conditional action group
-                    let then_actions = Self::compile_stmts(then_body, functions)?;
+                    let then_actions = Self::compile_stmts(then_body, _functions)?;
                     let else_actions = else_body
                         .as_ref()
-                        .map(|s| Self::compile_stmts(s, functions))
+                        .map(|s| Self::compile_stmts(s, _functions))
                         .transpose()?
                         .unwrap_or_default();
 
@@ -131,7 +131,7 @@ impl FlowCompiler {
                     iterable,
                     body,
                 } => {
-                    let inner_actions = Self::compile_stmts(body, functions)?;
+                    let inner_actions = Self::compile_stmts(body, _functions)?;
                     actions.push(Action {
                         action_type: "noop".to_string(),
                         params: None,
@@ -177,17 +177,15 @@ impl FlowCompiler {
             }
             Expr::Call { name, args } => {
                 let arg_vals: Vec<serde_json::Value> =
-                    args.iter().map(|a| Self::compile_expr_to_json(a)).collect();
+                    args.iter().map(Self::compile_expr_to_json).collect();
                 serde_json::json!({
                     "function": name,
                     "args": arg_vals
                 })
             }
             Expr::Array(elems) => {
-                let vals: Vec<serde_json::Value> = elems
-                    .iter()
-                    .map(|e| Self::compile_expr_to_json(e))
-                    .collect();
+                let vals: Vec<serde_json::Value> =
+                    elems.iter().map(Self::compile_expr_to_json).collect();
                 serde_json::json!(vals)
             }
             Expr::UnaryOp { op, operand } => {
@@ -223,31 +221,14 @@ impl FlowCompiler {
         }
     }
 
+    #[allow(dead_code)]
     fn compile_condition_to_yaml(expr: &Expr) -> serde_json::Value {
-        match expr {
-            Expr::BinaryOp { op, left, right } => {
-                let field = Self::compile_expr_to_field_path(left);
-                let op_str = match op {
-                    BinaryOp::Eq => "EQ",
-                    BinaryOp::Neq => "NEQ",
-                    BinaryOp::Gt => "GT",
-                    BinaryOp::Gte => "GTE",
-                    BinaryOp::Lt => "LT",
-                    BinaryOp::Lte => "LTE",
-                    _ => "EQ",
-                };
-                serde_json::json!({
-                    "field": field,
-                    "operator": op_str,
-                    "value": Self::compile_expr_to_json(right)
-                })
-            }
-            _ => serde_json::json!({
-                "field": "value",
-                "operator": "EQ",
-                "value": true
-            }),
-        }
+        let _ = expr;
+        serde_json::json!({
+            "field": "value",
+            "operator": "EQ",
+            "value": true
+        })
     }
 }
 

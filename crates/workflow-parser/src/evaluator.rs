@@ -39,7 +39,7 @@ impl Value {
             serde_json::Value::Bool(b) => Value::Bool(*b),
             serde_json::Value::Null => Value::Null,
             serde_json::Value::Array(arr) => {
-                Value::Array(arr.iter().map(|v| Value::from_json(v)).collect())
+                Value::Array(arr.iter().map(Value::from_json).collect())
             }
             serde_json::Value::Object(map) => Value::Object(
                 map.iter()
