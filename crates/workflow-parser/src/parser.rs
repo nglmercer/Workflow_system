@@ -43,16 +43,11 @@ impl FlowParser {
                         program.workflows.push(parse_workflow_def(inner));
                     }
                     _ => {
-                        if let Some(stmt) = parse_stmt(inner) {
-                            match stmt {
-                                Stmt::VarDecl { name, value } => {
-                                    program.globals.push(GlobalVar {
-                                        name,
-                                        value: value.unwrap_or(Expr::Null),
-                                    });
-                                }
-                                _ => {}
-                            }
+                        if let Some(Stmt::VarDecl { name, value }) = parse_stmt(inner) {
+                            program.globals.push(GlobalVar {
+                                name,
+                                value: value.unwrap_or(Expr::Null),
+                            });
                         }
                     }
                 }
@@ -337,10 +332,10 @@ fn parse_expr_text(text: &str) -> Expr {
             return parse_binary_text(binary_op, &text[..index], &text[index + 1..]);
         }
     }
-    if text.starts_with('!') {
+    if let Some(stripped) = text.strip_prefix('!') {
         return Expr::UnaryOp {
             op: UnaryOp::Not,
-            operand: Box::new(parse_expr_text(&text[1..])),
+            operand: Box::new(parse_expr_text(stripped)),
         };
     }
     if text.starts_with('-') && text.len() > 1 {
