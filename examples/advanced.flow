@@ -16,13 +16,13 @@ fn validateEmail(email) {
 // Workflows
 workflow "User Registration" {
   on USER_REGISTERED
-  
+
   if (validateEmail(data.email)) {
     log("Valid email: " + data.email)
   } else {
     log("Invalid email: " + data.email)
   }
-  
+
   if (data.plan == "premium") {
     log("Premium user registration")
   }
@@ -30,7 +30,7 @@ workflow "User Registration" {
 
 workflow "Batch Processing" {
   on BATCH_START
-  
+
   foreach (item in data.items) {
     log("Processing batch item: " + item.id)
     if (item.priority == "high") {
@@ -41,7 +41,7 @@ workflow "Batch Processing" {
 
 workflow "Complex Conditions" {
   on COMPLEX_EVENT
-  
+
   if (data.value > 100 && data.type == "important") {
     log("Important high value event")
   } else if (data.value > 50 || data.urgent == true) {
@@ -51,10 +51,11 @@ workflow "Complex Conditions" {
   }
 }
 
-workflow "Nested Loops" {
+workflow "Nested Loops" ({users,meta}) {
   on NESTED_DATA
-  
-  foreach (user in data.users) {
+  //data.users and data.meta
+  log("Users: " + users.length + ", Meta: " + meta.length)
+  foreach (user in users) {
     log("User: " + user.name)
     foreach (order in user.orders) {
       log("  Order: " + order.id)
@@ -67,11 +68,11 @@ workflow "Nested Loops" {
 
 workflow "Math Operations" {
   on CALCULATE
-  
+
   var x = 10
   var y = 20
   var result = x + y * 2
-  
+
   if (result > 50) {
     log("Result is large: " + result)
   } else {
