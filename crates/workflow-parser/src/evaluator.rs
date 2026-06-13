@@ -59,6 +59,15 @@ impl Value {
             Value::Object(map) => !map.is_empty(),
         }
     }
+
+    pub fn len(&self) -> usize {
+        match self {
+            Value::String(s) => s.len(),
+            Value::Array(arr) => arr.len(),
+            Value::Object(map) => map.len(),
+            _ => 0,
+        }
+    }
 }
 
 impl std::fmt::Display for Value {
@@ -94,13 +103,11 @@ impl FlowEvaluator {
     }
 
     pub fn load_program(&mut self, program: &FlowProgram) {
-        // Load global variables
         for g in &program.globals {
             let value = self.eval_expr(&g.value, &HashMap::new());
             self.globals.insert(g.name.clone(), value);
         }
 
-        // Load functions
         for f in &program.functions {
             self.functions.insert(f.name.clone(), f.clone());
         }
@@ -117,6 +124,16 @@ impl FlowEvaluator {
         vars.insert("data".to_string(), Value::from_json(&context.data));
         if let Some(ref ctx_vars) = context.vars {
             vars.insert("vars".to_string(), Value::from_json(ctx_vars));
+        }
+
+        // If workflow has destructuring params, extract them from data
+        if !workflow.params.is_empty() {
+            if let Value::Object(ref data_map) = Value::from_json(&context.data) {
+                for param in &workflow.params {
+                    let val = data_map.get(param).cloned().unwrap_or(Value::Null);
+                    vars.insert(param.clone(), val);
+                }
+            }
         }
 
         for stmt in &workflow.body {
@@ -161,10 +178,7 @@ impl FlowEvaluator {
                 }
                 Ok(false)
             }
-            Stmt::Return { value: _ } => {
-                // Return is not used in workflow context, just ignore
-                Ok(false)
-            }
+            Stmt::Return { value: _ } => Ok(false),
             Stmt::Expr(expr) => {
                 self.eval_expr(expr, vars);
                 Ok(false)
@@ -192,6 +206,10 @@ impl FlowEvaluator {
                 }
                 Ok(false)
             }
+            Stmt::On(_) => {
+                // On is handled at workflow level, skip during body execution
+                Ok(false)
+            }
         }
     }
 
@@ -208,11 +226,20 @@ impl FlowEvaluator {
                 .unwrap_or(Value::Null),
             Expr::Member { object, property } => {
                 let obj = self.eval_expr(object, vars);
-                match obj {
+                match &obj {
                     Value::Object(map) => map.get(property).cloned().unwrap_or(Value::Null),
                     Value::Array(arr) => {
-                        if let Ok(idx) = property.parse::<usize>() {
+                        if property == "length" {
+                            Value::Number(arr.len() as f64)
+                        } else if let Ok(idx) = property.parse::<usize>() {
                             arr.get(idx).cloned().unwrap_or(Value::Null)
+                        } else {
+                            Value::Null
+                        }
+                    }
+                    Value::String(s) => {
+                        if property == "length" {
+                            Value::Number(s.len() as f64)
                         } else {
                             Value::Null
                         }
@@ -263,6 +290,8 @@ impl FlowEvaluator {
         match op {
             BinaryOp::Add => match (left, right) {
                 (Value::String(a), Value::String(b)) => Value::String(format!("{}{}", a, b)),
+                (Value::String(a), b) => Value::String(format!("{}{}", a, b)),
+                (a, Value::String(b)) => Value::String(format!("{}{}", a, b)),
                 (Value::Number(a), Value::Number(b)) => Value::Number(a + b),
                 _ => Value::Null,
             },
@@ -335,11 +364,7 @@ impl FlowEvaluator {
             }
             "len" => {
                 if let Some(val) = args.first() {
-                    match val {
-                        Value::String(s) => Value::Number(s.len() as f64),
-                        Value::Array(arr) => Value::Number(arr.len() as f64),
-                        _ => Value::Number(0.0),
-                    }
+                    Value::Number(val.len() as f64)
                 } else {
                     Value::Number(0.0)
                 }
@@ -366,9 +391,7 @@ impl FlowEvaluator {
                 }
             }
             _ => {
-                // Check user-defined functions
                 if let Some(_func) = self.functions.get(name) {
-                    // Simplified: just execute the body
                     Value::Null
                 } else {
                     Value::Null
@@ -424,5 +447,36 @@ mod tests {
 
         let result = evaluator.eval_expr(&expr, &vars);
         assert!(matches!(result, Value::String(s) if s == "Hello World"));
+    }
+
+    #[test]
+    fn test_eval_array_length() {
+        let mut evaluator = FlowEvaluator::new();
+        let mut vars = HashMap::new();
+        let mut obj = HashMap::new();
+        obj.insert(
+            "items".to_string(),
+            Value::Array(vec![
+                Value::Number(1.0),
+                Value::Number(2.0),
+                Value::Number(3.0),
+            ]),
+        );
+        vars.insert("data".to_string(), Value::Object(obj));
+
+        let expr = Expr::member(Expr::member(Expr::var("data"), "items"), "length");
+        let result = evaluator.eval_expr(&expr, &vars);
+        assert!(matches!(result, Value::Number(3.0)));
+    }
+
+    #[test]
+    fn test_eval_string_length() {
+        let mut evaluator = FlowEvaluator::new();
+        let mut vars = HashMap::new();
+        vars.insert("name".to_string(), Value::String("hello".to_string()));
+
+        let expr = Expr::member(Expr::var("name"), "length");
+        let result = evaluator.eval_expr(&expr, &vars);
+        assert!(matches!(result, Value::Number(5.0)));
     }
 }

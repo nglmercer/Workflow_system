@@ -28,6 +28,7 @@ pub struct FunctionDef {
 pub struct WorkflowDef {
     pub name: String,
     pub event: String,
+    pub params: Vec<String>,
     pub body: Vec<Stmt>,
 }
 
@@ -53,6 +54,7 @@ pub enum Stmt {
         iterable: Expr,
         body: Vec<Stmt>,
     },
+    On(String),
 }
 
 /// Expression types

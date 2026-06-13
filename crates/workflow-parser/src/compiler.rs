@@ -20,7 +20,15 @@ impl FlowCompiler {
         workflow: &WorkflowDef,
         functions: &[FunctionDef],
     ) -> WorkflowResult<TriggerRule> {
-        let actions = Self::compile_stmts(&workflow.body, functions)?;
+        let mut actions = Self::compile_stmts(&workflow.body, functions)?;
+
+        // If workflow has destructuring params, wrap actions with destructuring
+        if !workflow.params.is_empty() {
+            let destructure_actions = Self::compile_destructure_params(&workflow.params);
+            let mut all_actions = destructure_actions;
+            all_actions.extend(actions);
+            actions = all_actions;
+        }
 
         Ok(TriggerRule {
             metadata: RuleMetadata {
@@ -40,6 +48,33 @@ impl FlowCompiler {
                 ActionOrGroup::Multiple(actions)
             },
         })
+    }
+
+    fn compile_destructure_params(params: &[String]) -> Vec<Action> {
+        let mut actions = Vec::new();
+
+        for param in params {
+            actions.push(Action {
+                action_type: "set_var".to_string(),
+                params: Some({
+                    let mut m = std::collections::HashMap::new();
+                    m.insert("key".to_string(), serde_json::json!(param));
+                    m.insert(
+                        "value".to_string(),
+                        serde_json::json!(format!("${{data.{}}}", param)),
+                    );
+                    m
+                }),
+                delay: None,
+                probability: None,
+                retry: None,
+                foreach: None,
+                r#while: None,
+                repeat: None,
+            });
+        }
+
+        actions
     }
 
     fn compile_stmts(stmts: &[Stmt], _functions: &[FunctionDef]) -> WorkflowResult<Vec<Action>> {
@@ -67,11 +102,10 @@ impl FlowCompiler {
                     });
                 }
                 Stmt::If {
-                    condition: _,
+                    condition,
                     then_body,
                     else_body,
                 } => {
-                    // Compile if as a conditional action group
                     let then_actions = Self::compile_stmts(then_body, _functions)?;
                     let else_actions = else_body
                         .as_ref()
@@ -79,9 +113,56 @@ impl FlowCompiler {
                         .transpose()?
                         .unwrap_or_default();
 
-                    // For now, just add then_actions (simplified)
-                    actions.extend(then_actions);
-                    actions.extend(else_actions);
+                    let mut group_actions = Vec::new();
+
+                    if !then_actions.is_empty() {
+                        group_actions.push(Action {
+                            action_type: "noop".to_string(),
+                            params: Some({
+                                let mut m = std::collections::HashMap::new();
+                                m.insert(
+                                    "condition".to_string(),
+                                    Self::compile_expr_to_json(condition),
+                                );
+                                m.insert("branch".to_string(), serde_json::json!("then"));
+                                m
+                            }),
+                            delay: None,
+                            probability: None,
+                            retry: None,
+                            foreach: None,
+                            r#while: None,
+                            repeat: None,
+                        });
+                        group_actions.extend(then_actions);
+                    }
+
+                    if !else_actions.is_empty() {
+                        group_actions.push(Action {
+                            action_type: "noop".to_string(),
+                            params: Some({
+                                let mut m = std::collections::HashMap::new();
+                                m.insert(
+                                    "condition".to_string(),
+                                    serde_json::json!({
+                                        "op": "Not",
+                                        "operand": Self::compile_expr_to_json(condition)
+                                    }),
+                                );
+                                m.insert("branch".to_string(), serde_json::json!("else"));
+                                m
+                            }),
+                            delay: None,
+                            probability: None,
+                            retry: None,
+                            foreach: None,
+                            r#while: None,
+                            repeat: None,
+                        });
+                        group_actions.extend(else_actions);
+                    }
+
+                    actions.extend(group_actions);
                 }
                 Stmt::Log(expr) => {
                     actions.push(Action {
@@ -100,11 +181,8 @@ impl FlowCompiler {
                         repeat: None,
                     });
                 }
-                Stmt::Return { .. } => {
-                    // Return is not used in workflow context
-                }
+                Stmt::Return { .. } => {}
                 Stmt::Expr(Expr::Call { name, args }) => {
-                    // Handle function calls
                     actions.push(Action {
                         action_type: name.clone(),
                         params: Some(
@@ -123,9 +201,7 @@ impl FlowCompiler {
                         repeat: None,
                     });
                 }
-                Stmt::Expr(_) => {
-                    // Other expressions are ignored
-                }
+                Stmt::Expr(_) => {}
                 Stmt::Foreach {
                     item_var,
                     iterable,
@@ -149,6 +225,7 @@ impl FlowCompiler {
                         repeat: None,
                     });
                 }
+                Stmt::On(_) => {}
             }
         }
 
@@ -220,16 +297,6 @@ impl FlowCompiler {
             _ => "value".to_string(),
         }
     }
-
-    #[allow(dead_code)]
-    fn compile_condition_to_yaml(expr: &Expr) -> serde_json::Value {
-        let _ = expr;
-        serde_json::json!({
-            "field": "value",
-            "operator": "EQ",
-            "value": true
-        })
-    }
 }
 
 fn slugify(s: &str) -> String {
@@ -252,6 +319,7 @@ mod tests {
             workflows: vec![WorkflowDef {
                 name: "Test Workflow".to_string(),
                 event: "TEST_EVENT".to_string(),
+                params: vec![],
                 body: vec![Stmt::Log(Expr::string("Hello World"))],
             }],
         };
@@ -259,5 +327,68 @@ mod tests {
         let rules = FlowCompiler::compile(&program).unwrap();
         assert_eq!(rules.len(), 1);
         assert_eq!(rules[0].on, "TEST_EVENT");
+    }
+
+    #[test]
+    fn test_compile_workflow_with_params() {
+        let program = FlowProgram {
+            globals: vec![],
+            functions: vec![],
+            workflows: vec![WorkflowDef {
+                name: "Nested Loops".to_string(),
+                event: "NESTED_DATA".to_string(),
+                params: vec!["users".to_string(), "meta".to_string()],
+                body: vec![Stmt::Log(Expr::binary(
+                    BinaryOp::Add,
+                    Expr::string("Users: "),
+                    Expr::member(Expr::var("users"), "length"),
+                ))],
+            }],
+        };
+
+        let rules = FlowCompiler::compile(&program).unwrap();
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].on, "NESTED_DATA");
+        match &rules[0].r#do {
+            ActionOrGroup::Multiple(actions) => {
+                // 2 destructure actions + 1 log action
+                assert_eq!(actions.len(), 3);
+                assert_eq!(actions[0].action_type, "set_var");
+                assert_eq!(actions[1].action_type, "set_var");
+                assert_eq!(actions[2].action_type, "log_message");
+            }
+            _ => panic!("Expected Multiple actions"),
+        }
+    }
+
+    #[test]
+    fn test_compile_foreach() {
+        let program = FlowProgram {
+            globals: vec![],
+            functions: vec![],
+            workflows: vec![WorkflowDef {
+                name: "Loop Workflow".to_string(),
+                event: "LOOP_EVENT".to_string(),
+                params: vec![],
+                body: vec![Stmt::Foreach {
+                    item_var: "item".to_string(),
+                    iterable: Expr::member(Expr::var("data"), "items"),
+                    body: vec![Stmt::Log(Expr::var("item"))],
+                }],
+            }],
+        };
+
+        let rules = FlowCompiler::compile(&program).unwrap();
+        assert_eq!(rules.len(), 1);
+        match &rules[0].r#do {
+            ActionOrGroup::Single(action) => {
+                assert!(action.foreach.is_some());
+                let foreach = action.foreach.as_ref().unwrap();
+                assert_eq!(foreach.field, "data.items");
+                assert_eq!(foreach.item_var, "item");
+                assert_eq!(foreach.actions.len(), 1);
+            }
+            _ => panic!("Expected Single action"),
+        }
     }
 }

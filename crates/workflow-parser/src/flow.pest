@@ -1,5 +1,3 @@
-// Simplified grammar for .flow files
-
 WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
 COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
 
@@ -7,30 +5,47 @@ COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
 IDENT = @{ ASCII_ALPHA ~ (ASCII_ALPHA | ASCII_DIGIT | "_")* }
 STRING = @{ "\"" ~ CHAR* ~ "\"" }
 CHAR = { "\\\\" | "\\n" | "\\t" | "\\\\\"" | (!"\"" ~ ANY) }
-NUMBER = @{ ASCII_DIGIT+ }
+NUMBER = @{ "-"? ~ ASCII_DIGIT+ ~ ("." ~ ASCII_DIGIT+)? }
 
-// Expressions
-expr = { additive }
+// Expressions with full operator support
+expr = { or_expr }
+or_expr = { and_expr ~ ("||" ~ and_expr)* }
+and_expr = { comparison ~ ("&&" ~ comparison)* }
+comparison = { additive ~ (("==" | "!=" | "<" | ">" | "<=" | ">=") ~ additive)? }
 additive = { multiplicative ~ (("+" | "-") ~ multiplicative)* }
 multiplicative = { unary ~ (("*" | "/") ~ unary)* }
-unary = { primary }
-primary = { call | group | literal | var_ref }
-
+unary = { ("!" | "-")? ~ primary }
+primary = { atom ~ ("." ~ IDENT)* }
+atom = { call | group | array | literal | var_ref }
+call = { IDENT ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+group = { "(" ~ expr ~ ")" }
+array = { "[" ~ (expr ~ ("," ~ expr)*)? ~ "]" }
+var_ref = { IDENT }
 literal = { STRING | NUMBER | bool_lit | NULL }
 bool_lit = _{ "true" | "false" }
 NULL = _{ "null" }
-var_ref = { IDENT }
-group = { "(" ~ expr ~ ")" }
-call = { IDENT ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
 
 // Statements
-stmt = { var_decl | if_stmt | log_stmt | foreach_stmt | expr_stmt }
+stmt = { var_decl | if_stmt | log_stmt | foreach_stmt | on_stmt | return_stmt | expr_stmt }
 var_decl = { "var" ~ IDENT ~ ("=" ~ expr)? }
 block = { "{" ~ stmt* ~ "}" }
-if_stmt = { "if" ~ "(" ~ expr ~ ")" ~ block }
+if_stmt = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ block)? }
 log_stmt = { "log" ~ "(" ~ expr ~ ")" }
 foreach_stmt = { "foreach" ~ "(" ~ IDENT ~ "in" ~ expr ~ ")" ~ block }
-expr_stmt = { call }
+on_stmt = { "on" ~ IDENT }
+return_stmt = { "return" ~ expr? }
+expr_stmt = { IDENT ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
+
+// Destructuring parameters
+destructure_var = { IDENT }
+destructure_list = { destructure_var ~ ("," ~ destructure_var)* }
+destructure_params = { "({" ~ destructure_list ~ "})" }
+
+// Function definition
+fn_def = { "fn" ~ IDENT ~ "(" ~ (IDENT ~ ("," ~ IDENT)*)? ~ ")" ~ block }
+
+// Workflow definition
+workflow_def = { "workflow" ~ STRING ~ destructure_params? ~ block }
 
 // Top level
-program = { stmt* }
+program = { (fn_def | workflow_def | stmt)* }
