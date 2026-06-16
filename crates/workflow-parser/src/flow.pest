@@ -15,7 +15,12 @@ comparison = { additive ~ (("==" | "!=" | "<" | ">" | "<=" | ">=") ~ additive)? 
 additive = { multiplicative ~ (("+" | "-") ~ multiplicative)* }
 multiplicative = { unary ~ (("*" | "/") ~ unary)* }
 unary = { ("!" | "-")? ~ primary }
-primary = { atom ~ ("." ~ IDENT)* }
+// `primary` chains member (`.x`) and index (`[i]`) access on
+// top of an atom. `data.items[0].price` is parsed as
+// index(member(var(data), items), 0) then member(., price).
+// (No separate `index` rule is needed — `array` already covers
+// `[expr]` and the chain just glues it on.)
+primary = { atom ~ (("." ~ IDENT) | ("[" ~ expr ~ "]"))* }
 atom = { call | group | array | literal | var_ref }
 call = { IDENT ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
 group = { "(" ~ expr ~ ")" }
@@ -26,8 +31,14 @@ bool_lit = _{ "true" | "false" }
 NULL = _{ "null" }
 
 // Statements
-stmt = { var_decl | if_stmt | log_stmt | foreach_stmt | on_stmt | return_stmt | expr_stmt }
+stmt = { var_decl | assign_stmt | if_stmt | log_stmt | foreach_stmt | on_stmt | return_stmt | expr_stmt }
 var_decl = { "var" ~ IDENT ~ ("=" ~ expr)? }
+// Reassignment to an existing variable. `total = total + 1`,
+// `greeting = "Hi " + name`, etc. Distinguished from
+// `expr_stmt` by the presence of `=`: `expr_stmt` only matches
+// `IDENT(` (a function call), so an `IDENT = expr` form falls
+// through to this rule.
+assign_stmt = { IDENT ~ "=" ~ expr }
 block = { "{" ~ stmt* ~ "}" }
 if_stmt = { "if" ~ "(" ~ expr ~ ")" ~ block ~ ("else" ~ (if_stmt | block))? }
 log_stmt = { "log" ~ "(" ~ expr ~ ")" }
@@ -36,10 +47,20 @@ on_stmt = { "on" ~ IDENT ~ destructure_params? }
 return_stmt = { "return" ~ expr? }
 expr_stmt = { IDENT ~ "(" ~ (expr ~ ("," ~ expr)*)? ~ ")" }
 
-// Destructuring parameters
+// Destructuring parameters. Two forms:
+//   (name)             — single binding, no braces
+//   ({a, b, c})        — multi-binding, with braces
+// The single-binding form lets a workflow rename `data` to
+// something more domain-specific without writing the full
+// `({a})` syntax. PEG ordering: try the multi-binding form
+// first (more specific), then the single-binding form, then
+// fail (no destructure).
 destructure_var = { IDENT }
 destructure_list = { destructure_var ~ ("," ~ destructure_var)* }
-destructure_params = { "({" ~ destructure_list ~ "})" }
+destructure_params = {
+    "({" ~ destructure_list ~ "})"
+  | "(" ~ destructure_list ~ ")"
+}
 
 // Function definition
 fn_def = { "fn" ~ IDENT ~ "(" ~ (IDENT ~ ("," ~ IDENT)*)? ~ ")" ~ block }

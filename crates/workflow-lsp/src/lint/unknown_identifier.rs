@@ -62,6 +62,7 @@ fn check_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
                 check_stmts(cx, body, out);
             }
             Stmt::On { .. } => {}
+            Stmt::Assign { value, .. } => check_expr(cx, value, out),
         }
     }
 }

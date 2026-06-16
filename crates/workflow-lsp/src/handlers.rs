@@ -60,6 +60,8 @@ pub fn handle_completion(connection: &Connection, state: &ServerState, req: lsp_
                 features::CompletionKind::Variable => lsp_types::CompletionItemKind::VARIABLE,
                 features::CompletionKind::Value => lsp_types::CompletionItemKind::VALUE,
                 features::CompletionKind::Property => lsp_types::CompletionItemKind::PROPERTY,
+                features::CompletionKind::Field => lsp_types::CompletionItemKind::FIELD,
+                features::CompletionKind::File => lsp_types::CompletionItemKind::FILE,
             };
             lsp_types::CompletionItem {
                 label: c.label,

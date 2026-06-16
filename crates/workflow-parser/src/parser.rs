@@ -26,7 +26,6 @@ impl FlowParser {
     pub fn parse_flow_program(input: &str) -> Result<FlowProgram, String> {
         let pairs =
             FlowParser::parse(Rule::program, input).map_err(|e| format!("Parse error: {}", e))?;
-
         let mut program = FlowProgram {
             imports: Vec::new(),
             globals: Vec::new(),
@@ -53,7 +52,12 @@ impl FlowParser {
                     Rule::comment => {
                         // Top-level comment — ignored.
                     }
-                    _ => {
+                    other => {
+                        // Anything that matched `stmt` at the
+                        // top level (e.g. `var x = ...` declarations)
+                        // becomes a global binding. Anything else
+                        // is silently dropped.
+                        let _ = other;
                         if let Some(Stmt::VarDecl { name, value }) = parse_stmt(inner) {
                             program.globals.push(GlobalVar {
                                 name,
@@ -78,6 +82,7 @@ fn parse_stmt(pair: pest::iterators::Pair<Rule>) -> Option<Stmt> {
 
     match inner.as_rule() {
         Rule::var_decl => Some(parse_var_decl(inner)),
+        Rule::assign_stmt => Some(parse_assign_stmt(inner)),
         Rule::return_stmt => Some(parse_return(inner)),
         Rule::if_stmt => Some(parse_if(inner)),
         Rule::log_stmt => Some(parse_log(inner)),
@@ -89,6 +94,21 @@ fn parse_stmt(pair: pest::iterators::Pair<Rule>) -> Option<Stmt> {
         }
         _ => None,
     }
+}
+
+fn parse_assign_stmt(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    let mut name = String::new();
+    let mut value = Expr::Null;
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::IDENT if name.is_empty() => {
+                name = inner.as_str().to_string();
+            }
+            Rule::expr => value = parse_expr(inner),
+            _ => {}
+        }
+    }
+    Stmt::Assign { name, value }
 }
 
 fn parse_var_decl(pair: pest::iterators::Pair<Rule>) -> Stmt {
@@ -193,10 +213,20 @@ fn parse_on(pair: pest::iterators::Pair<Rule>) -> Stmt {
                 event = inner.as_str().to_string();
             }
             Rule::destructure_params => {
+                // Capture the source text *before* consuming
+                // the pair with `into_inner()` — we need the
+                // text below to distinguish the rename form
+                // `(name)` from the field-extraction form
+                // `({a, b})`.
+                let text = inner.as_str().to_string();
                 for param_pair in inner.into_inner() {
                     if param_pair.as_rule() == Rule::destructure_list {
                         params = parse_destructure_params(param_pair.as_str());
                     }
+                }
+                let is_rename = !text.contains('{') && params.len() == 1;
+                if is_rename {
+                    params.push("_rename".to_string());
                 }
             }
             _ => {}
@@ -462,6 +492,31 @@ fn parse_expect_clause(pair: pest::iterators::Pair<Rule>) -> Option<ExpectClause
     }
 }
 
+/// Parse a `value_literal` whose source text is a primitive
+/// (true / false / null). The silent rules `bool_lit` and
+/// `NULL` don't produce child pairs, so we dispatch on the
+/// raw text instead.
+fn parse_value_literal_text(text: &str) -> serde_json::Value {
+    let trimmed = text.trim();
+    match trimmed {
+        "true" => serde_json::Value::Bool(true),
+        "false" => serde_json::Value::Bool(false),
+        "null" => serde_json::Value::Null,
+        // Fall through to numeric parsing for things like
+        // `0.0` or `42`. The grammar doesn't otherwise
+        // produce silent leaves for these.
+        _ => {
+            if let Ok(n) = trimmed.parse::<i64>() {
+                serde_json::Value::from(n)
+            } else if let Ok(n) = trimmed.parse::<f64>() {
+                serde_json::json!(n)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+    }
+}
+
 fn json_to_string_vec(value: &serde_json::Value) -> Vec<String> {
     match value {
         serde_json::Value::Array(items) => items
@@ -482,12 +537,18 @@ fn value_literal_to_json(pair: pest::iterators::Pair<Rule>) -> serde_json::Value
     // always a single child of the alternative; the structural
     // rules contain their own children. Dispatch on the pair's own
     // rule first so we don't lose the structure.
+    //
+    // Note: `bool_lit` and `NULL` are silent rules (the `_` prefix
+    // in the grammar), so the leaf tokens for `true`/`false`/`null`
+    // never appear as children of a `value_literal` pair. We handle
+    // those by parsing the source text instead.
     match pair.as_rule() {
         Rule::value_literal => {
+            let text = pair.as_str();
             if let Some(inner) = pair.into_inner().next() {
                 value_literal_to_json(inner)
             } else {
-                serde_json::Value::Null
+                parse_value_literal_text(text)
             }
         }
         Rule::value_array => {
@@ -668,7 +729,35 @@ fn parse_atom_text(text: &str) -> Option<Expr> {
     }
     if let Some(index) = text.find('.') {
         let object = parse_atom_text(&text[..index])?;
-        return Some(Expr::member(object, text[index + 1..].trim()));
+        // Split the suffix on `.` and walk each segment as a
+        // nested member access. `data.user.name` is parsed
+        // as `Member(Member(Var(data), user), name)` rather
+        // than `Member(Var(data), "user.name")` (which the
+        // evaluator would treat as a single (missing) key).
+        let mut result = object;
+        for segment in text[index + 1..].split('.') {
+            let segment = segment.trim();
+            if segment.is_empty() {
+                return None;
+            }
+            result = Expr::member(result, segment);
+        }
+        return Some(result);
+    }
+    // Index access on an array value, e.g. `data.items[0]`.
+    // The grammar matches `[expr]` as a chain step, but the
+    // text-based parser walks the chain manually. We split
+    // at the first `[` and recurse on the index expression.
+    if let Some(bracket) = text.find('[') {
+        if text.ends_with(']') {
+            let object = parse_atom_text(text[..bracket].trim())?;
+            let index_expr = parse_expr_text(&text[bracket + 1..text.len() - 1]);
+            // The evaluator doesn't have a dedicated index
+            // expression; reuse the member access path with
+            // a numeric property name, which `Value::Array`
+            // already handles in its `Member` arm.
+            return Some(Expr::member(object, index_text(&index_expr)));
+        }
     }
     if is_ident(text) {
         return Some(Expr::Var(text.to_string()));
@@ -771,6 +860,28 @@ fn find_top_level_op(text: &str, op: &str) -> Option<usize> {
         index += 1;
     }
     None
+}
+
+/// Render an integer index expression back to its source
+/// form. `parse_expr_text` produced an `Expr::Number` for a
+/// literal; this turns it into the string the evaluator's
+/// `Member` arm parses as a `usize`.
+fn index_text(expr: &Expr) -> String {
+    match expr {
+        Expr::Number(n) => {
+            if n.fract() == 0.0 {
+                format!("{}", *n as i64)
+            } else {
+                format!("{}", n)
+            }
+        }
+        // The grammar allows arbitrary `expr` inside `[]`. For
+        // anything other than a number literal, fall back to
+        // the rendered form and let the evaluator deal with it
+        // (it won't parse, which is the right failure mode for
+        // an invalid index).
+        other => expr_to_text(other),
+    }
 }
 
 fn is_ident(text: &str) -> bool {

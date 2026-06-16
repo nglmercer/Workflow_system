@@ -136,6 +136,24 @@ impl FlowEvaluator {
         }
     }
 
+    /// Insert pre-resolved bindings into the global scope. Used
+    /// by the test runner to inject the payload of every
+    /// `@import <name> from "<file>.json"` declaration in the
+    /// host program. Last writer wins on duplicate names, which
+    /// matches how the parser already handles duplicate
+    /// `imports` entries.
+    ///
+    /// The runner calls this *after* `load_program`, so a
+    /// hand-written global with the same name would be
+    /// overridden by an `@import`. That's intentional: the
+    /// `@import` is the test-time source of truth for
+    /// externally-shaped bindings.
+    pub fn populate_globals(&mut self, globals: HashMap<String, Value>) {
+        for (k, v) in globals {
+            self.globals.insert(k, v);
+        }
+    }
+
     pub fn execute_workflow(
         &mut self,
         workflow: &WorkflowDef,
@@ -164,11 +182,37 @@ impl FlowEvaluator {
             vars.insert("vars".to_string(), Value::from_json(ctx_vars));
         }
 
-        // If workflow has destructuring params, extract them from data
+        // If workflow has destructuring params, extract them from
+        // the event payload. Two forms are supported:
+        //   ({a, b, c})  — multi-binding: each name is a
+        //                  field of the event payload.
+        //   (name)       — single-binding: the whole event
+        //                  payload is rebound to `name`. The
+        //                  parser appends a `_rename` marker
+        //                  to `workflow.params` to signal this
+        //                  form, which we strip here before
+        //                  inserting into the scope.
         if !workflow.params.is_empty() {
-            if let Value::Object(ref data_map) = Value::from_json(&context.data) {
-                for param in &workflow.params {
+            let is_rename = workflow.params.last().is_some_and(|p| p == "_rename");
+            let names: Vec<String> = if is_rename {
+                workflow.params[..workflow.params.len() - 1].to_vec()
+            } else {
+                workflow.params.clone()
+            };
+            if is_rename {
+                // `name` is a rename of the event payload. Skip
+                // field extraction and just bind the whole event
+                // to that name. (If `name == "data"`, the
+                // earlier `vars.insert("data", ...)` is a no-op
+                // for our purposes — same value.)
+                for name in &names {
+                    vars.insert(name.clone(), Value::from_json(&context.data));
+                }
+            } else if let Value::Object(ref data_map) = Value::from_json(&context.data) {
+                eprintln!("DEBUG destructure data_map={:?} names={:?}", data_map, names);
+                for param in &names {
                     let val = data_map.get(param).cloned().unwrap_or(Value::Null);
+                    eprintln!("DEBUG destructure param={} val={:?}", param, val);
                     vars.insert(param.clone(), val);
                 }
             }
@@ -205,6 +249,17 @@ impl FlowEvaluator {
                     .as_ref()
                     .map(|e| self.eval_expr(e, vars))
                     .unwrap_or(Value::Null);
+                vars.insert(name.clone(), val);
+                Ok(None)
+            }
+            Stmt::Assign { name, value } => {
+                let val = self.eval_expr(value, vars);
+                // Assigning to an unbound variable is a no-op
+                // (the var gets created with the assigned value).
+                // This matches how `vars.insert` behaves and
+                // keeps the test runner's `expect var x == ...`
+                // contract simple: write-then-read always
+                // produces the written value.
                 vars.insert(name.clone(), val);
                 Ok(None)
             }

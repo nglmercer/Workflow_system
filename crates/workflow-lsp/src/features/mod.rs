@@ -55,6 +55,8 @@ pub enum CompletionKind {
     Variable,
     Value,
     Property,
+    Field,
+    File,
 }
 
 /// Severity level for diagnostics.
@@ -150,16 +152,13 @@ pub fn completions_at(
     let Some(source) = state.get_document(uri) else {
         return Vec::new();
     };
-    // The completion popup only needs the parsed document and
-    // inference; we no longer look at `analysis.scope_at_position`
-    // (user-defined variables are intentionally excluded from
-    // identifier completion).
     let position = Position {
         line: line as u32,
         character: character as u32,
     };
     let inference = state.get_inference(uri);
-    completion::build_completions(inference, source, position)
+    let document_path = uri.strip_prefix("file://");
+    completion::build_completions(inference, source, position, document_path)
         .into_iter()
         .map(|item| {
             completion::into_completion_with_type(item, inference, source, position, format_value)

@@ -53,6 +53,7 @@ workflow "Batch Processing" {
 }
 
 workflow "Complex Conditions" {
+
   on COMPLEX_EVENT (data)
 
   if (data.value > 100 && data.type == "important") {
@@ -70,6 +71,7 @@ workflow "Complex Conditions" {
 // `user.name` are all resolved statically.
 workflow "Nested Loops" {
   on NESTED_DATA ({users, meta})
+
   log("Users: " + users.length + ", Meta: " + meta.length)
   foreach (user in users) {
     log("User: " + user.name)

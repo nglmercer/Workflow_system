@@ -63,6 +63,7 @@ fn scan_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
                 scan_stmts(cx, body, out);
             }
             Stmt::On { .. } => {}
+            Stmt::Assign { value, .. } => scan_expr(cx, value, out),
         }
     }
 }

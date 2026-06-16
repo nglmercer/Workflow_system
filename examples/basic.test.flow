@@ -1,0 +1,41 @@
+// Sidecar tests for basic.flow. One test per workflow, with
+// branch-coverage extras for the `User Activity` workflow's
+// `if`/`else if`/`else` cascade.
+//
+// Run with:
+//   cargo run -p workflow-cli -- test examples/basic.test.flow
+
+test "Welcome logs premium user" {
+  on USER_REGISTERED with { user: { name: "Ada" }, plan: "premium" }
+  expect logs ["Hello Ada!", "Premium user detected!"]
+}
+
+test "Process order totals items" {
+  on ORDER_RECEIVED with { items: [{ price: 10 }, { price: 20 }] }
+  expect logs ["Order total: 30"]
+}
+
+test "Empty order is logged" {
+  on ORDER_RECEIVED with { items: [] }
+  expect logs ["Empty order"]
+}
+
+test "High value alert logs amount" {
+  on PAYMENT_RECEIVED with { amount: 1500, currency: "USD" }
+  expect logs ["High value transaction: 1500", "USD transaction"]
+}
+
+test "User activity: purchase" {
+  on USER_ACTIVITY with { userId: "u-1", action: "purchase" }
+  expect logs ["Purchase by u-1"]
+}
+
+test "User activity: login" {
+  on USER_ACTIVITY with { userId: "u-2", action: "login" }
+  expect logs ["Login by u-2"]
+}
+
+test "User activity: other" {
+  on USER_ACTIVITY with { userId: "u-3", action: "delete" }
+  expect logs ["Other activity: delete"]
+}

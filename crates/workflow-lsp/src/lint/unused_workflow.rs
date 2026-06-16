@@ -146,6 +146,7 @@ fn collect_emits(stmts: &[Stmt], out: &mut HashSet<String>) {
                 collect_emits(body, out);
             }
             Stmt::On { .. } => {}
+            Stmt::Assign { value, .. } => collect_emits_in_expr(value, out),
         }
     }
 }

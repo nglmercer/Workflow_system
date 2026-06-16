@@ -74,6 +74,7 @@ fn collect_stmts_refs(stmts: &[Stmt], refs: &mut HashSet<String>) {
                 collect_stmts_refs(body, refs);
             }
             Stmt::On { .. } => {}
+            Stmt::Assign { value, .. } => collect_refs(value, refs),
         }
     }
 }

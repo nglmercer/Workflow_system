@@ -525,7 +525,7 @@ pub fn should_request_completion(ui: &Ui, text: &str, cursor: CursorPosition) ->
         if prev.is_ascii_alphanumeric() || prev == '_' {
             return true;
         }
-        if prev == '.' {
+        if prev == '.' || prev == '@' {
             return true;
         }
     }

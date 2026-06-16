@@ -106,5 +106,7 @@ fn color_for_kind(kind: CompletionKind) -> Color32 {
         CompletionKind::Variable => Color32::from_rgb(220, 220, 220),
         CompletionKind::Value => Color32::from_rgb(180, 220, 120),
         CompletionKind::Property => Color32::from_rgb(255, 200, 100),
+        CompletionKind::Field => Color32::from_rgb(150, 220, 200),
+        CompletionKind::File => Color32::from_rgb(160, 180, 220),
     }
 }

@@ -92,7 +92,7 @@ impl TestRunner {
             .tests
             .iter()
             .filter(|t| self.name_matches(&t.name))
-            .map(|t| execute_test(t, &program, virtual_path))
+            .map(|t| execute_test(t, &program, Path::new(""), virtual_path))
             .collect();
         Ok(RunReport::from_tests(virtual_path, tests))
     }
@@ -142,7 +142,24 @@ impl TestRunner {
                 if !self.name_matches(&test.name) {
                     continue;
                 }
-                all_tests.push(execute_test(test, host, &entry.test_file.to_string_lossy()));
+                // The host's import paths are resolved relative
+                // to the *host file's* directory, not the test
+                // file's. With the sidecar convention the two
+                // share a directory, so either would work, but
+                // using the host's path is the safer default
+                // (it works even if a future discovery layout
+                // splits them).
+                let host_dir = entry
+                    .host_file
+                    .as_ref()
+                    .and_then(|p| p.parent())
+                    .unwrap_or_else(|| entry.test_file.parent().unwrap_or(Path::new("")));
+                all_tests.push(execute_test(
+                    test,
+                    host,
+                    host_dir,
+                    &entry.test_file.to_string_lossy(),
+                ));
             }
         }
         Ok(RunReport::from_tests(root_label, all_tests))

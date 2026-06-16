@@ -120,6 +120,7 @@ impl<'a> Walker<'a> {
                 }
             }
             Stmt::On { .. } => {}
+            Stmt::Assign { value, .. } => self.collect_param_usage_in_expr(value, param, out),
         }
     }
 

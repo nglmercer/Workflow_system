@@ -20,8 +20,11 @@
 //!    report. The test passes iff every assertion passes AND at
 //!    least one workflow matched.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
 use workflow_domain::TriggerContext;
-use workflow_parser::ast::{FlowProgram, OnClause, TestDef, WorkflowDef};
+use workflow_parser::ast::{FlowProgram, ImportSource, ImportStmt, OnClause, TestDef, WorkflowDef};
 use workflow_parser::evaluator::{FlowEvaluator, Value, WorkflowOutcome};
 
 use crate::assert::{evaluate, AssertKind, AssertResult};
@@ -30,8 +33,16 @@ use crate::report::{RunReport, TestReport};
 /// Run a single `TestDef` against a host program and return a
 /// `TestReport`. The `host` is the parsed program containing the
 /// `WorkflowDef`s under test (and any globals/functions the
-/// workflows depend on).
-pub fn execute_test(test: &TestDef, host: &FlowProgram, source_path: &str) -> TestReport {
+/// workflows depend on). `host_source_dir` is the directory
+/// containing the host's source file, used to resolve relative
+/// import paths (e.g. the JSON schemas referenced by
+/// `@import <name> from "./user_registered.json"`).
+pub fn execute_test(
+    test: &TestDef,
+    host: &FlowProgram,
+    host_source_dir: &Path,
+    source_path: &str,
+) -> TestReport {
     let matches: Vec<&WorkflowDef> = host
         .workflows
         .iter()
@@ -39,6 +50,35 @@ pub fn execute_test(test: &TestDef, host: &FlowProgram, source_path: &str) -> Te
         .collect();
 
     let mut asserts: Vec<AssertResult> = Vec::new();
+
+    // Resolve every `@import` (or `import <name> from "*.json"`)
+    // in the host program up front, before checking matches.
+    // A missing JSON file is a real problem the user needs to
+    // hear about, so we surface it as a synthetic failing
+    // assertion even if workflows do match — otherwise the
+    // tests would silently log "null" everywhere and the user
+    // would be debugging the wrong thing.
+    let mut import_resolution = populate_imports(&host.imports, host_source_dir);
+    for failure in &import_resolution.failures {
+        asserts.push(AssertResult::fail(
+            AssertKind::Logs,
+            "",
+            String::new(),
+            format!("import resolution failed: {}", failure),
+        ));
+    }
+
+    // If the test's event matches an `@import` name, overlay
+    // the test's `with` payload onto the import. This is what
+    // makes the test runner's `with { ... }` clause the source
+    // of truth at test time: the schema provides the defaults
+    // (so workflows that read fields not mentioned in `with`
+    // still get reasonable values), and `with` overrides them
+    // for the fields the test cares about.
+    let merged_data = merge_test_payload(&import_resolution.globals, &test.on);
+    import_resolution
+        .globals
+        .insert(test.on.event.clone(), merged_data.clone());
 
     if matches.is_empty() {
         // Synthesize a single failing assertion so the report
@@ -71,8 +111,8 @@ pub fn execute_test(test: &TestDef, host: &FlowProgram, source_path: &str) -> Te
     let mut combined_return = Value::Null;
 
     for workflow in &matches {
-        let ctx = trigger_context_from(&test.on);
-        let mut evaluator = new_evaluator_with_program(host);
+        let ctx = trigger_context_from_data(&test.on, merged_data.to_json());
+        let mut evaluator = new_evaluator_with_program(host, &import_resolution.globals);
         let outcome = match evaluator.execute_workflow_with_result(workflow, &ctx) {
             Ok(out) => out,
             Err(e) => {
@@ -128,30 +168,157 @@ pub fn execute_tests_for_program(program: &FlowProgram, root_path: &str) -> RunR
     let tests: Vec<TestReport> = program
         .tests
         .iter()
-        .map(|t| execute_test(t, program, root_path))
+        .map(|t| execute_test(t, program, Path::new(""), root_path))
         .collect();
     RunReport::from_tests(root_path, tests)
 }
 
 /// Build a `FlowEvaluator` preloaded with the host program's
-/// globals and function definitions. Each test gets a fresh one
-/// to avoid cross-test leakage.
-fn new_evaluator_with_program(host: &FlowProgram) -> FlowEvaluator {
+/// globals, function definitions, and `@import`-bound payloads.
+/// Each test gets a fresh one to avoid cross-test leakage.
+fn new_evaluator_with_program(
+    host: &FlowProgram,
+    imported_globals: &HashMap<String, Value>,
+) -> FlowEvaluator {
     let mut ev = FlowEvaluator::new();
     ev.load_program(host);
+    ev.populate_globals(imported_globals.clone());
     ev
 }
 
-/// Convert a test's `OnClause` into a `TriggerContext` the
-/// evaluator understands. The `id` and `timestamp` fields are
-/// filler values — tests don't currently inspect them.
-fn trigger_context_from(on: &OnClause) -> TriggerContext {
+/// Build a `TriggerContext` whose `data` is the merged payload
+/// for the test. The runner uses this when the host program
+/// has an `@import` whose name matches the test's event — the
+/// merge is already in `data`, so workflows that destructure
+/// (`on E (data)`) see the merged value rather than the raw
+/// `with` payload.
+fn trigger_context_from_data(on: &OnClause, data: serde_json::Value) -> TriggerContext {
     TriggerContext {
         event: on.event.clone(),
         timestamp: 0,
-        data: on.data.clone(),
+        data,
         vars: None,
         id: None,
+    }
+}
+
+/// Merge the test's `with` payload onto the import whose name
+/// matches the test's event. Returns the merged JSON value, or
+/// the test's `with` payload unchanged if no matching import
+/// exists (which is the right behavior for workflows that
+/// don't use `@import`).
+pub fn merge_test_payload(imports: &HashMap<String, Value>, on: &OnClause) -> Value {
+    let import_value = match imports.get(&on.event) {
+        Some(v) => v.clone(),
+        None => return Value::from_json(&on.data),
+    };
+    let import_json = import_value.to_json();
+    let merged = merge_json(&import_json, &on.data);
+    Value::from_json(&merged)
+}
+
+/// Shallow merge: `overlay` fields win over `base` fields.
+/// Nested objects are merged recursively; arrays and scalars
+/// are replaced wholesale. We don't try to be clever about
+/// partial array updates — `expect items: [{...}]` should
+/// fully replace the schema's default items, not append to
+/// them.
+fn merge_json(base: &serde_json::Value, overlay: &serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match (base, overlay) {
+        (Value::Object(base_map), Value::Object(overlay_map)) => {
+            let mut out = base_map.clone();
+            for (k, v) in overlay_map {
+                let merged = match out.get(k) {
+                    Some(existing) => merge_json(existing, v),
+                    None => v.clone(),
+                };
+                out.insert(k.clone(), merged);
+            }
+            Value::Object(out)
+        }
+        (_, overlay) => overlay.clone(),
+    }
+}
+
+/// The result of resolving the host program's `@import` (or
+/// `import <name> from "*.json"`) declarations into runtime
+/// bindings. `globals` is keyed by import name; `failures`
+/// carries human-readable diagnostics for any import that
+/// couldn't be resolved.
+#[derive(Debug, Default)]
+struct ImportResolution {
+    globals: HashMap<String, Value>,
+    failures: Vec<String>,
+}
+
+/// Walk every import in the host program and resolve the ones
+/// that bind a payload (i.e. JSON paths and inline JSON
+/// literals). `.flow` module imports are ignored — they don't
+/// produce a runtime binding the workflows can reference.
+fn populate_imports(imports: &[ImportStmt], source_dir: &Path) -> ImportResolution {
+    let mut out = ImportResolution::default();
+    for import in imports {
+        match &import.source {
+            ImportSource::Inline(value) => {
+                out.globals
+                    .insert(import.name.clone(), Value::from_json(value));
+            }
+            ImportSource::Path(path_str) => {
+                // Only JSON schemas produce a runtime binding
+                // worth injecting. `.flow` paths are module
+                // imports and are skipped here.
+                if !is_json_path(path_str) {
+                    continue;
+                }
+                let resolved = resolve_relative(source_dir, path_str);
+                match std::fs::read_to_string(&resolved) {
+                    Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
+                        Ok(value) => {
+                            out.globals
+                                .insert(import.name.clone(), Value::from_json(&value));
+                        }
+                        Err(e) => out.failures.push(format!(
+                            "{} from {}: invalid JSON: {}",
+                            import.name,
+                            resolved.display(),
+                            e
+                        )),
+                    },
+                    Err(e) => out.failures.push(format!(
+                        "{} from {}: {}",
+                        import.name,
+                        resolved.display(),
+                        e
+                    )),
+                }
+            }
+        }
+    }
+    out
+}
+
+/// True when `path_str` (the raw string from an import) ends in
+/// `.json` (case-insensitive). Used to filter the host's
+/// imports down to the ones the test runner can inject as a
+/// payload.
+fn is_json_path(path_str: &str) -> bool {
+    Path::new(path_str)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+}
+
+/// Resolve `path_str` against `source_dir`. Absolute paths are
+/// passed through unchanged; relative ones are joined onto
+/// `source_dir`. Returns a `PathBuf` even when the file is
+/// missing — the caller decides how to report that.
+fn resolve_relative(source_dir: &Path, path_str: &str) -> PathBuf {
+    let candidate = Path::new(path_str);
+    if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else {
+        source_dir.join(candidate)
     }
 }
 
@@ -186,7 +353,7 @@ mod tests {
   expect logs ["hi Ada"]
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, "host.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow");
         assert!(report.passed, "report: {:#?}", report);
         assert_eq!(report.matched_workflow_count, 1);
     }
@@ -200,7 +367,7 @@ mod tests {
   expect logs []
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, "host.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow");
         assert!(!report.passed);
         assert_eq!(report.matched_workflow_count, 0);
     }
@@ -219,7 +386,7 @@ mod tests {
   expect logs ["bye"]
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, "host.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow");
         assert!(!report.passed);
     }
 
@@ -237,7 +404,7 @@ mod tests {
   expect var total == 12
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, "h.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
         assert!(report.passed, "{:#?}", report);
     }
 
@@ -255,7 +422,74 @@ mod tests {
   expect return 42
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, "h.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
         assert!(report.passed, "{:#?}", report);
+    }
+
+    #[test]
+    fn resolves_json_import_into_globals() {
+        // The host uses an @import-bound name directly in the
+        // workflow body. The runner is responsible for
+        // resolving the JSON file and injecting it as a
+        // global binding.
+        use workflow_parser::ast::ImportSource;
+        let mut host = parse(
+            r#"workflow "Greet" {
+  on E
+  log("Hi " + USER.email)
+}"#,
+        );
+        host.imports.push(ImportStmt {
+            name: "USER".to_string(),
+            source: ImportSource::Inline(serde_json::json!({ "email": "ada@example.com" })),
+        });
+        let program = parse(
+            r#"test "Greet uses imported USER" {
+  on E
+  expect logs ["Hi ada@example.com"]
+}"#,
+        );
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
+        assert!(report.passed, "report: {:#?}", report);
+    }
+
+    #[test]
+    fn reports_missing_import_file() {
+        // If the @import points at a JSON file that doesn't
+        // exist, the runner surfaces a synthetic failing
+        // assertion rather than silently letting the workflow
+        // log "null" everywhere.
+        use workflow_parser::ast::ImportSource;
+        let mut host = parse(
+            r#"workflow "Greet" {
+  on E
+  log("Hi " + USER.email)
+}"#,
+        );
+        host.imports.push(ImportStmt {
+            name: "USER".to_string(),
+            source: ImportSource::Path("./does_not_exist.json".to_string()),
+        });
+        let program = parse(
+            r#"test "Greet" {
+  on E
+  expect logs ["Hi ada@example.com"]
+}"#,
+        );
+        let report = execute_test(&program.tests[0], &host, Path::new("."), "h.flow");
+        assert!(!report.passed);
+        // The failure is in the synthetic import-resolution
+        // assertion, not in the logs assertion, but both
+        // count as failures. Verify at least one failure
+        // mentions the import.
+        let any_import_failure = report
+            .asserts
+            .iter()
+            .any(|a| !a.passed && a.expected.contains("import resolution failed"));
+        assert!(
+            any_import_failure,
+            "expected an import-resolution failure in {:#?}",
+            report
+        );
     }
 }

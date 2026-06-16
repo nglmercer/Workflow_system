@@ -226,6 +226,13 @@ impl FlowCompiler {
                     });
                 }
                 Stmt::On { .. } => {}
+                Stmt::Assign { .. } => {
+                    // The compiler emits to the legacy Rule/Actions
+                    // IR; assignment isn't part of that surface
+                    // today. The evaluator handles `Assign`
+                    // directly, which is the path the test
+                    // runner uses.
+                }
             }
         }
 

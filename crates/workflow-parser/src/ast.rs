@@ -170,6 +170,15 @@ pub enum Stmt {
         name: String,
         value: Option<Expr>,
     },
+    /// Reassignment to an existing variable, e.g.
+    /// `total = total + 1`. Distinct from `VarDecl` (which
+    /// requires the `var` keyword) and from `Expr` (which
+    /// only wraps expressions — there's no expression node
+    /// for an assignment in the current AST).
+    Assign {
+        name: String,
+        value: Expr,
+    },
     If {
         condition: Expr,
         then_body: Vec<Stmt>,

@@ -1,0 +1,63 @@
+// Sidecar tests for advanced.flow. One test per workflow,
+// using the runner's `@import` resolution to populate the
+// schema-bound names (`USER_REGISTERED`, `BATCH_START`, etc.)
+// from the matching `.json` files in this directory.
+//
+// The test's `with { ... }` payload overlays fields the test
+// wants to control; the schema provides the rest.
+//
+// Run with:
+//   cargo run -p workflow-cli -- test examples/advanced.test.flow
+
+test "User registration with valid email" {
+  on USER_REGISTERED with { email: "ada@example.com", plan: "free" }
+  expect logs ["Valid email: ada@example.com"]
+}
+
+test "User registration with premium plan" {
+  on USER_REGISTERED with { email: "ada@example.com", plan: "premium" }
+  expect logs ["Valid email: ada@example.com", "Premium user registration"]
+}
+
+test "Batch processing logs each item" {
+  on BATCH_START with { items: [{ id: 1, priority: "high" }, { id: 2, priority: "low" }] }
+  expect logs [
+    "Processing batch item: 1",
+    "High priority item",
+    "Processing batch item: 2"
+  ]
+}
+
+test "Complex event: high value" {
+  on COMPLEX_EVENT with { value: 200, type: "important", urgent: false }
+  expect logs ["Important high value event"]
+}
+
+test "Complex event: medium" {
+  on COMPLEX_EVENT with { value: 80, type: "minor", urgent: true }
+  expect logs ["Medium priority event"]
+}
+
+test "Nested loops walks users and orders" {
+  on NESTED_DATA with {
+    users: [
+      { name: "Ada", orders: [{ id: 1, total: 50 }, { id: 2, total: 200 }] },
+      { name: "Bob", orders: [{ id: 3, total: 30 }] }
+    ],
+    meta: { count: 2, source: "test" }
+  }
+  expect logs [
+    "Users: 2, Meta: 2",
+    "User: Ada",
+    "  Order: 1",
+    "  Order: 2",
+    "    High value order",
+    "User: Bob",
+    "  Order: 3"
+  ]
+}
+
+test "Math: result equals 50" {
+  on CALCULATE with {}
+  expect logs ["Result is small: 50"]
+}
