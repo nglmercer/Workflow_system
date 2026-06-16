@@ -22,6 +22,17 @@ pub struct Completion {
     pub insert_text: Option<String>,
     /// What kind of symbol this is.
     pub kind: CompletionKind,
+    /// The text edit range and new text, if provided by the LSP.
+    pub text_edit: Option<CompletionTextEdit>,
+}
+
+/// A text edit operation for completion.
+#[derive(Debug, Clone)]
+pub struct CompletionTextEdit {
+    /// The range of text to replace (start line, start col, end line, end col).
+    pub range: (u32, u32, u32, u32),
+    /// The new text to insert.
+    pub new_text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,11 +142,34 @@ fn into_completion(item: lsp_types::CompletionItem) -> Completion {
         Some(lsp_types::CompletionItemKind::PROPERTY) => CompletionKind::Property,
         _ => CompletionKind::Variable,
     };
+
+    let text_edit = item.text_edit.and_then(|te| match te {
+        lsp_types::CompletionTextEdit::Edit(edit) => Some(CompletionTextEdit {
+            range: (
+                edit.range.start.line,
+                edit.range.start.character,
+                edit.range.end.line,
+                edit.range.end.character,
+            ),
+            new_text: edit.new_text,
+        }),
+        lsp_types::CompletionTextEdit::InsertAndReplace(ir) => Some(CompletionTextEdit {
+            range: (
+                ir.insert.start.line,
+                ir.insert.start.character,
+                ir.insert.end.line,
+                ir.insert.end.character,
+            ),
+            new_text: ir.new_text,
+        }),
+    });
+
     Completion {
         label: item.label,
         detail: item.detail,
         insert_text: item.insert_text,
         kind,
+        text_edit,
     }
 }
 

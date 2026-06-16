@@ -11,7 +11,7 @@
 use eframe::egui::{
     self,
     text::{CCursor, CCursorRange},
-    FontId, Pos2, Rect, RichText, ScrollArea, TextEdit, Ui,
+    FontId, Pos2, Rect, RichText, ScrollArea, TextEdit, Ui, Vec2,
 };
 use std::sync::Arc;
 use workflow_lsp::features::Completion;
@@ -56,6 +56,8 @@ pub struct EditorApp {
     /// Snapshot of the editor state at the start of the current frame.
     /// If the user typed this frame, we push this to the undo stack.
     frame_start: Option<Snapshot>,
+    /// Screen position of the cursor, used to position the completion popup.
+    cursor_screen_pos: Option<Pos2>,
 }
 
 const EXAMPLE_PROGRAM: &str = r#"workflow "Native Example" {
@@ -99,6 +101,7 @@ impl Default for EditorApp {
             history: History::new(),
             edit_clock_ms: 0,
             frame_start: None,
+            cursor_screen_pos: None,
         }
     }
 }
@@ -131,8 +134,12 @@ impl eframe::App for EditorApp {
         });
 
         if self.completion_visible && !self.completions.is_empty() {
-            if let Some(idx) = popup::show_completion(ctx, &self.completions, self.completion_index)
-            {
+            if let Some(idx) = popup::show_completion(
+                ctx,
+                &self.completions,
+                self.completion_index,
+                self.cursor_screen_pos,
+            ) {
                 self.insert_completion(idx);
             }
         }
@@ -196,6 +203,29 @@ impl EditorApp {
                     let col = primary.rcursor.column + 1;
                     if line != self.cursor.line || col != self.cursor.col {
                         self.cursor = CursorPosition { line, col };
+                    }
+                    // Calculate cursor screen position for popup positioning
+                    let row_idx = primary.rcursor.row;
+                    if row_idx < galley.rows.len() {
+                        let row = &galley.rows[row_idx];
+                        let row_min_x = row.rect.min.x;
+                        let mut cursor_x = row_min_x;
+                        let mut glyph_count = 0;
+                        for glyph in &row.glyphs {
+                            if glyph_count >= primary.rcursor.column {
+                                break;
+                            }
+                            cursor_x = glyph.pos.x + glyph.size.x;
+                            glyph_count += 1;
+                        }
+                        let cursor_y = row.rect.min.y;
+                        self.cursor_screen_pos = Some(
+                            response.rect.min
+                                + Vec2::new(
+                                    cursor_x - response.rect.min.x,
+                                    cursor_y - response.rect.min.y,
+                                ),
+                        );
                     }
                 }
 
@@ -376,47 +406,76 @@ impl EditorApp {
         // the whole completion in one step.
         let pre_snap = self.snapshot();
         let item = self.completions[idx].clone();
-        let raw = item.insert_text.unwrap_or(item.label);
 
-        // Compute the current cursor offset in *characters* (CCursor space).
-        let line_idx = self.cursor.line.saturating_sub(1);
-        let col_idx = self.cursor.col.saturating_sub(1);
-        let mut char_offset = 0usize;
-        for (i, line) in self.text.split('\n').enumerate() {
-            if i == line_idx {
-                char_offset += col_idx.min(line.chars().count());
-                break;
-            } else {
-                char_offset += line.chars().count() + 1;
+        // Use the LSP-provided text edit if available, otherwise fall back
+        // to computing the replacement range ourselves.
+        if let Some(text_edit) = &item.text_edit {
+            let (start_line, start_col, end_line, end_col) = text_edit.range;
+            let start_line = start_line as usize;
+            let start_col = start_col as usize;
+            let end_line = end_line as usize;
+            let end_col = end_col as usize;
+
+            // Convert line/col to char offsets
+            let mut start_chars = 0usize;
+            let mut end_chars = 0usize;
+            for (i, line) in self.text.split('\n').enumerate() {
+                if i == start_line {
+                    start_chars += start_col.min(line.chars().count());
+                }
+                if i == end_line {
+                    end_chars += end_col.min(line.chars().count());
+                    break;
+                } else {
+                    end_chars += line.chars().count() + 1;
+                }
             }
-        }
 
-        // The "word start" is the position from which we'll replace — so
-        // typing "fo<Tab>" on `foo` and picking the completion `foreach` will
-        // correctly overwrite `fo` rather than inserting mid-word.
-        let before_chars: String = self.text.chars().take(char_offset).collect();
-        let word_start_chars = before_chars
-            .char_indices()
-            .rev()
-            .find(|(_, ch)| !ch.is_alphanumeric() && *ch != '_' && *ch != '.')
-            .map(|(i, _)| i + 1)
-            .unwrap_or(0);
-
-        if raw.contains('$') {
-            // Snippet path: expand the body, replace the prefix range, and
-            // record the tab stops.
-            let (expanded, stops) = snippet::expand(&raw);
-            self.apply_replacement(word_start_chars, char_offset, &expanded);
-
-            self.snippet_anchor = word_start_chars;
-            self.pending_snippet = if stops.is_empty() {
-                None
-            } else {
-                Some(PendingSnippet { stops, current: 0 })
-            };
+            // Use the insert_text if available, otherwise use the new_text from text_edit
+            let replacement = item.insert_text.as_deref().unwrap_or(&text_edit.new_text);
+            self.apply_replacement(start_chars, end_chars, replacement);
         } else {
-            self.apply_replacement(word_start_chars, char_offset, &raw);
-            self.pending_snippet = None;
+            // Fallback: compute the range ourselves
+            let raw = item.insert_text.unwrap_or(item.label);
+
+            // Compute the current cursor offset in *characters* (CCursor space).
+            let line_idx = self.cursor.line.saturating_sub(1);
+            let col_idx = self.cursor.col.saturating_sub(1);
+            let mut char_offset = 0usize;
+            for (i, line) in self.text.split('\n').enumerate() {
+                if i == line_idx {
+                    char_offset += col_idx.min(line.chars().count());
+                    break;
+                } else {
+                    char_offset += line.chars().count() + 1;
+                }
+            }
+
+            // The "word start" is the position from which we'll replace
+            let before_chars: String = self.text.chars().take(char_offset).collect();
+            let word_start_chars = before_chars
+                .char_indices()
+                .rev()
+                .find(|(_, ch)| !ch.is_alphanumeric() && *ch != '_' && *ch != '.')
+                .map(|(i, _)| i + 1)
+                .unwrap_or(0);
+
+            if raw.contains('$') {
+                // Snippet path: expand the body, replace the prefix range, and
+                // record the tab stops.
+                let (expanded, stops) = snippet::expand(&raw);
+                self.apply_replacement(word_start_chars, char_offset, &expanded);
+
+                self.snippet_anchor = word_start_chars;
+                self.pending_snippet = if stops.is_empty() {
+                    None
+                } else {
+                    Some(PendingSnippet { stops, current: 0 })
+                };
+            } else {
+                self.apply_replacement(word_start_chars, char_offset, &raw);
+                self.pending_snippet = None;
+            }
         }
 
         self.completion_visible = false;

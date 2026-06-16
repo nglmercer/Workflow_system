@@ -13,17 +13,25 @@ pub fn show_completion(
     ctx: &egui::Context,
     completions: &[Completion],
     current_index: usize,
+    cursor_pos: Option<Pos2>,
 ) -> Option<usize> {
     if completions.is_empty() {
         return None;
     }
 
     let height = (completions.len() as f32 * COMPLETION_ROW_HEIGHT).min(COMPLETION_MAX_HEIGHT);
-    let area = ctx.available_rect();
-    let popup_rect = Rect::from_min_size(
-        Pos2::new(area.min.x + 16.0, area.max.y - height - 16.0),
-        Vec2::new(COMPLETION_WIDTH, height),
-    );
+    let popup_pos = match cursor_pos {
+        Some(pos) => {
+            // Position popup below and to the right of the cursor
+            Pos2::new(pos.x, pos.y + 20.0)
+        }
+        None => {
+            // Fallback to bottom-left of editor area
+            let area = ctx.available_rect();
+            Pos2::new(area.min.x + 16.0, area.max.y - height - 16.0)
+        }
+    };
+    let popup_rect = Rect::from_min_size(popup_pos, Vec2::new(COMPLETION_WIDTH, height));
 
     let mut clicked = None;
     egui::Window::new("Completions")
