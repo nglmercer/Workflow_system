@@ -213,12 +213,24 @@ fn parse_block(pair: pest::iterators::Pair<Rule>) -> Vec<Stmt> {
 }
 
 fn parse_import(pair: pest::iterators::Pair<Rule>) -> ImportStmt {
-    let mut name = String::new();
+    // The grammar produces a single `import_stmt` whose head is
+    // either `"@" ~ "import" ~ "data"` (data-schema import) or
+    // `"import" ~ IDENT` (regular module import), followed by
+    // `"from" ~ STRING`. The data-schema form has no IDENT child;
+    // we detect it by a leading `@` in the source text and fall
+    // back to the literal binding name `"data"`.
+    let is_data_import = pair.as_str().trim_start().starts_with('@');
+
+    let mut name = if is_data_import {
+        "data".to_string()
+    } else {
+        String::new()
+    };
     let mut path = String::new();
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
-            Rule::IDENT => {
+            Rule::IDENT if !is_data_import => {
                 name = inner.as_str().to_string();
             }
             Rule::STRING => {
@@ -954,5 +966,35 @@ mod tests {
             }
             _ => panic!("Expected Foreach"),
         }
+    }
+
+    #[test]
+    fn test_parse_regular_import() {
+        let program = FlowParser::parse_flow_program(r#"import utils from "./utils.flow""#)
+            .unwrap();
+        assert_eq!(program.imports.len(), 1);
+        assert_eq!(program.imports[0].name, "utils");
+        assert_eq!(program.imports[0].path, "./utils.flow");
+    }
+
+    #[test]
+    fn test_parse_data_import() {
+        let program = FlowParser::parse_flow_program(r#"@import data from "./schema.json""#)
+            .unwrap();
+        assert_eq!(program.imports.len(), 1);
+        assert_eq!(program.imports[0].name, "data");
+        assert_eq!(program.imports[0].path, "./schema.json");
+    }
+
+    #[test]
+    fn test_parse_mixed_imports() {
+        let code = r#"import utils from "./utils.flow"
+@import data from "./schema.json""#;
+        let program = FlowParser::parse_flow_program(code).unwrap();
+        assert_eq!(program.imports.len(), 2);
+        assert_eq!(program.imports[0].name, "utils");
+        assert_eq!(program.imports[0].path, "./utils.flow");
+        assert_eq!(program.imports[1].name, "data");
+        assert_eq!(program.imports[1].path, "./schema.json");
     }
 }

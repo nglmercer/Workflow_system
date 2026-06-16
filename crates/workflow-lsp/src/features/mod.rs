@@ -158,7 +158,7 @@ pub fn completions_at(
         character: character as u32,
     };
     let inference = state.get_inference(uri);
-    completion::build_completions(analysis, source, position)
+    completion::build_completions(analysis, inference, source, position)
         .into_iter()
         .map(|item| {
             completion::into_completion_with_type(item, inference, source, position, format_value)

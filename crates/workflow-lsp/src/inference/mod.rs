@@ -45,6 +45,8 @@ pub mod value;
 pub use ty::Type;
 pub use value::{FunctionSig, InferredBinding, Value};
 
+pub mod methods;
+
 #[derive(Debug, Clone, Default)]
 pub struct Inference {
     /// One entry per source line, mirroring `Analysis::scope_at`. The
@@ -99,6 +101,7 @@ impl Inference {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use workflow_parser::ast::Expr;
     use workflow_parser::FlowParser;
 
     fn infer(source: &str) -> Inference {
@@ -296,6 +299,12 @@ fn greet(name) {
     fn function_param_shortcut_annotation() {
         // The `//@T1,T2,T3` per-parameter shortcut. Each type
         // positionally maps to the next function parameter.
+        //
+        // Note: the shortcut is a *parameter* annotation, not a
+        // full function-signature annotation, so `sig.annotated` is
+        // `false` — the per-param map carries the types instead.
+        // This is what lets body-based inference still determine
+        // the return type.
         let source = r#"//@string,string
 fn formatCurrency(amount, currency) {
   return currency + " " + amount
@@ -305,7 +314,10 @@ fn formatCurrency(amount, currency) {
         let sig = inf.functions.get("formatCurrency").expect("formatCurrency");
         assert_eq!(sig.params, vec!["amount", "currency"]);
         assert_eq!(sig.param_types, vec![Type::String, Type::String]);
-        assert!(sig.annotated);
+        assert!(!sig.annotated);
+        // The return type is still inferred from the body — the
+        // body has a string concat, so the return is `string`.
+        assert_eq!(sig.ret, Type::String);
     }
 
     #[test]
@@ -352,5 +364,136 @@ fn add(a, b) {
             "meta missing from scope_at[2]: {:?}",
             line
         );
+    }
+
+    // -- Primitive member-access inference ----------------------------
+
+    #[test]
+    fn string_length_is_number() {
+        // Hover on `email.length` should report `number` when `email`
+        // is annotated as a string. The previous implementation
+        // returned `Any` for any non-Object member access.
+        use crate::inference::expr::infer_expr_with_ctx;
+        let value = Expr::Member {
+            object: Box::new(Expr::Var("email".into())),
+            property: "length".into(),
+        };
+        let scope = vec![InferredBinding {
+            name: "email".into(),
+            ty: Type::String,
+            value: None,
+            annotated: true,
+        }];
+        let functions = std::collections::HashMap::new();
+        let (ty, _) = infer_expr_with_ctx(&value, &scope, &functions, &[]);
+        assert_eq!(ty, Type::Number);
+    }
+
+    #[test]
+    fn string_method_return_types() {
+        // `email.toUpperCase()` should report `string`,
+        // `email.contains(...)` should report `bool`.
+        use crate::inference::expr::infer_expr_with_ctx;
+        let functions = std::collections::HashMap::new();
+        let scope = vec![InferredBinding {
+            name: "email".into(),
+            ty: Type::String,
+            value: None,
+            annotated: true,
+        }];
+        for (prop, expected) in [
+            ("toUpperCase", Type::String),
+            ("toLowerCase", Type::String),
+            ("trim", Type::String),
+            ("contains", Type::Bool),
+            ("startsWith", Type::Bool),
+            ("endsWith", Type::Bool),
+            ("toNumber", Type::Number),
+        ] {
+            let value = Expr::Member {
+                object: Box::new(Expr::Var("email".into())),
+                property: prop.into(),
+            };
+            let (ty, _) = infer_expr_with_ctx(&value, &scope, &functions, &[]);
+            assert_eq!(ty, expected, "email.{}: got {:?}", prop, ty);
+        }
+    }
+
+    #[test]
+    fn array_length_is_number() {
+        use crate::inference::expr::infer_expr_with_ctx;
+        let functions = std::collections::HashMap::new();
+        let scope = vec![InferredBinding {
+            name: "items".into(),
+            ty: Type::Array(Box::new(Type::String)),
+            value: None,
+            annotated: true,
+        }];
+        let value = Expr::Member {
+            object: Box::new(Expr::Var("items".into())),
+            property: "length".into(),
+        };
+        let (ty, _) = infer_expr_with_ctx(&value, &scope, &functions, &[]);
+        assert_eq!(ty, Type::Number);
+    }
+
+    // -- Shortcut annotation must not pin the return type ------------
+
+    #[test]
+    fn shortcut_annotation_does_not_pin_return_type() {
+        // `//@string` annotates the *parameter* `email` as string.
+        // It must NOT prevent body-based inference of the return
+        // type. `validateEmail` returns `true` / `false`, so the
+        // inferred return type should be `Bool`, not `Any`.
+        let source = r#"//@string
+fn validateEmail(email) {
+  var length = email.length
+  if (length > 5) {
+    return true
+  }
+  return false
+}
+"#;
+        let inf = infer(source);
+        let sig = inf.functions.get("validateEmail").expect("validateEmail");
+        assert_eq!(sig.param_types, vec![Type::String]);
+        assert_eq!(
+            sig.ret,
+            Type::Bool,
+            "expected return type to be inferred from body as Bool, got {:?}",
+            sig.ret
+        );
+    }
+
+    #[test]
+    fn full_signature_omitting_return_falls_through_to_body() {
+        // The full `//@{a:T, b:T}` form (no `-> R`) used to pin the
+        // return type to `Any`. After the fix, an unspecified return
+        // type in the full form also falls through to body inference.
+        let source = r#"//@{value:string, count:number}
+fn summarize(value, count) {
+  return value
+}
+"#;
+        let inf = infer(source);
+        let sig = inf.functions.get("summarize").expect("summarize");
+        assert_eq!(sig.param_types, vec![Type::String, Type::Number]);
+        // Body returns `value` (a string), so ret should be `String`.
+        assert_eq!(sig.ret, Type::String);
+    }
+
+    #[test]
+    fn full_signature_with_return_type_wins() {
+        // The full `//@{...} -> R` form pins the return type, as
+        // before. The body returning `value` (a string) should NOT
+        // override the explicit `-> number` annotation.
+        let source = r#"//@{value:string, count:number} -> number
+fn summarize(value, count) {
+  return value
+}
+"#;
+        let inf = infer(source);
+        let sig = inf.functions.get("summarize").expect("summarize");
+        assert_eq!(sig.ret, Type::Number);
     }
 }

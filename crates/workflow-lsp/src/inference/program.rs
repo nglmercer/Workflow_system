@@ -20,23 +20,15 @@ impl<'a> Walker<'a> {
 
     /// Infer the return type of a function body, considering every
     /// `return <expr>` site (and the trailing expression) rather than
-    /// just the last statement.
-    pub fn infer_return_type(&self, body: &[Stmt]) -> Type {
+    /// just the last statement. Recurses into `if` and `foreach`
+    /// bodies so a `return` deep inside a block is still picked up.
+    ///
+    /// `scope` provides the function's local bindings (typically its
+    /// parameters, possibly shadowed by `var` declarations) so
+    /// expressions inside `return x` can resolve parameter names.
+    pub fn infer_return_type(&self, body: &[Stmt], scope: &[InferredBinding]) -> Type {
         let mut ret: Option<Type> = None;
-        for stmt in body {
-            match stmt {
-                Stmt::Return { value: Some(v) } => {
-                    let (t, _) = infer_expr_with_ctx(v, &[], self.functions, &[]);
-                    ret = Some(narrow(ret, t));
-                }
-                Stmt::Return { value: None } => {
-                    // Bare `return` — the function may return null, but
-                    // we only narrow if no other site has produced a
-                    // concrete type.
-                }
-                _ => {}
-            }
-        }
+        self.collect_return_type(body, scope, &mut ret);
         // If no explicit return was found, the trailing expression's
         // type is the implicit return.
         if ret.is_none() {
@@ -44,11 +36,46 @@ impl<'a> Walker<'a> {
                 Stmt::Expr(v) => Some(v),
                 _ => None,
             }) {
-                let (t, _) = infer_expr_with_ctx(last_expr, &[], self.functions, &[]);
+                let (t, _) = infer_expr_with_ctx(last_expr, scope, self.functions, &[]);
                 ret = Some(t);
             }
         }
         ret.unwrap_or(Type::Any)
+    }
+
+    fn collect_return_type(
+        &self,
+        body: &[Stmt],
+        scope: &[InferredBinding],
+        ret: &mut Option<Type>,
+    ) {
+        for stmt in body {
+            match stmt {
+                Stmt::Return { value: Some(v) } => {
+                    let (t, _) = infer_expr_with_ctx(v, scope, self.functions, &[]);
+                    *ret = Some(narrow(ret.take(), t));
+                }
+                Stmt::Return { value: None } => {
+                    // Bare `return` — the function may return null,
+                    // but we only narrow if no other site has produced
+                    // a concrete type.
+                }
+                Stmt::If {
+                    then_body,
+                    else_body,
+                    ..
+                } => {
+                    self.collect_return_type(then_body, scope, ret);
+                    if let Some(eb) = else_body {
+                        self.collect_return_type(eb, scope, ret);
+                    }
+                }
+                Stmt::Foreach { body: inner, .. } => {
+                    self.collect_return_type(inner, scope, ret);
+                }
+                _ => {}
+            }
+        }
     }
 
     /// Infer a parameter's type from how it's used inside the function
@@ -332,10 +359,38 @@ fn push_function(inference: &mut super::Inference, f: &FunctionDef, annotations:
     }
     // Return type: annotation wins; otherwise infer from every return
     // site in the body, falling back to the trailing expression.
+    //
+    // When the user *did* annotate the function but didn't specify a
+    // return type (`//@{a:T, b:T}` with no `-> R`), the parser
+    // defaults `ann.ret` to `Type::Any`. We treat that as "not
+    // specified" and fall through to body inference, so the
+    // signature form behaves the same as the `//@T,T` shortcut for
+    // the return type.
+    //
+    // We pass the resolved `param_types` as the walker scope so
+    // body-level expressions can see function parameters: e.g.
+    // `fn f(x) { return x }` infers the return as `x`'s type, not
+    // `Any`.
+    let param_scope: Vec<InferredBinding> = f
+        .params
+        .iter()
+        .cloned()
+        .zip(param_types.iter().cloned())
+        .map(|(name, ty)| InferredBinding {
+            name,
+            ty,
+            value: None,
+            annotated: false,
+        })
+        .collect();
     let ret = if let Some(ann) = annotations.functions.get(&f.name) {
-        ann.ret.clone()
+        if ann.ret != Type::Any {
+            ann.ret.clone()
+        } else {
+            walker.infer_return_type(&f.body, &param_scope)
+        }
     } else {
-        walker.infer_return_type(&f.body)
+        walker.infer_return_type(&f.body, &param_scope)
     };
     let annotated = annotations.functions.contains_key(&f.name);
     inference.functions.insert(

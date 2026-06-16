@@ -51,10 +51,26 @@ pub fn infer_expr_with_ctx(
         }
         Expr::Member { object, property } => {
             let (obj_ty, _) = infer_expr_with_ctx(object, scope, functions, outer_scope);
-            if let Type::Object(fields) = obj_ty {
+            if let Type::Object(fields) = &obj_ty {
                 if let Some((_, t)) = fields.iter().find(|(k, _)| k == property) {
                     return (t.clone(), None);
                 }
+            }
+            // Primitive property access (e.g. `string.length`,
+            // `array.length`). Properties don't take arguments, so
+            // `email.length` resolves to `number` without needing a
+            // method call.
+            if let Some(p) = super::methods::property_for(&obj_ty, property) {
+                return (p.ty.clone(), None);
+            }
+            // Primitive method access — `string.toUpperCase()` would
+            // be a Call wrapping a Member in the AST, but the
+            // inference here covers the case where the user hovers
+            // on `email.toUpperCase` itself (the Member node). The
+            // method's *return* type is the most useful answer for
+            // hover.
+            if let Some(m) = super::methods::method_for(&obj_ty, property) {
+                return (m.ret.clone(), None);
             }
             (Type::Any, None)
         }

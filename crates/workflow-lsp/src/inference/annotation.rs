@@ -78,8 +78,7 @@ pub fn parse_annotations(source: &str) -> Annotations {
             // This is the form recommended for top-level utility
             // functions — see `examples/advanced.flow`.
             if let Some(rest) = next_trim.strip_prefix("fn ") {
-                if let Some(sig) = parse_param_shortcut(body, rest) {
-                    ann.functions.insert(sig.name.clone(), sig);
+                if apply_param_shortcut(&mut ann, body, rest).is_some() {
                     continue;
                 }
             }
@@ -109,26 +108,29 @@ pub fn parse_annotations(source: &str) -> Annotations {
     ann
 }
 
-/// Parse a positional per-parameter shortcut: `//@T1,T2,T3` directly
-/// above a `fn name(a, b, c) { ... }` declaration. The number of types
-/// must equal the number of parameters. The return type defaults to
-/// `Any`. The form is intentionally compact — recommended for
-/// top-level utility functions where the user wants to type
-/// `//@string,string` once instead of
-/// `//@{a:string, b:string} -> any`.
+/// Apply a positional per-parameter shortcut (`//@T1,T2,T3` directly
+/// above a `fn name(a, b, c) { ... }` declaration) to `ann`. The
+/// number of types must equal the number of parameters.
 ///
-/// Each type token may be `@`-prefixed (treating `@` as a decorator
-/// marker) so both `//@string,string` and `//@string,@string` work.
+/// We deliberately populate `ann.param_types` (per-param) rather than
+/// `ann.functions` (whole-sig) here. The reason: the shortcut is a
+/// *parameter* annotation, not a function-signature annotation.
+/// Putting it in `ann.param_types` means:
 ///
-/// Example:
+/// - `push_function` uses the annotated param types via the
+///   per-param lookup path,
+/// - the return type still comes from body-based inference, so
+///   `//@string` on `fn validateEmail(email) { return true | false }`
+///   correctly reports `bool` for the return instead of `any`.
 ///
-/// ```flow
-/// //@string,string
-/// fn formatCurrency(amount, currency) {
-///   return currency + " " + amount
-/// }
-/// ```
-fn parse_param_shortcut(body: &str, fn_header: &str) -> Option<FunctionSig> {
+/// The full `//@{a:T, b:T} -> R` form, on the other hand, populates
+/// `ann.functions` and overrides the return type too — that's the
+/// documented contract of the signature form.
+fn apply_param_shortcut(
+    ann: &mut Annotations,
+    body: &str,
+    fn_header: &str,
+) -> Option<()> {
     // Parse the function header to discover the param names. This way
     // we don't have to trust that the annotation's arity matches the
     // function's arity — a mismatch is a parse error rather than a
@@ -149,13 +151,10 @@ fn parse_param_shortcut(body: &str, fn_header: &str) -> Option<FunctionSig> {
         // Mismatch — fall through to inference rather than fail loudly.
         return None;
     }
-    Some(FunctionSig {
-        name,
-        params,
-        param_types: types,
-        ret: Type::Any,
-        annotated: true,
-    })
+    for (param, ty) in params.iter().zip(types.into_iter()) {
+        ann.param_types.insert((name.clone(), param.clone()), ty);
+    }
+    Some(())
 }
 
 /// Parse the leading `fn name(a, b, c) { ...` header into `(name, params)`.

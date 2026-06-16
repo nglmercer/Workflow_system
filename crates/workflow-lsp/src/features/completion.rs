@@ -16,8 +16,15 @@ use super::{Completion, CompletionKind, CompletionTextEdit};
 /// duplicate here that returns `lsp_types::CompletionItem` and let
 /// `into_completion` adapt the result, rather than threading the
 /// crate-private type through the wire handlers.
+///
+/// `inference` is optional. When present, member completions are
+/// type-aware: typing `email.` on a `string` shows string methods
+/// (`.length`, `.toUpperCase()`, etc.) and typing `items.` on an
+/// `array` shows array methods. When absent, the legacy hardcoded
+/// member list is used as a fallback.
 pub fn build_completions(
     analysis: &Analysis,
+    inference: Option<&inference::Inference>,
     source: &str,
     position: Position,
 ) -> Vec<lsp_types::CompletionItem> {
@@ -36,7 +43,13 @@ pub fn build_completions(
             .unwrap_or(0);
         let object_name = &object_text[ident_start..];
         if !object_name.is_empty() {
-            return build_member_completions(object_name);
+            return build_member_completions(
+                inference,
+                source,
+                position,
+                object_name,
+                ident_start,
+            );
         }
     }
 
@@ -83,11 +96,106 @@ pub fn build_completions(
     items
 }
 
-fn build_member_completions(object_name: &str) -> Vec<lsp_types::CompletionItem> {
+/// Build the list of completions for a member access expression
+/// (`foo.bar`, where the cursor is on or after the `.`). The result
+/// is type-aware: when we can resolve the type of `object_name` from
+/// the inference scope, we show only the methods and properties that
+/// actually exist on that type.
+fn build_member_completions(
+    inference: Option<&inference::Inference>,
+    source: &str,
+    position: Position,
+    object_name: &str,
+    object_col: usize,
+) -> Vec<lsp_types::CompletionItem> {
+    let replace_range = Range {
+        start: Position {
+            line: position.line,
+            character: position.character,
+        },
+        end: Position {
+            line: position.line,
+            character: position.character,
+        },
+    };
+
+    // Resolve the type of `object_name` at the current line. The
+    // position passed to `inference::lookup` is on the identifier
+    // itself (any column within it works), so we use `object_col`.
+    let object_type: Option<inference::Type> = inference.and_then(|inf| {
+        let lookup_pos = Position {
+            line: position.line,
+            character: object_col as u32,
+        };
+        inf.lookup(source, lookup_pos).map(|b| b.ty)
+    });
+
+    // Fast path: hardcoded `data` completions for the event payload.
     if object_name == "data" {
         return vec![make_field("plan", "string"), make_field("items", "array")];
     }
-    vec![make_field("length", "number"), make_field("name", "string")]
+
+    let mut items: Vec<lsp_types::CompletionItem> = Vec::new();
+
+    // Type-aware: properties + methods from the primitive table.
+    if let Some(ty) = &object_type {
+        for p in inference::methods::properties_for(ty) {
+            items.push(make_property_completion(&p, replace_range));
+        }
+        for m in inference::methods::methods_for(ty) {
+            items.push(make_method_completion(&m, replace_range));
+        }
+    }
+
+    // Fallback for when inference is missing or the type is `Any`:
+    // expose the most common members so `foo.|` isn't empty.
+    if items.is_empty() {
+        items.push(make_field("length", "number"));
+        items.push(make_field("name", "string"));
+    }
+
+    items
+}
+
+fn make_property_completion(
+    p: &inference::methods::Property,
+    replace_range: Range,
+) -> lsp_types::CompletionItem {
+    let mut item = lsp_types::CompletionItem {
+        label: p.name.to_string(),
+        kind: Some(lsp_types::CompletionItemKind::PROPERTY),
+        detail: Some(format!(": {}", p.ty.label())),
+        documentation: Some(lsp_types::Documentation::String(p.doc.to_string())),
+        ..Default::default()
+    };
+    item.text_edit = Some(LspCompletionTextEdit::Edit(TextEdit {
+        range: replace_range,
+        new_text: p.name.to_string(),
+    }));
+    item
+}
+
+fn make_method_completion(
+    m: &inference::methods::Method,
+    replace_range: Range,
+) -> lsp_types::CompletionItem {
+    // Build a method-call snippet with tab stops so the user gets
+    // `name($1)$0` instead of bare `name` — the LSP client fills in
+    // the arguments.
+    let label = m.name.to_string();
+    let insert = format!("{}($1)$0", label);
+    let mut item = lsp_types::CompletionItem {
+        label,
+        kind: Some(lsp_types::CompletionItemKind::METHOD),
+        detail: Some(format!("(): {}", m.ret.label())),
+        documentation: Some(lsp_types::Documentation::String(m.doc.to_string())),
+        ..Default::default()
+    };
+    item.text_edit = Some(LspCompletionTextEdit::Edit(TextEdit {
+        range: replace_range,
+        new_text: insert,
+    }));
+    item
 }
 
 fn trailing_word(before: &str) -> String {
@@ -320,4 +428,95 @@ fn builtin_items() -> Vec<lsp_types::CompletionItem> {
             ..Default::default()
         },
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::ServerState;
+    use lsp_types::CompletionItemKind;
+
+    fn completions_at(source: &str, line: u32, character: u32) -> Vec<Completion> {
+        let mut state = ServerState::new();
+        let uri = "file:///test.flow";
+        state.update_document(uri, source);
+        crate::features::completions_at(&state, uri, line as usize, character as usize)
+    }
+
+    fn labels(items: &[Completion]) -> Vec<&str> {
+        let mut v: Vec<&str> = items.iter().map(|c| c.label.as_str()).collect();
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn member_completions_for_string_show_string_methods() {
+        // `//@string` annotates `email` as a string. Typing `email.|`
+        // should produce string methods (`.toUpperCase`, `.contains`,
+        // ...) and the `.length` property — never number methods or
+        // array methods. We use `email.length` (a valid member
+        // access) and put the cursor on `.` between `email` and
+        // `length` so completion kicks in for the member expression.
+        let source = "//@string\nfn f(email) {\n  log(email.length)\n}\n";
+        // 0: //@string
+        // 1: fn f(email) {
+        // 2:   log(email.length)
+        // 3: }
+        // Cursor right after the `.` at column 13 (2 spaces + `log(`
+        // (4) + `email` (5) + `.` (1) = 12; column 13 is between
+        // the dot and `length`).
+        let items = completions_at(source, 2, 13);
+        let l = labels(&items);
+        // Property
+        assert!(l.contains(&"length"), "missing length: {:?}", l);
+        // String methods
+        for m in ["toUpperCase", "toLowerCase", "trim", "contains", "startsWith", "endsWith"] {
+            assert!(l.contains(&m), "missing string method {}: {:?}", m, l);
+        }
+        // Not array methods, not number methods
+        for m in ["first", "last", "toFixed"] {
+            assert!(!l.contains(&m), "unexpected {} for string: {:?}", m, l);
+        }
+        // Property items are marked PROPERTY.
+        let length = items.iter().find(|c| c.label == "length").unwrap();
+        assert!(matches!(length.kind, CompletionKind::Property));
+    }
+
+    #[test]
+    fn member_completions_for_array_show_array_methods() {
+        // A `var items = [...]` makes `items` an Array. Typing
+        // `items.|` should show array methods.
+        let source = "workflow \"W\" {\n  on E\n  var items = [1, 2, 3]\n  log(items.length)\n}\n";
+        // 0: workflow "W" {
+        // 1:   on E
+        // 2:   var items = [1, 2, 3]
+        // 3:   log(items.length)
+        // 4: }
+        let items = completions_at(source, 3, 14);
+        let l = labels(&items);
+        assert!(l.contains(&"length"), "missing length: {:?}", l);
+        for m in ["first", "last", "join", "contains", "reverse"] {
+            assert!(l.contains(&m), "missing array method {}: {:?}", m, l);
+        }
+        for m in ["toUpperCase", "toFixed"] {
+            assert!(!l.contains(&m), "unexpected {} for array: {:?}", m, l);
+        }
+    }
+
+    #[test]
+    fn member_completions_fallback_when_type_unknown() {
+        // No annotation, no inference ⇒ the type is `Any`. The
+        // fallback list is the legacy `length` + `name` set so
+        // `foo.|` is never empty.
+        let source = "workflow \"W\" {\n  on E\n  var x = data\n  log(x.length)\n}\n";
+        // 0: workflow "W" {
+        // 1:   on E
+        // 2:   var x = data
+        // 3:   log(x.length)
+        // 4: }
+        let items = completions_at(source, 3, 9);
+        let l = labels(&items);
+        assert!(l.contains(&"length"), "missing length: {:?}", l);
+        assert!(l.contains(&"name"), "missing name: {:?}", l);
+    }
 }

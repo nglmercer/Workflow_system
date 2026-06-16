@@ -44,8 +44,14 @@ destructure_params = { "({" ~ destructure_list ~ "})" }
 // Function definition
 fn_def = { "fn" ~ IDENT ~ "(" ~ (IDENT ~ ("," ~ IDENT)*)? ~ ")" ~ block }
 
-// Import statement
-import_stmt = { "import" ~ IDENT ~ "from" ~ STRING }
+// Import statement. Two forms, both produce the same ImportStmt:
+//   import <name> from "<path>"   — regular module import
+//   @import data from "<path>"    — data-schema import; the name is
+//                                   fixed to `data` and the file is
+//                                   a JSON schema whose keys become
+//                                   the fields of the synthetic
+//                                   `data` binding.
+import_stmt = { ("@" ~ "import" ~ "data" | "import" ~ IDENT) ~ "from" ~ STRING }
 
 // Workflow definition
 workflow_def = { "workflow" ~ STRING ~ block }
