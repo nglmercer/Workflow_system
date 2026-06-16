@@ -1,7 +1,16 @@
 //! Program-level inference: walks a `FlowProgram` and produces the
-//! `Inference` result (per-line scopes + function signatures).
+//! `Inference` result (per-line scopes + function signatures +
+//! typed bindings).
+//!
+//! The walker uses the byte-offset [`ScopeIndex`] from
+//! [`crate::scope`] as the source of truth. Type information is
+//! attached to each binding via a side table
+//! (`Inference::typed`) keyed by `(name, scope_id)`. The legacy
+//! per-line `scope_at` table is derived from the scope index for
+//! backward compatibility with consumers that haven't been
+//! ported to the new byte-offset lookup.
 
-use workflow_parser::ast::{Expr, FlowProgram, FunctionDef, GlobalVar, Stmt, WorkflowDef};
+use workflow_parser::ast::{Expr, FlowProgram, Stmt};
 
 use super::annotation::Annotations;
 use super::expr::{infer_expr, infer_expr_with_ctx};
@@ -22,15 +31,9 @@ impl<'a> Walker<'a> {
     /// `return <expr>` site (and the trailing expression) rather than
     /// just the last statement. Recurses into `if` and `foreach`
     /// bodies so a `return` deep inside a block is still picked up.
-    ///
-    /// `scope` provides the function's local bindings (typically its
-    /// parameters, possibly shadowed by `var` declarations) so
-    /// expressions inside `return x` can resolve parameter names.
     pub fn infer_return_type(&self, body: &[Stmt], scope: &[InferredBinding]) -> Type {
         let mut ret: Option<Type> = None;
         self.collect_return_type(body, scope, &mut ret);
-        // If no explicit return was found, the trailing expression's
-        // type is the implicit return.
         if ret.is_none() {
             if let Some(last_expr) = body.iter().rev().find_map(|s| match s {
                 Stmt::Expr(v, _) => Some(v),
@@ -79,10 +82,7 @@ impl<'a> Walker<'a> {
     }
 
     /// Infer a parameter's type from how it's used inside the function
-    /// body. We scan the body for any expression that uses the
-    /// parameter and use the surrounding expression's inferred type
-    /// (e.g. if `user` is compared with `==` to a `string` literal,
-    /// then `user: string` is a reasonable guess).
+    /// body.
     pub fn infer_param_type(&self, body: &[Stmt], param: &str) -> Type {
         let mut inferred: Option<Type> = None;
         for stmt in body {
@@ -99,7 +99,7 @@ impl<'a> Walker<'a> {
                 condition,
                 then_body,
                 else_body,
-            ..
+                ..
             } => {
                 self.collect_param_usage_in_expr(condition, param, out);
                 for s in then_body {
@@ -131,35 +131,24 @@ impl<'a> Walker<'a> {
         }
     }
 
-    /// Given an expression that mentions `param`, return the type we can
-    /// infer for `param` from the surrounding context (e.g. the other
-    /// operand of a comparison, the argument position of a known call).
-    /// Returns `None` if no constraint can be extracted.
     fn param_type_in_context(&self, expr: &Expr, param: &str) -> Option<Type> {
         match expr {
             Expr::BinaryOp { op, left, right } => {
                 use workflow_parser::ast::BinaryOp::*;
                 let l_uses = uses_param(left, param);
                 let r_uses = uses_param(right, param);
-                // We need at least one side to use the param, otherwise
-                // the expression is unrelated to it.
                 if !l_uses && !r_uses {
                     return None;
                 }
                 match op {
-                    // Comparisons: the param takes the type of the
-                    // *other* operand (the one not equal to it).
                     Eq | Neq | Lt | Gt | Lte | Gte => {
                         if l_uses && r_uses {
-                            // Both sides use the param — give up.
                             return None;
                         }
                         let other = if l_uses { right } else { left };
                         let (t, _) = infer_expr_with_ctx(other, &[], self.functions, &[]);
                         Some(t)
                     }
-                    // Arithmetic / logical: result type constrains
-                    // both operands to it.
                     Add | Sub | Mul | Div | Mod | And | Or => {
                         let (t, _) = infer_expr_with_ctx(expr, &[], self.functions, &[]);
                         Some(t)
@@ -167,8 +156,6 @@ impl<'a> Walker<'a> {
                 }
             }
             Expr::Call { name, args } => {
-                // If the called function has known param types, find
-                // which arg position uses `param` and use that.
                 if let Some(sig) = self.functions.get(name) {
                     for (i, a) in args.iter().enumerate() {
                         if uses_param(a, param) {
@@ -177,7 +164,6 @@ impl<'a> Walker<'a> {
                             }
                         }
                     }
-                    // Fall through to the built-in case.
                 }
                 if let Some(t) = super::builtins::builtin_arg_type(name, args.len()) {
                     return Some(t);
@@ -214,7 +200,6 @@ impl<'a> Walker<'a> {
     }
 }
 
-/// True if `expr` mentions `param` as a free variable.
 fn uses_param(expr: &Expr, param: &str) -> bool {
     match expr {
         Expr::String(_) | Expr::Number(_) | Expr::Bool(_) | Expr::Null => false,
@@ -231,8 +216,6 @@ fn uses_param(expr: &Expr, param: &str) -> bool {
     }
 }
 
-/// Narrow two inferred types: prefer a concrete one over `Any`, otherwise
-/// require both sides to agree.
 fn narrow(a: Option<Type>, b: Type) -> Type {
     match a {
         None => b,
@@ -251,8 +234,9 @@ pub fn run_program(
     inference: &mut super::Inference,
     program: &FlowProgram,
     annotations: &Annotations,
+    source: &str,
 ) {
-    run_program_with_imports(inference, program, annotations, &[])
+    run_program_with_imports(inference, program, annotations, &[], source)
 }
 
 /// Like [`run_program`], but takes an explicit list of bindings to
@@ -265,338 +249,387 @@ pub fn run_program_with_imports(
     program: &FlowProgram,
     annotations: &Annotations,
     import_bindings: &[InferredBinding],
+    source: &str,
 ) {
-    // The parser doesn't carry spans, so we walk the source string to
-    // figure out which line each declaration starts on. This is the
-    // same heuristic the LSP uses for completions and is good enough
-    // for inference/hover/lint purposes. Functions and globals are
-    // always in scope from line 0; locals and foreach items start at
-    // their declaration line.
-    for binding in import_bindings {
-        push_to_all_lines(inference, binding);
+    // Build the byte-offset scope index from the AST. This is the
+    // authoritative scope source — the per-line `scope_at` table
+    // below is derived from it.
+    use crate::scope::build_scope_index;
+    inference.scope_index = build_scope_index(program, source);
+    inference.typed = crate::scope::TypedBindings::new();
+
+    // Now walk the program and attach type information to each
+    // binding the scope index recorded. We do this by walking the
+    // AST in a separate pass — the scope index already gives us
+    // the (name, scope_id) keys.
+    infer_globals(inference, program, annotations);
+    infer_functions(inference, program, annotations);
+    infer_workflows(inference, program, annotations, import_bindings);
+    infer_imports(inference, import_bindings);
+
+    // Project the typed bindings into the per-line table. We use
+    // the line's *end* so any binding declared on the same line
+    // shows up to the rest of the line. This matches the legacy
+    // behaviour closely enough for the existing consumers.
+    use crate::analysis::byte_offset_of_line_end;
+    let line_count = source.lines().count().max(1);
+    inference.scope_at = vec![Vec::new(); line_count];
+    for line_idx in 0..line_count {
+        let byte_offset = byte_offset_of_line_end(source, line_idx);
+        let bindings = inference.scope_index.bindings_at(byte_offset);
+        for b in bindings {
+            if let Some(typed) = inference.typed.get(b.name, b.scope_id) {
+                inference.scope_at[line_idx].push(typed.clone());
+            }
+        }
     }
+}
+
+fn infer_globals(
+    inference: &mut super::Inference,
+    program: &FlowProgram,
+    annotations: &Annotations,
+) {
+    // For each global, find the scope binding the scope index
+    // recorded, compute the type, and attach it.
     for g in &program.globals {
-        push_global(inference, g, annotations);
-    }
-    for f in &program.functions {
-        push_function(inference, f, annotations);
-        // Function parameters are visible inside the function body.
-        // The signature is now in `inference.functions` (populated by
-        // `push_function` above), so we can read the resolved
-        // per-parameter types and use them as the binding's type.
-        push_function_params(inference, f);
-    }
-    for w in &program.workflows {
-        // Workflow `on EVENT({a, b, c})` destructure params are visible
-        // inside the workflow body. If the user has imported a schema
-        // that matches the workflow's event, the destructure params
-        // pick up their types from the schema (otherwise they
-        // default to `Type::Any`).
-        push_workflow_params(inference, w, import_bindings);
-        scan_body(inference, &w.body, annotations, 0);
-    }
-    for f in &program.functions {
-        scan_body(inference, &f.body, annotations, 0);
+        let (ty, value) = infer_expr_with_ctx(&g.value, &[], &inference.functions, &[]);
+        let (ty, annotated) = annotations
+            .globals
+            .get(&g.name)
+            .map(|t| (t.clone(), true))
+            .unwrap_or((ty, false));
+        let scope_id = lookup_scope_for(inference, &g.name, g.span.start);
+        if let Some(sid) = scope_id {
+            inference.typed.insert(
+                &g.name,
+                sid,
+                InferredBinding {
+                    name: g.name.clone(),
+                    ty,
+                    value,
+                    annotated,
+                },
+            );
+        }
     }
 }
 
-/// Push every function parameter into `scope_at` so the
-/// `unknown-identifier` lint (and hover / completion) see them as
-/// in-scope names. The signature's resolved `param_types` are used when
-/// available; otherwise the binding falls back to `Type::Any`.
-fn push_function_params(inference: &mut super::Inference, f: &FunctionDef) {
-    let param_types: Vec<Type> = inference
-        .functions
-        .get(&f.name)
-        .map(|sig| sig.param_types.clone())
-        .unwrap_or_else(|| vec![Type::Any; f.params.len()]);
-    for (idx, name) in f.params.iter().enumerate() {
-        let binding = InferredBinding {
-            name: name.clone(),
-            ty: param_types.get(idx).cloned().unwrap_or(Type::Any),
-            value: None,
-            annotated: param_types
-                .get(idx)
-                .map(|t| t != &Type::Any)
-                .unwrap_or(false),
-        };
-        push_to_all_lines(inference, &binding);
-    }
-}
-
-/// Push every workflow destructure parameter (from
-/// `on EVENT ({a, b, c})`) into `scope_at`. Params default to
-/// `Type::Any` — unless the user has imported a schema whose fields
-/// match the param names, in which case the param's type is taken
-/// from the schema. The match is by name, not by event: any
-/// imported `data` (or other named) schema with a field `users` will
-/// type the workflow's `users` param as that field's type. This is
-/// how `@import data from "./schema.json"` ends up typing the
-/// destructure params of a workflow that destructures that
-/// `data`-shaped event.
-///
-/// When a destructure param doesn't match any field in the event
-/// schema, it falls back to the whole event type. This supports
-/// patterns like `on COMPLEX_EVENT (data)` where `data` represents
-/// the entire event payload.
-fn push_workflow_params(
+fn infer_functions(
     inference: &mut super::Inference,
-    w: &WorkflowDef,
-    import_bindings: &[InferredBinding],
+    program: &FlowProgram,
+    annotations: &Annotations,
 ) {
-    // Find the import binding that matches this workflow's event name.
-    // e.g., `on COMPLEX_EVENT (data)` with `@import COMPLEX_EVENT from ...`
-    let event_binding = import_bindings.iter().find(|b| b.name == w.event);
-
-    for name in &w.params {
-        let ty = import_bindings
+    for f in &program.functions {
+        let walker = Walker::new(&inference.functions);
+        let mut param_types: Vec<Type> = f
+            .params
             .iter()
-            .find_map(|b| match &b.ty {
-                Type::Object(fields) => fields
-                    .iter()
-                    .find(|(k, _)| k == name)
-                    .map(|(_, t)| t.clone()),
-                _ => None,
+            .map(|p| {
+                annotations
+                    .param_types
+                    .get(&(f.name.clone(), p.clone()))
+                    .cloned()
+                    .unwrap_or_else(|| walker.infer_param_type(&f.body, p))
             })
-            .or_else(|| {
-                // Fallback: if param doesn't match any field, use the
-                // whole event type. This handles `on COMPLEX_EVENT (data)`
-                // where `data` is the entire event payload.
-                event_binding.map(|b| b.ty.clone())
-            })
-            .unwrap_or(Type::Any);
-        let binding = InferredBinding {
-            name: name.clone(),
-            ty,
-            value: None,
-            annotated: import_bindings
-                .iter()
-                .any(|b| matches!(b.ty, Type::Object(_))),
-        };
-        push_to_all_lines(inference, &binding);
-    }
-}
-
-fn push_global(inference: &mut super::Inference, g: &GlobalVar, annotations: &Annotations) {
-    let (ty, value) = infer_expr_with_ctx(&g.value, &[], &inference.functions, &[]);
-    let (ty, annotated) = annotations
-        .globals
-        .get(&g.name)
-        .map(|t| (t.clone(), true))
-        .unwrap_or((ty, false));
-    let binding = InferredBinding {
-        name: g.name.clone(),
-        ty,
-        value,
-        annotated,
-    };
-    push_to_all_lines(inference, &binding);
-}
-
-fn push_function(inference: &mut super::Inference, f: &FunctionDef, annotations: &Annotations) {
-    // First pass: collect param/return types from inference, then let
-    // annotations override them.
-    let walker = Walker::new(&inference.functions);
-    let mut param_types: Vec<Type> = f
-        .params
-        .iter()
-        .map(|p| {
-            // Per-param annotation wins; otherwise infer from body.
-            annotations
-                .param_types
-                .get(&(f.name.clone(), p.clone()))
-                .cloned()
-                .unwrap_or_else(|| walker.infer_param_type(&f.body, p))
-        })
-        .collect();
-    if let Some(ann) = annotations.functions.get(&f.name) {
-        // A full function-signature annotation overrides per-param
-        // inference (and any lone `//@param` hints).
-        param_types = ann.param_types.clone();
-    }
-    // Return type: annotation wins; otherwise infer from every return
-    // site in the body, falling back to the trailing expression.
-    //
-    // When the user *did* annotate the function but didn't specify a
-    // return type (`//@{a:T, b:T}` with no `-> R`), the parser
-    // defaults `ann.ret` to `Type::Any`. We treat that as "not
-    // specified" and fall through to body inference, so the
-    // signature form behaves the same as the `//@T,T` shortcut for
-    // the return type.
-    //
-    // We pass the resolved `param_types` as the walker scope so
-    // body-level expressions can see function parameters: e.g.
-    // `fn f(x) { return x }` infers the return as `x`'s type, not
-    // `Any`.
-    let param_scope: Vec<InferredBinding> = f
-        .params
-        .iter()
-        .cloned()
-        .zip(param_types.iter().cloned())
-        .map(|(name, ty)| InferredBinding {
-            name,
-            ty,
-            value: None,
-            annotated: false,
-        })
-        .collect();
-    let ret = if let Some(ann) = annotations.functions.get(&f.name) {
-        if ann.ret != Type::Any {
-            ann.ret.clone()
-        } else {
-            walker.infer_return_type(&f.body, &param_scope)
+            .collect();
+        if let Some(ann) = annotations.functions.get(&f.name) {
+            param_types = ann.param_types.clone();
         }
-    } else {
-        walker.infer_return_type(&f.body, &param_scope)
-    };
-    let annotated = annotations.functions.contains_key(&f.name);
-    inference.functions.insert(
-        f.name.clone(),
-        FunctionSig {
-            name: f.name.clone(),
-            params: f.params.clone(),
-            param_types,
-            ret,
-            annotated,
-        },
-    );
-    // Function names are visible everywhere — we treat the function
-    // itself like a global binding.
-    let sig = inference.functions.get(&f.name).unwrap();
-    let binding = InferredBinding {
-        name: f.name.clone(),
-        ty: sig.ret.clone(),
-        value: None,
-        annotated,
-    };
-    push_to_all_lines(inference, &binding);
-}
-
-/// Add a binding to every line's scope. Used for globals and
-/// functions, which are visible throughout the document.
-fn push_to_all_lines(inference: &mut super::Inference, binding: &InferredBinding) {
-    for line in inference.scope_at.iter_mut() {
-        line.push(binding.clone());
-    }
-}
-
-/// Add a binding to every line `>= from_line`. Used for locals and
-/// foreach items so they're only visible after their declaration.
-fn push_from_line(inference: &mut super::Inference, binding: &InferredBinding, from_line: usize) {
-    let start = from_line.min(inference.scope_at.len());
-    for line in inference.scope_at[start..].iter_mut() {
-        line.push(binding.clone());
-    }
-}
-
-/// Walk a statement body and add local bindings to the lines they
-/// cover. `base_offset` is the line index where the body starts in the
-/// source (0 for top-level bodies; the body's first line for nested
-/// blocks). Locals declared inside the body are only visible from
-/// their declaration line onward.
-pub fn scan_body(
-    inference: &mut super::Inference,
-    stmts: &[Stmt],
-    annotations: &Annotations,
-    base_offset: usize,
-) {
-    let mut current_line = base_offset;
-    for stmt in stmts {
-        scan_stmt(inference, stmt, annotations, &mut current_line);
-    }
-}
-
-fn scan_stmt(
-    inference: &mut super::Inference,
-    stmt: &Stmt,
-    annotations: &Annotations,
-    current_line: &mut usize,
-) {
-    // The scope at `current_line` already contains every binding that
-    // is visible on this line: globals, function names, function
-    // parameters (pushed to all lines by `push_function_params`),
-    // workflow destructure params, and any locals declared earlier in
-    // the same body. Using it as the inference context lets
-    // expressions like `var length = email.length` see `email`'s
-    // annotated type (`string`) and pick up `length: number` from
-    // the primitive property table, instead of falling back to
-    // `Any` because the param wasn't in scope.
-    let scope: Vec<InferredBinding> = inference
-        .scope_at
-        .get(*current_line)
-        .cloned()
-        .unwrap_or_default();
-    match stmt {
-        Stmt::VarDecl { name, value, .. } => {
-            let (ty, val) = match value {
-                Some(v) => infer_expr_with_ctx(v, &scope, &inference.functions, &[]),
-                None => (Type::Any, None),
-            };
-            let (ty, annotated) = annotations
-                .locals
-                .get(name)
-                .map(|t| (t.clone(), true))
-                .unwrap_or((ty, false));
-            let binding = InferredBinding {
-                name: name.clone(),
-                ty,
-                value: val,
-                annotated,
-            };
-            push_from_line(inference, &binding, *current_line);
-        }
-        Stmt::Foreach {
-            item_var,
-            iterable,
-            body,
-            ..
-        } => {
-            let inner = infer_expr_with_ctx(iterable, &scope, &inference.functions, &[]).0;
-            let ty = match inner {
-                Type::Array(inner) => *inner,
-                _ => Type::Any,
-            };
-            let binding = InferredBinding {
-                name: item_var.clone(),
+        let param_scope: Vec<InferredBinding> = f
+            .params
+            .iter()
+            .cloned()
+            .zip(param_types.iter().cloned())
+            .map(|(name, ty)| InferredBinding {
+                name,
                 ty,
                 value: None,
                 annotated: false,
-            };
-            push_from_line(inference, &binding, *current_line);
-            // The body starts on the line *after* the `foreach ... {`
-            // header. The exact offset doesn't matter for linting — we
-            // only care that the binding is visible from at least the
-            // body's first line. Bumping by 1 is a reasonable proxy.
-            scan_body(inference, body, annotations, current_line.saturating_add(1));
-        }
-        Stmt::If {
-            condition: _,
-            then_body,
-            else_body,
-            ..
-        } => {
-            scan_body(
-                inference,
-                then_body,
-                annotations,
-                current_line.saturating_add(1),
+            })
+            .collect();
+        let ret = if let Some(ann) = annotations.functions.get(&f.name) {
+            if ann.ret != Type::Any {
+                ann.ret.clone()
+            } else {
+                walker.infer_return_type(&f.body, &param_scope)
+            }
+        } else {
+            walker.infer_return_type(&f.body, &param_scope)
+        };
+        let annotated = annotations.functions.contains_key(&f.name);
+        inference.functions.insert(
+            f.name.clone(),
+            FunctionSig {
+                name: f.name.clone(),
+                params: f.params.clone(),
+                param_types: param_types.clone(),
+                ret: ret.clone(),
+                annotated,
+            },
+        );
+        // The function name itself is a module-level binding.
+        // Type it as its return type.
+        let sid = lookup_scope_for(inference, &f.name, f.span.start);
+        if let Some(sid) = sid {
+            inference.typed.insert(
+                &f.name,
+                sid,
+                InferredBinding {
+                    name: f.name.clone(),
+                    ty: ret.clone(),
+                    value: None,
+                    annotated,
+                },
             );
-            if let Some(else_body) = else_body {
-                scan_body(
-                    inference,
-                    else_body,
-                    annotations,
-                    current_line.saturating_add(1),
+        }
+        // Function parameters are bound in the function's own
+        // scope. Look up the binding by name and attach the
+        // parameter type. We use the *first* scope where `p`
+        // appears; for non-shadowing parameters this is the
+        // function scope.
+        for (idx, p) in f.params.iter().enumerate() {
+            let ty = param_types.get(idx).cloned().unwrap_or(Type::Any);
+            if let Some(sid) = lookup_scope_for(inference, p, f.span.start) {
+                inference.typed.insert(
+                    p,
+                    sid,
+                    InferredBinding {
+                        name: p.clone(),
+                        ty,
+                        value: None,
+                        annotated: param_types
+                            .get(idx)
+                            .map(|t| t != &Type::Any)
+                            .unwrap_or(false),
+                    },
                 );
             }
         }
-        _ => {}
     }
-    // After this statement, advance the line counter by 1 to model
-    // statement-to-statement flow. This is a coarse approximation but
-    // it's good enough for lint scoping; a real per-token walker
-    // would require parser-level positions.
-    *current_line = current_line.saturating_add(1);
+}
+
+fn infer_workflows(
+    inference: &mut super::Inference,
+    program: &FlowProgram,
+    annotations: &Annotations,
+    import_bindings: &[InferredBinding],
+) {
+    for w in &program.workflows {
+        // Workflow destructure params: visible at the workflow's
+        // start. Type from the matching import, or fall back to
+        // Any.
+        let event_binding = import_bindings.iter().find(|b| b.name == w.event);
+        for p in &w.params {
+            if p == "_rename" {
+                continue;
+            }
+            let ty = import_bindings
+                .iter()
+                .find_map(|b| match &b.ty {
+                    Type::Object(fields) => {
+                        fields.iter().find(|(k, _)| k == p).map(|(_, t)| t.clone())
+                    }
+                    _ => None,
+                })
+                .or_else(|| event_binding.map(|b| b.ty.clone()))
+                .unwrap_or(Type::Any);
+            if let Some(sid) = lookup_scope_for(inference, p, w.span.start) {
+                inference.typed.insert(
+                    p,
+                    sid,
+                    InferredBinding {
+                        name: p.clone(),
+                        ty,
+                        value: None,
+                        annotated: import_bindings
+                            .iter()
+                            .any(|b| matches!(b.ty, Type::Object(_))),
+                    },
+                );
+            }
+        }
+        // `data` and the event name are also workflow bindings.
+        for &(name, _kind) in &[
+            ("data", BindingKind::EventPayload),
+            (&w.event, BindingKind::WorkflowEvent),
+        ] {
+            if let Some(sid) = lookup_scope_for(inference, name, w.span.start) {
+                inference.typed.insert(
+                    name,
+                    sid,
+                    InferredBinding {
+                        name: name.to_string(),
+                        ty: Type::Any,
+                        value: None,
+                        annotated: false,
+                    },
+                );
+            }
+        }
+        // Walk the workflow body and attach types to local
+        // bindings.
+        infer_body_bindings(inference, w.span.start, &w.body, annotations);
+    }
+    // Function bodies: type locals.
+    for f in &program.functions {
+        infer_body_bindings(inference, f.span.start, &f.body, annotations);
+    }
+}
+
+fn infer_body_bindings(
+    inference: &mut super::Inference,
+    _scope_anchor: usize,
+    stmts: &[Stmt],
+    annotations: &Annotations,
+) {
+    // Build a per-line scope table for the body's region so
+    // expressions can resolve the right typed bindings.
+    for stmt in stmts {
+        match stmt {
+            Stmt::VarDecl {
+                name, value, span, ..
+            } => {
+                // Find the scope binding the scope index recorded.
+                let sid = lookup_scope_for(inference, name, span.start);
+                if let Some(sid) = sid {
+                    let (ty, val) = match value {
+                        Some(v) => {
+                            let typed_scope = scope_at_offset(inference, span.start);
+                            infer_expr_with_ctx(v, &typed_scope, &inference.functions, &[])
+                        }
+                        None => (Type::Any, None),
+                    };
+                    let (ty, annotated) = annotations
+                        .locals
+                        .get(name)
+                        .map(|t| (t.clone(), true))
+                        .unwrap_or((ty, false));
+                    inference.typed.insert(
+                        name,
+                        sid,
+                        InferredBinding {
+                            name: name.clone(),
+                            ty,
+                            value: val,
+                            annotated,
+                        },
+                    );
+                }
+            }
+            Stmt::Assign {
+                name, value, span, ..
+            } => {
+                // Re-resolve the existing binding's type from the
+                // RHS expression.
+                let sid = lookup_scope_for(inference, name, span.start);
+                if let Some(sid) = sid {
+                    let typed_scope = scope_at_offset(inference, span.start);
+                    let (ty, val) =
+                        infer_expr_with_ctx(value, &typed_scope, &inference.functions, &[]);
+                    // Update the existing typed entry (or insert a
+                    // new one if there isn't one yet).
+                    inference.typed.insert(
+                        name,
+                        sid,
+                        InferredBinding {
+                            name: name.clone(),
+                            ty,
+                            value: val,
+                            annotated: false,
+                        },
+                    );
+                }
+            }
+            Stmt::Foreach {
+                item_var,
+                iterable,
+                body,
+                span,
+                ..
+            } => {
+                // The item binding lives in the foreach body scope,
+                // which starts at the first statement — not at the
+                // `foreach` keyword. Use the body's start so the
+                // scope index can find the binding.
+                let body_start = body.first().map(|s| s.span().start).unwrap_or(span.start);
+                let sid = lookup_scope_for(inference, item_var, body_start);
+                if let Some(sid) = sid {
+                    let typed_scope = scope_at_offset(inference, span.start);
+                    let (inner_ty, _) =
+                        infer_expr_with_ctx(iterable, &typed_scope, &inference.functions, &[]);
+                    let item_ty = match inner_ty {
+                        Type::Array(inner) => *inner,
+                        _ => Type::Any,
+                    };
+                    inference.typed.insert(
+                        item_var,
+                        sid,
+                        InferredBinding {
+                            name: item_var.clone(),
+                            ty: item_ty,
+                            value: None,
+                            annotated: false,
+                        },
+                    );
+                }
+                // Recurse into the body.
+                infer_body_bindings(inference, _scope_anchor, body, annotations);
+            }
+            Stmt::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                infer_body_bindings(inference, _scope_anchor, then_body, annotations);
+                if let Some(eb) = else_body {
+                    infer_body_bindings(inference, _scope_anchor, eb, annotations);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn infer_imports(inference: &mut super::Inference, import_bindings: &[InferredBinding]) {
+    // Each import binding is a module-level binding named after
+    // the import's `name` field. We find the scope binding the
+    // scope index recorded (it was added in `walk_program` with
+    // kind=Import) and attach the type info.
+    for ib in import_bindings {
+        if let Some(sid) = lookup_scope_for(inference, &ib.name, 0) {
+            inference.typed.insert(&ib.name, sid, ib.clone());
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum BindingKind {
+    EventPayload,
+    WorkflowEvent,
+}
+
+/// Find the scope id that contains the binding for `name` at
+/// `offset`. Returns the innermost scope id, so shadowing
+/// declarations win.
+fn lookup_scope_for(inference: &super::Inference, name: &str, offset: usize) -> Option<usize> {
+    inference
+        .scope_index
+        .bindings_at(offset)
+        .into_iter()
+        .find(|b| b.name == name)
+        .map(|b| b.scope_id)
+}
+
+/// Collect the typed bindings visible at `offset`. Used as the
+/// inference context when walking expressions inside a body.
+fn scope_at_offset(inference: &super::Inference, offset: usize) -> Vec<InferredBinding> {
+    inference
+        .scope_index
+        .bindings_at(offset)
+        .into_iter()
+        .filter_map(|b| inference.typed.get(b.name, b.scope_id).cloned())
+        .collect()
 }
 
 #[allow(dead_code)]

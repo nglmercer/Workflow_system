@@ -169,7 +169,18 @@ pub fn parse_disable_directives(source: &str) -> DisabledSet {
 /// in `source` using the parser's heuristic. Returns `None` if the
 /// expression can't be located.
 pub fn expr_position(source: &str, expr: &workflow_parser::ast::Expr) -> Option<(u32, u32)> {
-    let span = workflow_parser::find_expr_range(source, expr)?;
+    expr_position_nth(source, expr, 1)
+}
+
+/// Like [`expr_position`], but for `Var` nodes, uses the `n`th
+/// occurrence (1-indexed) of the identifier. Other expression types
+/// ignore `n`.
+pub fn expr_position_nth(
+    source: &str,
+    expr: &workflow_parser::ast::Expr,
+    n: usize,
+) -> Option<(u32, u32)> {
+    let span = workflow_parser::find_expr_range_nth(source, expr, n)?;
     span.to_line_col(source).map(|(sl, sc, _, _)| (sl, sc))
 }
 

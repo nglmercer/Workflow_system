@@ -60,9 +60,9 @@ fn render_hover_body(ui: &mut Ui, content: &HoverContent) {
         ui.spacing_mut().item_spacing.x = 8.0;
         // Badge chip
         let badge_w = badge_text.chars().count() as f32 * 6.6 + 12.0;
-        let (badge_rect, _) =
-            ui.allocate_exact_size(Vec2::new(badge_w, 18.0), Sense::hover());
-        ui.painter().rect_filled(badge_rect, Rounding::same(4.0), badge_color);
+        let (badge_rect, _) = ui.allocate_exact_size(Vec2::new(badge_w, 18.0), Sense::hover());
+        ui.painter()
+            .rect_filled(badge_rect, Rounding::same(4.0), badge_color);
         ui.painter().text(
             badge_rect.left_center() + Vec2::new(6.0, -1.0),
             Align2::LEFT_CENTER,
@@ -95,7 +95,12 @@ fn render_hover_body(ui: &mut Ui, content: &HoverContent) {
             ui.painter().rect_filled(
                 chip_rect,
                 Rounding::same(4.0),
-                Color32::from_rgba_unmultiplied(badge_color.r(), badge_color.g(), badge_color.b(), 70),
+                Color32::from_rgba_unmultiplied(
+                    badge_color.r(),
+                    badge_color.g(),
+                    badge_color.b(),
+                    70,
+                ),
             );
             ui.painter().text(
                 chip_rect.center(),
@@ -197,35 +202,33 @@ pub fn render_type_expr(ui: &mut Ui, ty: &TypeExpr) {
 /// sub-UI at the top so the recursive `ui.indent` calls always
 /// land on a vertical parent and egui doesn't panic.
 fn render_type_compact(ui: &mut Ui, ty: &TypeExpr) {
-    ui.vertical(|ui| {
-        match ty {
-            TypeExpr::Name(n) => render_type_pill(ui, n, type_color(n)),
-            TypeExpr::Array(inner) => {
-                render_type_pill(ui, "[]", Color32::from_rgb(160, 100, 200));
-                render_type_compact(ui, inner);
+    ui.vertical(|ui| match ty {
+        TypeExpr::Name(n) => render_type_pill(ui, n, type_color(n)),
+        TypeExpr::Array(inner) => {
+            render_type_pill(ui, "[]", Color32::from_rgb(160, 100, 200));
+            render_type_compact(ui, inner);
+        }
+        TypeExpr::Object(fields) => {
+            render_type_pill(ui, "object", Color32::from_rgb(80, 170, 170));
+            if !fields.is_empty() {
+                ui.add_space(2.0);
+                render_field_table(ui, fields);
             }
-            TypeExpr::Object(fields) => {
-                render_type_pill(ui, "object", Color32::from_rgb(80, 170, 170));
-                if !fields.is_empty() {
-                    ui.add_space(2.0);
-                    render_field_table(ui, fields);
-                }
-            }
-            TypeExpr::Func { params, ret } => {
-                render_type_pill(ui, "fn", Color32::from_rgb(160, 100, 200));
-                ui.indent("hover-fn-compact", |ui| {
-                    render_field_table(ui, params);
-                    ui.horizontal(|ui| {
-                        ui.label(
-                            RichText::new("->")
-                                .monospace()
-                                .color(Color32::from_gray(160))
-                                .size(11.0),
-                        );
-                        render_type_compact(ui, ret);
-                    });
+        }
+        TypeExpr::Func { params, ret } => {
+            render_type_pill(ui, "fn", Color32::from_rgb(160, 100, 200));
+            ui.indent("hover-fn-compact", |ui| {
+                render_field_table(ui, params);
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new("->")
+                            .monospace()
+                            .color(Color32::from_gray(160))
+                            .size(11.0),
+                    );
+                    render_type_compact(ui, ret);
                 });
-            }
+            });
         }
     });
 }
@@ -245,10 +248,8 @@ fn render_field_table(ui: &mut Ui, fields: &[super::model::TypeField]) {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
                 // Name (fixed-width column for alignment)
-                let (name_rect, _) = ui.allocate_exact_size(
-                    Vec2::new(name_w, 16.0),
-                    Sense::hover(),
-                );
+                let (name_rect, _) =
+                    ui.allocate_exact_size(Vec2::new(name_w, 16.0), Sense::hover());
                 ui.painter().text(
                     name_rect.left_center() + Vec2::new(0.0, -1.0),
                     Align2::LEFT_CENTER,

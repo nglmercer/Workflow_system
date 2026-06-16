@@ -950,8 +950,16 @@ fn is_ident(text: &str) -> bool {
 /// - `BinaryOp`/`UnaryOp`/`Array`/`InterpolatedString` fall back to
 ///   the parenthesized text or the rendered expression.
 pub fn find_expr_range(source: &str, expr: &Expr) -> Option<Span> {
+    find_expr_range_nth(source, expr, 1)
+}
+
+/// Like [`find_expr_range`], but for `Var` nodes, returns the `n`th
+/// occurrence (1-indexed) of the identifier instead of the first.
+/// This is used by lints that walk the AST and need to locate each
+/// `Var` node precisely when the same name appears multiple times.
+pub fn find_expr_range_nth(source: &str, expr: &Expr, n: usize) -> Option<Span> {
     match expr {
-        Expr::Var(name) => find_ident_range(source, name),
+        Expr::Var(name) => find_ident_range_nth(source, name, n),
         Expr::Call { name, .. } => find_call_range(source, name),
         Expr::Member { property, .. } => find_member_range(source, property),
         Expr::String(s) => find_literal_range(source, &format!("\"{}\"", s), '"'),
@@ -996,19 +1004,30 @@ pub fn find_expr_range(source: &str, expr: &Expr) -> Option<Span> {
 /// non-identifier characters. Returns the first such occurrence, or
 /// `None` if the identifier is not present as a free-standing word.
 fn find_ident_range(source: &str, name: &str) -> Option<Span> {
+    find_ident_range_nth(source, name, 1)
+}
+
+/// Like [`find_ident_range`], but returns the `n`th occurrence
+/// (1-indexed) instead of the first. This is used by the lint to
+/// disambiguate multiple `Var` nodes with the same name.
+fn find_ident_range_nth(source: &str, name: &str, n: usize) -> Option<Span> {
     if name.is_empty() || !is_ident(name) {
         return None;
     }
     let bytes = source.as_bytes();
     let name_bytes = name.as_bytes();
     let mut i = 0;
+    let mut count = 0;
     while i + name_bytes.len() <= bytes.len() {
         if &bytes[i..i + name_bytes.len()] == name_bytes {
             let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
             let after_idx = i + name_bytes.len();
             let after_ok = after_idx == bytes.len() || !is_ident_byte(bytes[after_idx]);
             if before_ok && after_ok {
-                return Some(Span::new(i, after_idx));
+                count += 1;
+                if count == n {
+                    return Some(Span::new(i, after_idx));
+                }
             }
         }
         i += 1;

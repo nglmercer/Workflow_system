@@ -56,7 +56,7 @@ fn collect_stmts_refs(stmts: &[Stmt], refs: &mut HashSet<String>) {
                 condition,
                 then_body,
                 else_body,
-            ..
+                ..
             } => {
                 collect_refs(condition, refs);
                 collect_stmts_refs(then_body, refs);

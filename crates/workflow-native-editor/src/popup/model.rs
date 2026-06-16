@@ -222,11 +222,7 @@ impl HoverContent {
                     || t.starts_with("**params:**")
                     || t.starts_with("**value:**");
                 if looks_like_signature && t.len() <= 200 {
-                    let cleaned = stripped
-                        .trim()
-                        .trim_start_matches("//@")
-                        .trim()
-                        .to_string();
+                    let cleaned = stripped.trim().trim_start_matches("//@").trim().to_string();
                     signature = Some(classify_signature(&cleaned));
                     // The signature paragraph still counts as the
                     // start of the body for docs purposes (so the
@@ -472,7 +468,11 @@ mod tests {
             },
             other => panic!("expected Array(Object) signature, got {:?}", other),
         }
-        assert!(h.docs.is_none(), "expected docs to be de-duplicated, got {:?}", h.docs);
+        assert!(
+            h.docs.is_none(),
+            "expected docs to be de-duplicated, got {:?}",
+            h.docs
+        );
     }
 
     #[test]

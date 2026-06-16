@@ -442,7 +442,7 @@ mod tests {
         host.imports.push(ImportStmt {
             name: "USER".to_string(),
             source: ImportSource::Inline(serde_json::json!({ "email": "ada@example.com" })),
-        span: workflow_parser::ast::Span::default(),
+            span: workflow_parser::ast::Span::default(),
         });
         let program = parse(
             r#"test "Greet uses imported USER" {
@@ -470,7 +470,7 @@ mod tests {
         host.imports.push(ImportStmt {
             name: "USER".to_string(),
             source: ImportSource::Path("./does_not_exist.json".to_string()),
-        span: workflow_parser::ast::Span::default(),
+            span: workflow_parser::ast::Span::default(),
         });
         let program = parse(
             r#"test "Greet" {

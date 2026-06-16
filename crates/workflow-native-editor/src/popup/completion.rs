@@ -58,14 +58,7 @@ pub fn show_completion(
                 .show(ui, |ui| {
                     ui.set_width(COMPLETION_WIDTH);
                     for (idx, item) in completions.iter().enumerate() {
-                        if render_completion_row(
-                            ui,
-                            item,
-                            idx == current_index,
-                            row_h,
-                        )
-                        .clicked()
-                        {
+                        if render_completion_row(ui, item, idx == current_index, row_h).clicked() {
                             clicked = Some(idx);
                         }
                     }
@@ -76,10 +69,8 @@ pub fn show_completion(
 }
 
 fn render_completion_row(ui: &mut Ui, item: &Completion, selected: bool, height: f32) -> Response {
-    let (rect, response) = ui.allocate_exact_size(
-        Vec2::new(COMPLETION_WIDTH, height),
-        Sense::click_and_drag(),
-    );
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(COMPLETION_WIDTH, height), Sense::click_and_drag());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, &item.label));
 
     let visuals = ui.visuals();
@@ -95,7 +86,8 @@ fn render_completion_row(ui: &mut Ui, item: &Completion, selected: bool, height:
     }
     if selected {
         let stroke = Stroke::new(1.0, visuals.widgets.active.bg_stroke.color);
-        ui.painter().rect_stroke(rect.shrink(0.5), Rounding::same(3.0), stroke);
+        ui.painter()
+            .rect_stroke(rect.shrink(0.5), Rounding::same(3.0), stroke);
     }
 
     let accent = color_for_kind(item.kind);

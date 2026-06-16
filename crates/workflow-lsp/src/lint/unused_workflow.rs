@@ -124,7 +124,7 @@ fn collect_emits(stmts: &[Stmt], out: &mut HashSet<String>) {
                 condition,
                 then_body,
                 else_body,
-            ..
+                ..
             } => {
                 collect_emits_in_expr(condition, out);
                 collect_emits(then_body, out);

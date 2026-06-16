@@ -198,9 +198,9 @@ mod tests {
         );
         assert_eq!(
             parse_ty("number[][]"),
-            TypeExpr::Array(Box::new(TypeExpr::Array(Box::new(
-                TypeExpr::Name("number".into())
-            ))))
+            TypeExpr::Array(Box::new(TypeExpr::Array(Box::new(TypeExpr::Name(
+                "number".into()
+            )))))
         );
     }
 
@@ -221,9 +221,8 @@ mod tests {
 
     #[test]
     fn parses_nested_object_in_array() {
-        let ty = parse_ty(
-            "{ id: number, name: string, orders: { id: number, total: number }[] }[]",
-        );
+        let ty =
+            parse_ty("{ id: number, name: string, orders: { id: number, total: number }[] }[]");
         match ty {
             TypeExpr::Array(inner) => match *inner {
                 TypeExpr::Object(fields) => {

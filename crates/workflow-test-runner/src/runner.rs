@@ -122,12 +122,14 @@ impl TestRunner {
                 message: e,
             })?;
         let host_program = match (host_source, host_path) {
-            (Some(src), Some(path)) => Some(
-                FlowParser::parse_flow_program(src).map_err(|e| TestRunnerError::Parse {
-                    path: path.to_string(),
-                    message: e,
-                })?,
-            ),
+            (Some(src), Some(path)) => {
+                Some(
+                    FlowParser::parse_flow_program(src).map_err(|e| TestRunnerError::Parse {
+                        path: path.to_string(),
+                        message: e,
+                    })?,
+                )
+            }
             _ => None,
         };
         let host = host_program.as_ref().unwrap_or(&test_program);

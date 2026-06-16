@@ -34,6 +34,7 @@ use lsp_types::Position;
 use workflow_parser::ast::FlowProgram;
 
 use crate::analysis::word_at;
+use crate::scope::ScopeIndex;
 
 pub mod annotation;
 pub mod builtins;
@@ -48,13 +49,32 @@ pub use value::{FunctionSig, InferredBinding, Value};
 
 pub mod methods;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 pub struct Inference {
     /// One entry per source line, mirroring `Analysis::scope_at`. The
     /// entries for a given line are everything visible at that line.
+    /// Derived from `scope_index` + `typed` for backward compat with
+    /// the per-line consumers.
     pub scope_at: Vec<Vec<InferredBinding>>,
     /// Function signatures indexed by name.
     pub functions: HashMap<String, FunctionSig>,
+    /// The byte-offset scope index. New code should prefer this
+    /// over `scope_at`.
+    pub scope_index: ScopeIndex,
+    /// Type/value info attached to each scope binding. Keyed by
+    /// `(name, scope_id)`, the same scheme the `defs` map uses.
+    pub typed: crate::scope::TypedBindings<InferredBinding>,
+}
+
+impl Default for Inference {
+    fn default() -> Self {
+        Self {
+            scope_at: Vec::new(),
+            functions: HashMap::new(),
+            scope_index: ScopeIndex::default(),
+            typed: crate::scope::TypedBindings::new(),
+        }
+    }
 }
 
 impl Inference {
@@ -77,11 +97,18 @@ impl Inference {
         let mut inference = Inference {
             scope_at: vec![Vec::new(); line_count],
             functions: HashMap::new(),
+            ..Default::default()
         };
         let annotations = annotation::parse_annotations(source);
         let (_schemas, import_bindings) =
             schema::resolve_schemas_for_program(&program.imports, document_path);
-        program::run_program_with_imports(&mut inference, program, &annotations, &import_bindings);
+        program::run_program_with_imports(
+            &mut inference,
+            program,
+            &annotations,
+            &import_bindings,
+            source,
+        );
         inference
     }
 
@@ -91,26 +118,67 @@ impl Inference {
         Inference {
             scope_at: vec![Vec::new(); line_count.max(1)],
             functions: HashMap::new(),
+            ..Default::default()
         }
     }
 
     /// Look up the type of the word at `position` in `source`.
     pub fn lookup(&self, source: &str, position: Position) -> Option<InferredBinding> {
         let word = word_at(source, position)?;
-        let line_idx = position.line as usize;
-        let scope = self.scope_at.get(line_idx)?;
-        scope
-            .iter()
-            .find(|b| b.name == word)
-            .cloned()
-            .or_else(|| builtins::builtin_for(&word))
+        // Walk the active scope stack at this position; the
+        // innermost binding with a matching name wins.
+        let offset = crate::analysis::position_to_byte_offset(source, position)?;
+        for b in self.scope_index.bindings_at(offset) {
+            if b.name == word {
+                if let Some(typed) = self.typed.get(&word, b.scope_id) {
+                    return Some(typed.clone());
+                }
+            }
+        }
+        builtins::builtin_for(&word)
     }
 
+    /// Per-line scope view, kept for backward compat. The
+    /// contents are derived from `scope_index` + `typed` at
+    /// build time, so each line's bindings are exactly the
+    /// typed bindings visible at the end of that line.
     pub fn scope_at_position(&self, position: Position) -> &[InferredBinding] {
         self.scope_at
             .get(position.line as usize)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// Position-precise lookup. Returns the typed binding for
+    /// `name` at the given position, or `None` if no binding
+    /// with that name is visible.
+    pub fn lookup_at(
+        &self,
+        source: &str,
+        position: Position,
+        name: &str,
+    ) -> Option<InferredBinding> {
+        let offset = crate::analysis::position_to_byte_offset(source, position)?;
+        self.lookup_at_offset(source, offset, name)
+    }
+
+    /// Like [`lookup_at`], but takes a byte offset directly instead
+    /// of an LSP `Position`. Used by the lint which walks the AST
+    /// and knows statement byte offsets but not column positions.
+    pub fn lookup_at_offset(
+        &self,
+        _source: &str,
+        offset: usize,
+        name: &str,
+    ) -> Option<InferredBinding> {
+        for b in self.scope_index.bindings_at(offset) {
+            if b.name == name {
+                if let Some(typed) = self.typed.get(name, b.scope_id) {
+                    return Some(typed.clone());
+                }
+            }
+        }
+        builtins::builtin_for(name)
     }
 }
 
@@ -164,8 +232,8 @@ mod tests {
 }"#,
         );
         // The foreach item `item` should be inferred as a number on
-        // the line that uses it.
-        let line = inf.scope_at.get(5).expect("log(item) line");
+        // the line that uses it (line 4: `log(item)`).
+        let line = inf.scope_at.get(4).expect("log(item) line");
         assert!(line
             .iter()
             .any(|b| b.name == "item" && b.ty == Type::Number));
@@ -177,8 +245,12 @@ mod tests {
 var name = 42
 "#;
         let inf = infer(source);
-        let b = &inf.scope_at[0][0];
-        assert_eq!(b.name, "name");
+        // The variable is declared on line 1, so it appears in
+        // scope_at[1], not scope_at[0] (which is the annotation comment).
+        let b = inf.scope_at[1]
+            .iter()
+            .find(|b| b.name == "name")
+            .expect("name binding on line 1");
         assert_eq!(b.ty, Type::String);
         assert!(b.annotated);
     }

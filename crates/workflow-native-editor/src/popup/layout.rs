@@ -59,8 +59,7 @@ pub(crate) fn clamp_to_screen(rect: Rect, screen: Rect, margin: f32) -> Rect {
     if out.min.y < inner_min.y {
         out = out.translate(Vec2::new(inner_min.y - out.min.y, 0.0));
     }
-    if out.height() > screen.height() - margin * 2.0
-        || out.width() > screen.width() - margin * 2.0
+    if out.height() > screen.height() - margin * 2.0 || out.width() > screen.width() - margin * 2.0
     {
         out = Rect::from_min_size(inner_min, screen.size() - Vec2::splat(margin * 2.0));
     }
@@ -78,8 +77,18 @@ mod tests {
         let bad = Rect::from_min_size(Pos2::new(700.0, 500.0), Vec2::new(200.0, 200.0));
         let good = clamp_to_screen(bad, screen, 8.0);
         let inner = screen.shrink(8.0);
-        assert!(good.max.x <= inner.max.x + 0.5, "max.x={} > {}", good.max.x, inner.max.x);
-        assert!(good.max.y <= inner.max.y + 0.5, "max.y={} > {}", good.max.y, inner.max.y);
+        assert!(
+            good.max.x <= inner.max.x + 0.5,
+            "max.x={} > {}",
+            good.max.x,
+            inner.max.x
+        );
+        assert!(
+            good.max.y <= inner.max.y + 0.5,
+            "max.y={} > {}",
+            good.max.y,
+            inner.max.y
+        );
         assert!(good.min.x >= inner.min.x - 0.5);
         assert!(good.min.y >= inner.min.y - 0.5);
     }

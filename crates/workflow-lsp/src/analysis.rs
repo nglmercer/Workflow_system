@@ -24,13 +24,10 @@
 //!   the duration of the inner block.
 
 use lsp_types::{Position, Range};
-use workflow_parser::ast::{FlowProgram, FunctionDef, GlobalVar, Stmt, WorkflowDef};
+use workflow_parser::ast::FlowProgram;
 use workflow_parser::FlowParser;
 
-use crate::scope::{
-    build_scope_index, BindingKind, Scope, ScopeAt, ScopeIndex, ScopeKind,
-};
-use std::collections::HashMap;
+use crate::scope::{build_scope_index, BindingKind, ScopeIndex};
 
 /// A symbol in scope at a given position in the document.
 #[derive(Debug, Clone)]
@@ -150,22 +147,28 @@ impl Analysis {
         Some(view_to_symbol(&self.scope_index, &view, &word))
     }
 
-    /// Get all symbols in scope at the given position. The result
-    /// is computed live from [`Analysis::scope_index`] so the
-    /// column matters: a binding declared on the same line as the
-    /// query is only visible from its own column onward. Use
-    /// [`Analysis::scope_at_line`] for the legacy per-line view
-    /// (always visible from line start, never updated for
-    /// column-level declarations).
+    /// Get all symbols in scope at the given position. Returns
+    /// the precomputed per-line view, which is what the legacy
+    /// callers (lint, typecheck, completion) rely on. The view
+    /// is built once in [`Analysis::build_scope`] from the
+    /// byte-offset [`Analysis::scope_index`].
     pub fn scope_at_position(&self, position: Position) -> &[ScopedSymbol] {
-        // Use the per-line view. This is the legacy behavior and
-        // is the right thing for "is name X in scope at line L?"
-        // queries. For position-precise queries, use
-        // [`Analysis::bindings_at_offset`].
         self.scope_at
             .get(position.line as usize)
             .map(|v| v.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// Position-precise scope lookup. Answers "what's in scope
+    /// at this exact (line, col) position?" by walking the
+    /// byte-offset scope index. The `source` argument is the
+    /// original document text; we need it to convert the
+    /// `(line, col)` pair to a byte offset.
+    pub fn bindings_at(&self, source: &str, position: Position) -> Vec<ScopedSymbol> {
+        let Some(offset) = position_to_byte_offset(source, position) else {
+            return Vec::new();
+        };
+        self.bindings_at_offset(offset)
     }
 
     /// Get all symbols in scope at the given line. Kept for
@@ -202,7 +205,10 @@ impl Analysis {
 /// straight-forward except for the `name_range` field, which we
 /// compute from the binding's `decl_span` (the byte range of the
 /// declaration in the source).
-fn binding_to_symbol(_index: &ScopeIndex, view: &crate::scope::BindingView<'_>) -> Option<ScopedSymbol> {
+fn binding_to_symbol(
+    _index: &ScopeIndex,
+    view: &crate::scope::BindingView<'_>,
+) -> Option<ScopedSymbol> {
     let kind = match view.kind {
         BindingKind::Variable => SymbolKind::Variable,
         BindingKind::Function => SymbolKind::Function,
@@ -271,56 +277,40 @@ fn range_from_byte_span(span: std::ops::Range<usize>) -> Range {
     }
 }
 
-fn byte_offset_of_line(source: &str, line_idx: usize) -> usize {
-    byte_offset_of_line_start(source, line_idx)
-}
-
-fn byte_offset_of_line_start(source: &str, line_idx: usize) -> usize {
-    let mut current = 0usize;
-    let mut current_line = 0usize;
-    for (i, ch) in source.char_indices() {
-        if current_line == line_idx {
-            return i;
-        }
-        if ch == '\n' {
-            current_line += 1;
-            current = i + 1;
-        }
-    }
-    current
-}
-
 /// Byte offset of the *last non-newline character* on the given
 /// line. For the per-line scope table we want the highest
 /// position still *inside* the line (so any block that contains
 /// the line is still active). Using the trailing newline
 /// position would land on the byte that starts the next line
 /// and could fall just past the block's `end` boundary.
-fn byte_offset_of_line_end(source: &str, line_idx: usize) -> usize {
+pub fn byte_offset_of_line_end(source: &str, line_idx: usize) -> usize {
     let mut current_line = 0usize;
-    let mut last_non_newline = 0usize;
+    let mut last_non_newline: Option<usize> = None;
+    let mut last_for_line: Option<usize> = None;
     for (i, ch) in source.char_indices() {
-        if current_line == line_idx {
-            if ch == '\n' {
-                return last_non_newline;
+        if ch == '\n' {
+            if current_line == line_idx {
+                return last_for_line.unwrap_or(i);
             }
-            last_non_newline = i;
-        } else if ch == '\n' {
             current_line += 1;
-            last_non_newline = i + 1;
+            last_non_newline = Some(i + 1);
+        } else if current_line == line_idx {
+            last_for_line = Some(i);
+            last_non_newline = Some(i);
         }
     }
-    // We're past the last line; the file ended without a
-    // trailing newline. Return the source length so the lookup
-    // still walks the last scope.
-    if current_line == line_idx {
-        source.len()
-    } else {
-        last_non_newline
-    }
+    // File ended without a trailing newline on this line. Return
+    // the last char of the line (or the source length if the
+    // line is empty). Falling back to `last_non_newline` handles
+    // the case where the line we asked for is past the end of
+    // the source.
+    last_for_line.unwrap_or_else(|| last_non_newline.unwrap_or(source.len()))
 }
 
-fn position_to_byte_offset(source: &str, position: Position) -> Option<usize> {
+/// Convert an LSP `Position` (line, col) to a byte offset in
+/// `source`. Returns `None` if the position is past the end of
+/// the source.
+pub fn position_to_byte_offset(source: &str, position: Position) -> Option<usize> {
     let mut current_line = 0u32;
     let mut current_col = 0u32;
     for (i, ch) in source.char_indices() {
@@ -342,109 +332,6 @@ fn position_to_byte_offset(source: &str, position: Position) -> Option<usize> {
     } else {
         None
     }
-}
-
-struct BuiltinInfo {
-    kind: SymbolKind,
-    detail: &'static str,
-    docs: &'static str,
-}
-
-fn builtin_for(word: &str) -> Option<BuiltinInfo> {
-    let info = match word {
-        "var" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Variable declaration",
-            docs: "Declares a new local variable.\n\n```flow\nvar name = value\n```",
-        },
-        "fn" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Function definition",
-            docs: "Defines a reusable function.\n\n```flow\nfn name(param1, param2) {\n  // body\n}\n```",
-        },
-        "workflow" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Workflow definition",
-            docs: "Defines a workflow triggered by an event.\n\n```flow\nworkflow \"Name\" {\n  on EVENT\n  // statements\n}\n```",
-        },
-        "on" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Event trigger",
-            docs: "Declares which event triggers this workflow.\n\n```flow\non EVENT_NAME\n```",
-        },
-        "if" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Conditional",
-            docs: "Runs a block if the condition is true.\n\n```flow\nif (cond) { ... } else { ... }\n```",
-        },
-        "else" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Else branch",
-            docs: "Branch of an `if` statement, taken when the condition is false.",
-        },
-        "foreach" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Loop over an iterable",
-            docs: "Iterates over an array or string.\n\n```flow\nforeach (item in items) { ... }\n```",
-        },
-        "in" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Foreach separator",
-            docs: "Separates the item variable from the iterable in a `foreach` loop.",
-        },
-        "return" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Return statement",
-            docs: "Returns a value from the current function.",
-        },
-        "log" => BuiltinInfo {
-            kind: SymbolKind::Function,
-            detail: "log(message)",
-            docs: "Prints a message to the console.\n\n```flow\nlog(\"Hello\")\n```",
-        },
-        "len" => BuiltinInfo {
-            kind: SymbolKind::Function,
-            detail: "len(value)",
-            docs: "Returns the length of a string or array.",
-        },
-        "to_string" => BuiltinInfo {
-            kind: SymbolKind::Function,
-            detail: "to_string(value)",
-            docs: "Converts a value to its string representation.",
-        },
-        "to_number" => BuiltinInfo {
-            kind: SymbolKind::Function,
-            detail: "to_number(value)",
-            docs: "Converts a value to a number.",
-        },
-        "true" | "false" => BuiltinInfo {
-            kind: SymbolKind::Value,
-            detail: "Boolean literal",
-            docs: "Boolean truth value.",
-        },
-        "null" => BuiltinInfo {
-            kind: SymbolKind::Value,
-            detail: "Null literal",
-            docs: "Represents the absence of a value.",
-        },
-        "import" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Import statement",
-            docs: "Imports another module by name.\n\n```flow\nimport name from \"path\"\n```",
-        },
-        "from" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Import source",
-            docs: "Used in `import` to specify the source path.",
-        },
-        "emit" => BuiltinInfo {
-            kind: SymbolKind::Keyword,
-            detail: "Emit event",
-            docs: "Emits a new event from inside a workflow.",
-        },
-        _ => return None,
-    };
-    Some(info)
 }
 
 /// Returns the identifier covering the character at `position`, or `None` if
@@ -481,22 +368,6 @@ pub fn word_at(source: &str, position: Position) -> Option<String> {
         return None;
     }
     Some(line[start..end].to_string())
-}
-
-// Keep `_index` and `_` references so dead-code doesn't trip on
-// the imports we keep around for future use.
-#[allow(dead_code)]
-fn _unused_imports(
-    _index: &ScopeIndex,
-    _at: &ScopeAt,
-    _scope: &Scope,
-    _kind: &ScopeKind,
-    _g: &GlobalVar,
-    _f: &FunctionDef,
-    _w: &WorkflowDef,
-    _s: &Stmt,
-    _m: &HashMap<(String, usize), std::ops::Range<usize>>,
-) {
 }
 
 #[cfg(test)]
@@ -536,8 +407,14 @@ mod tests {
     fn test_analysis_extracts_foreach_item() {
         let src = "workflow \"W\" { on E\n foreach (item in xs) { log(item) } }";
         let analysis = Analysis::analyze(src);
-        let scope = analysis.scope_at_position(Position::new(1, 30));
-        assert!(scope.iter().any(|s| s.name == "item"));
+        // Use the position-precise API. The foreach body is on
+        // line 1; column 30 lands inside the `log(item)` call.
+        let symbols = analysis.bindings_at(src, Position::new(1, 30));
+        assert!(
+            symbols.iter().any(|s| s.name == "item"),
+            "foreach item missing from position-precise scope: {:?}",
+            symbols
+        );
     }
 
     // -- Exact scoping regression tests (Phase 6) --------------------

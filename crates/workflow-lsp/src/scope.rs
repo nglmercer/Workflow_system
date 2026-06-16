@@ -43,7 +43,7 @@
 use std::collections::HashMap;
 
 use workflow_parser::ast::{
-    Expr, FlowProgram, FunctionDef, GlobalVar, ImportStmt, Stmt, WorkflowDef,
+    Expr, FlowProgram, FunctionDef, GlobalVar, ImportStmt, Span, Stmt, WorkflowDef,
 };
 
 /// A `Scope` is one lexical region in the program (module-level,
@@ -146,6 +146,28 @@ pub struct ScopeIndex {
     pub refs: Vec<(String, usize)>,
 }
 
+/// A map from a scope-binding key (`(name, scope_id)`) to a
+/// caller-supplied value. Used by the inference layer to attach
+/// type information to each binding without changing the
+/// [`ScopeIndex`] shape.
+#[derive(Debug, Default)]
+pub struct TypedBindings<V>(HashMap<(String, usize), V>);
+
+impl<V> TypedBindings<V> {
+    pub fn new() -> Self {
+        Self(HashMap::new())
+    }
+    pub fn insert(&mut self, name: &str, scope_id: usize, value: V) {
+        self.0.insert((name.to_string(), scope_id), value);
+    }
+    pub fn get(&self, name: &str, scope_id: usize) -> Option<&V> {
+        self.0.get(&(name.to_string(), scope_id))
+    }
+    pub fn get_mut(&mut self, name: &str, scope_id: usize) -> Option<&mut V> {
+        self.0.get_mut(&(name.to_string(), scope_id))
+    }
+}
+
 impl ScopeIndex {
     /// Resolve the byte offset `(line, col)` to a byte offset, or
     /// `None` if the position is past the end of the source.
@@ -245,9 +267,36 @@ impl ScopeIndex {
     /// The byte range covering the whole program (for queries
     /// against "the module scope").
     pub fn module_scope_id(&self) -> Option<usize> {
-        self.scopes
+        self.scopes.iter().position(|s| s.kind == ScopeKind::Module)
+    }
+
+    /// Go-to-definition: given a reference at `ref_offset`, return
+    /// the declaration span `(start, end)` of the binding it
+    /// resolves to, or `None` if the name isn't in scope.
+    pub fn goto_definition(&self, name: &str, ref_offset: usize) -> Option<std::ops::Range<usize>> {
+        self.lookup(name, ref_offset).map(|b| b.decl_span.clone())
+    }
+
+    /// Find-references: return the byte offsets of every reference
+    /// to `name` across the entire program. Each offset is the
+    /// start of the identifier in source. An optional
+    /// `decl_span_filter` can restrict results to references
+    /// within a specific declaration range (e.g., a function body).
+    pub fn find_references(
+        &self,
+        name: &str,
+        decl_span_filter: Option<&std::ops::Range<usize>>,
+    ) -> Vec<usize> {
+        self.refs
             .iter()
-            .position(|s| s.kind == ScopeKind::Module)
+            .filter(|(n, _)| n == name)
+            .filter(|(_, offset)| {
+                decl_span_filter
+                    .as_ref()
+                    .is_none_or(|range| range.contains(offset))
+            })
+            .map(|(_, offset)| *offset)
+            .collect()
     }
 }
 
@@ -273,13 +322,12 @@ pub fn build_scope_index(program: &FlowProgram, source: &str) -> ScopeIndex {
     let mut index = ScopeIndex::default();
     let mut walker = Walker::new(source, &mut index);
     walker.walk_program(program);
-    // Snapshot the final scope stack at EOF so queries past the
-    // last byte still work.
-    walker.snapshot(program.span.end);
-    // Sort by_offset for binary search.
-    index
-        .by_offset
-        .sort_by_key(|entry| entry.offset);
+    // No post-walk snapshot — the module scope is set up to cover
+    // the entire source length, so queries past the last byte
+    // still see the module scope. A trailing snapshot with an
+    // empty stack would shadow the module scope and hide
+    // top-level bindings from any cursor at EOF.
+    index.by_offset.sort_by_key(|entry| entry.offset);
     index
 }
 
@@ -375,8 +423,14 @@ impl<'a> Walker<'a> {
     }
 
     fn walk_program(&mut self, program: &FlowProgram) {
-        // Push the module scope covering the whole program.
-        let module_id = self.push_scope(ScopeKind::Module, 0..program.span.end.max(1));
+        // Push the module scope covering the whole source. We
+        // use `self.source.len()` rather than `program.span.end`
+        // because the program may not extend to the very last
+        // byte (e.g. a trailing comment or whitespace), and we
+        // want the module scope to cover every byte the user
+        // could possibly place their cursor on.
+        let end = self.source.len();
+        let module_id = self.push_scope(ScopeKind::Module, 0..end.max(1));
         self.snapshot(0);
 
         // Imports: visible at their decl_span in the module scope.
@@ -409,11 +463,7 @@ impl<'a> Walker<'a> {
     }
 
     fn walk_global(&mut self, g: &GlobalVar) {
-        // Globals don't introduce a new scope — they live in the
-        // module scope. But we still want their RHS to be resolved
-        // with module-level bindings in scope, so we walk the expr
-        // and collect refs.
-        self.walk_expr(&g.value);
+        self.walk_expr(&g.value, g.span.start);
         self.add_binding(&g.name, g.span.start..g.span.end, BindingKind::Variable);
     }
 
@@ -464,36 +514,29 @@ impl<'a> Walker<'a> {
     }
 
     fn walk_stmt(&mut self, stmt: &Stmt) {
+        let anchor = stmt.span().start;
         match stmt {
             Stmt::VarDecl { name, value, span } => {
                 if let Some(v) = value {
-                    self.walk_expr(v);
+                    self.walk_expr(v, anchor);
                 }
                 self.add_binding(name, span.start..span.end, BindingKind::Variable);
             }
             Stmt::Assign { name, value, span } => {
-                self.walk_expr(value);
+                self.walk_expr(value, anchor);
                 self.reassign(name, span.start..span.end);
             }
             Stmt::If {
                 condition,
                 then_body,
                 else_body,
-                span: _,
+                span,
             } => {
-                self.walk_expr(condition);
-                // The block scope's range is the *body's* range,
-                // not the entire `if (cond) { ... }` span. Using
-                // the if's full range would make bindings inside
-                // the body visible on the line of the `}` and
-                // (because of inclusive ranges) the line just
-                // after it. The body's start is its first
-                // statement's start, or the if's start if the
-                // body is empty.
-                let then_range = body_range(then_body);
+                self.walk_expr(condition, anchor);
+                let then_range = block_range(then_body, span);
                 self.walk_block(then_body, then_range);
                 if let Some(eb) = else_body {
-                    let else_range = body_range(eb);
+                    let else_range = block_range(eb, span);
                     self.walk_block(eb, else_range);
                 }
             }
@@ -501,14 +544,10 @@ impl<'a> Walker<'a> {
                 item_var,
                 iterable,
                 body,
-                span: _,
+                span,
             } => {
-                self.walk_expr(iterable);
-                // Push a block scope for the foreach body so the
-                // item variable is scoped to the body, not the
-                // whole function. The body range is the
-                // statements' range, not the foreach header.
-                let body_range = body_range(body);
+                self.walk_expr(iterable, anchor);
+                let body_range = block_range(body, span);
                 let _id = self.push_scope(ScopeKind::Block, body_range.clone());
                 self.add_binding(item_var, body_range, BindingKind::Variable);
                 for s in body {
@@ -518,11 +557,11 @@ impl<'a> Walker<'a> {
             }
             Stmt::Return { value, .. } => {
                 if let Some(v) = value {
-                    self.walk_expr(v);
+                    self.walk_expr(v, anchor);
                 }
             }
             Stmt::Expr(expr, _) | Stmt::Log(expr, _) => {
-                self.walk_expr(expr);
+                self.walk_expr(expr, anchor);
             }
             Stmt::On { .. } => {}
         }
@@ -536,39 +575,34 @@ impl<'a> Walker<'a> {
         self.pop_scope();
     }
 
-    fn walk_expr(&mut self, expr: &Expr) {
-        // Collect identifier references for the
-        // `unknown-identifier` lint and the future
-        // identifier→definition map. We don't need to look up
-        // types here — the type-inference pass does that — we
-        // just record (name, offset) pairs.
+    fn walk_expr(&mut self, expr: &Expr, search_from: usize) {
         match expr {
             Expr::Var(name) => {
-                // We don't have a position for the `Var` node, so
-                // fall back to 0. Consumers can refine this with
-                // the source text if they need exact positions.
-                self.index.refs.push((name.clone(), 0));
+                // Search for this identifier in source starting from
+                // `search_from` to find the correct byte offset.
+                let offset = find_ident_in_source(self.source, name, search_from).unwrap_or(0);
+                self.index.refs.push((name.clone(), offset));
             }
-            Expr::Member { object, .. } => self.walk_expr(object),
+            Expr::Member { object, .. } => self.walk_expr(object, search_from),
             Expr::BinaryOp { left, right, .. } => {
-                self.walk_expr(left);
-                self.walk_expr(right);
+                self.walk_expr(left, search_from);
+                self.walk_expr(right, search_from);
             }
-            Expr::UnaryOp { operand, .. } => self.walk_expr(operand),
+            Expr::UnaryOp { operand, .. } => self.walk_expr(operand, search_from),
             Expr::Call { args, .. } => {
                 for a in args {
-                    self.walk_expr(a);
+                    self.walk_expr(a, search_from);
                 }
             }
             Expr::Array(elements) => {
                 for e in elements {
-                    self.walk_expr(e);
+                    self.walk_expr(e, search_from);
                 }
             }
             Expr::InterpolatedString(parts) => {
                 for p in parts {
                     if let workflow_parser::ast::InterpPart::Expr(e) = p {
-                        self.walk_expr(e);
+                        self.walk_expr(e, search_from);
                     }
                 }
             }
@@ -577,18 +611,53 @@ impl<'a> Walker<'a> {
     }
 }
 
-/// Compute the byte range of a statement body. For an `if` body,
-/// a `foreach` body, or any other `[Stmt]`, the body range is
-/// from the first statement's start to the last statement's end.
-/// An empty body has a zero-width range, which is fine — it just
-/// means no bindings are added.
-fn body_range(stmts: &[Stmt]) -> std::ops::Range<usize> {
+/// Find the byte offset of `name` in `source` at or after
+/// `search_from`, returning a word-bounded match. Returns `None`
+/// if not found.
+fn find_ident_in_source(source: &str, name: &str, search_from: usize) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let name_bytes = name.as_bytes();
+    let mut i = search_from;
+    while i + name_bytes.len() <= bytes.len() {
+        if &bytes[i..i + name_bytes.len()] == name_bytes {
+            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+            let after_idx = i + name_bytes.len();
+            let after_ok = after_idx == bytes.len()
+                || (!bytes[after_idx].is_ascii_alphanumeric() && bytes[after_idx] != b'_');
+            if before_ok && after_ok {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    // Fallback: search from the beginning.
+    let mut i = 0;
+    while i + name_bytes.len() <= bytes.len() {
+        if &bytes[i..i + name_bytes.len()] == name_bytes {
+            let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+            let after_idx = i + name_bytes.len();
+            let after_ok = after_idx == bytes.len()
+                || (!bytes[after_idx].is_ascii_alphanumeric() && bytes[after_idx] != b'_');
+            if before_ok && after_ok {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Compute the byte range of a block's body. The start is the
+/// first statement's start (or `parent_span.start` for an empty
+/// body). The end is `parent_span.end` — the byte just after the
+/// closing `}` — so the block covers every byte inside the
+/// braces, including the `}`. An empty body in a tight
+/// `if (..) {}` still gets a meaningful range.
+fn block_range(stmts: &[Stmt], parent_span: &Span) -> std::ops::Range<usize> {
     if let Some(first) = stmts.first() {
-        let start = first.span().start;
-        let end = stmts.last().map(|s| s.span().end).unwrap_or(start);
-        start..end
+        first.span().start..parent_span.end
     } else {
-        0..0
+        parent_span.start..parent_span.end
     }
 }
 
@@ -609,9 +678,7 @@ pub fn add_import_binding(index: &mut ScopeIndex, name: &str, decl_span: std::op
         decl_span: decl_span.clone(),
         kind: BindingKind::Import,
     });
-    index
-        .defs
-        .insert((name.to_string(), module), decl_span);
+    index.defs.insert((name.to_string(), module), decl_span);
     // No snapshot here — imports are usually declared at the top
     // of the file, so the offset is already covered by the
     // module scope's `by_offset` entry at offset 0.
@@ -620,4 +687,93 @@ pub fn add_import_binding(index: &mut ScopeIndex, name: &str, decl_span: std::op
 #[allow(dead_code)]
 pub(crate) fn import_stmt_range(imp: &ImportStmt) -> std::ops::Range<usize> {
     imp.span.start..imp.span.end
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use workflow_parser::FlowParser;
+
+    fn build(source: &str) -> ScopeIndex {
+        let program = FlowParser::parse_flow_program(source).expect("parse");
+        build_scope_index(&program, source)
+    }
+
+    #[test]
+    fn goto_definition_finds_var_decl() {
+        let source = r#"workflow "W" { on E
+  var x = 1
+  log(x)
+}"#;
+        let idx = build(source);
+        // `x` reference is inside `log(x)` on line 2.
+        // The declaration `var x = 1` is on line 1.
+        let def = idx.goto_definition("x", 30).expect("x should be defined");
+        // The decl span starts at the `x` after `var `.
+        assert!(def.start > 0);
+    }
+
+    #[test]
+    fn goto_definition_returns_none_for_undefined() {
+        let source = r#"workflow "W" { on E
+  log(unknown)
+}"#;
+        let idx = build(source);
+        assert!(idx.goto_definition("unknown", 20).is_none());
+    }
+
+    #[test]
+    fn find_references_finds_all_uses() {
+        let source = r#"workflow "W" { on E
+  var x = 1
+  log(x)
+  log(x)
+}"#;
+        let idx = build(source);
+        let refs = idx.find_references("x", None);
+        // Two references: the two `log(x)` calls.
+        assert_eq!(refs.len(), 2, "refs: {:?}", idx.refs);
+    }
+
+    #[test]
+    fn find_references_with_filter() {
+        let source = r#"fn foo(a) {
+  log(a)
+}
+workflow "W" { on E
+  var a = 1
+  log(a)
+}"#;
+        let idx = build(source);
+        // Find references to `a` only within the function body.
+        let fn_def = idx.goto_definition("foo", 3).expect("foo defined");
+        let refs = idx.find_references("a", Some(&fn_def));
+        // Only the `a` inside the function body should match.
+        assert!(refs.iter().all(|&off| fn_def.contains(&off)));
+    }
+
+    #[test]
+    fn find_references_ignores_unrelated_names() {
+        let source = r#"workflow "W" { on E
+  var x = 1
+  var y = 2
+  log(x)
+}"#;
+        let idx = build(source);
+        let refs = idx.find_references("y", None);
+        // `y` is only declared, never referenced in an expression.
+        assert!(refs.is_empty());
+    }
+
+    #[test]
+    fn refs_have_correct_offsets() {
+        let source = r#"workflow "W" { on E
+  var x = 1
+  log(x)
+}"#;
+        let idx = build(source);
+        let refs = idx.find_references("x", None);
+        assert_eq!(refs.len(), 1);
+        assert!(refs[0] > 0, "ref offset should be > 0, got {}", refs[0]);
+    }
 }

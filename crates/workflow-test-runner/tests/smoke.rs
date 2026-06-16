@@ -82,7 +82,12 @@ fn run_source_with_host_pairs_in_memory_test_with_in_memory_host() {
     let test = "test \"Greets\" {\n  on E with { name: \"Ada\" }\n  expect logs [\"hi Ada\"]\n}\n";
     let runner = TestRunner::with_default_config();
     let report = runner
-        .run_source_with_host(test, "<buffer.test.flow>", Some(host), Some("/tmp/host.flow"))
+        .run_source_with_host(
+            test,
+            "<buffer.test.flow>",
+            Some(host),
+            Some("/tmp/host.flow"),
+        )
         .expect("run with host");
     assert_eq!(report.passed, 1);
     assert_eq!(report.failed, 0);

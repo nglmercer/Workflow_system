@@ -45,7 +45,7 @@ fn scan_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
                 condition,
                 then_body,
                 else_body,
-            ..
+                ..
             } => {
                 scan_expr(cx, condition, out);
                 scan_stmts(cx, then_body, out);

@@ -17,13 +17,10 @@ impl Lint for UnknownIdentifier {
     fn run(&self, cx: &LintCx) -> Vec<Diagnostic> {
         let mut out = Vec::new();
         for global in &cx.program.globals {
-            check_expr(cx, &global.value, &mut out);
+            check_expr(cx, &global.value, global.span.start, &mut out);
         }
         for workflow in &cx.program.workflows {
             check_stmts(cx, &workflow.body, &mut out);
-            // `data` is implicitly in scope inside every workflow.
-            // Add it to the analysis scope at runtime by skipping
-            // `data` references.
         }
         for func in &cx.program.functions {
             check_stmts(cx, &func.body, &mut out);
@@ -34,19 +31,24 @@ impl Lint for UnknownIdentifier {
 
 fn check_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
     for stmt in stmts {
+        // Use the statement's byte offset as the search anchor
+        // for Var lookups inside it. This ensures we find the
+        // correct occurrence of each name — the one inside this
+        // statement, not an earlier one in a different scope.
+        let anchor = stmt.span().start;
         match stmt {
             Stmt::VarDecl { value, .. } => {
                 if let Some(v) = value {
-                    check_expr(cx, v, out);
+                    check_expr(cx, v, anchor, out);
                 }
             }
             Stmt::If {
                 condition,
                 then_body,
                 else_body,
-            ..
+                ..
             } => {
-                check_expr(cx, condition, out);
+                check_expr(cx, condition, anchor, out);
                 check_stmts(cx, then_body, out);
                 if let Some(eb) = else_body {
                     check_stmts(cx, eb, out);
@@ -54,27 +56,30 @@ fn check_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
             }
             Stmt::Return { value, .. } => {
                 if let Some(v) = value {
-                    check_expr(cx, v, out);
+                    check_expr(cx, v, anchor, out);
                 }
             }
-            Stmt::Expr(e, _) | Stmt::Log(e, _) => check_expr(cx, e, out),
+            Stmt::Expr(e, _) | Stmt::Log(e, _) => check_expr(cx, e, anchor, out),
             Stmt::Foreach { iterable, body, .. } => {
-                check_expr(cx, iterable, out);
+                check_expr(cx, iterable, anchor, out);
                 check_stmts(cx, body, out);
             }
             Stmt::On { .. } => {}
-            Stmt::Assign { value, .. } => check_expr(cx, value, out),
+            Stmt::Assign { value, .. } => check_expr(cx, value, anchor, out),
         }
     }
 }
 
-fn check_expr(cx: &LintCx, expr: &Expr, out: &mut Vec<Diagnostic>) {
+fn check_expr(cx: &LintCx, expr: &Expr, after_byte: usize, out: &mut Vec<Diagnostic>) {
     match expr {
         Expr::Var(name) => {
-            if is_known(cx, expr, name) {
+            if is_known(cx, name, after_byte) {
                 return;
             }
-            if let Some((line, col)) = expr_position(cx.source, expr) {
+            // For the diagnostic position, use the statement anchor.
+            // This may not be the exact column of the Var, but it's
+            // close enough and always correct for line/col reporting.
+            if let Some((line, col)) = find_name_position(cx.source, name, after_byte) {
                 if cx.disabled.is_disabled("unknown-identifier", line) {
                     return;
                 }
@@ -88,20 +93,14 @@ fn check_expr(cx: &LintCx, expr: &Expr, out: &mut Vec<Diagnostic>) {
             }
         }
         Expr::Member { object, .. } => {
-            // `foo.bar` — only `foo` needs to be in scope; `bar` is
-            // a property and the parser doesn't track schema.
-            check_expr(cx, object, out);
+            check_expr(cx, object, after_byte, out);
         }
         Expr::BinaryOp { left, right, .. } => {
-            check_expr(cx, left, out);
-            check_expr(cx, right, out);
+            check_expr(cx, left, after_byte, out);
+            check_expr(cx, right, after_byte, out);
         }
-        Expr::UnaryOp { operand, .. } => check_expr(cx, operand, out),
+        Expr::UnaryOp { operand, .. } => check_expr(cx, operand, after_byte, out),
         Expr::Call { name, args } => {
-            // `name` is a free variable — should be in scope as a
-            // function. The typecheck linter already covers argument
-            // types, so we only flag when the function itself is
-            // unknown.
             if !is_known_function(cx, name) {
                 if let Some((line, col)) = expr_position(cx.source, expr) {
                     if !cx.disabled.is_disabled("unknown-identifier", line) {
@@ -116,18 +115,18 @@ fn check_expr(cx: &LintCx, expr: &Expr, out: &mut Vec<Diagnostic>) {
                 }
             }
             for arg in args {
-                check_expr(cx, arg, out);
+                check_expr(cx, arg, after_byte, out);
             }
         }
         Expr::Array(elems) => {
             for e in elems {
-                check_expr(cx, e, out);
+                check_expr(cx, e, after_byte, out);
             }
         }
         Expr::InterpolatedString(parts) => {
             for p in parts {
                 if let workflow_parser::ast::InterpPart::Expr(e) = p {
-                    check_expr(cx, e, out);
+                    check_expr(cx, e, after_byte, out);
                 }
             }
         }
@@ -135,27 +134,20 @@ fn check_expr(cx: &LintCx, expr: &Expr, out: &mut Vec<Diagnostic>) {
     }
 }
 
-fn is_known(cx: &LintCx, expr: &Expr, name: &str) -> bool {
-    // Builtins are always in scope (`log`, `len`, `to_string`, etc.).
+/// Check whether `name` is known in scope at `after_byte`.
+fn is_known(cx: &LintCx, name: &str, after_byte: usize) -> bool {
     if crate::inference::builtins::builtin_for(name).is_some() {
         return true;
     }
-    // `data` is the implicit workflow event payload.
     if name == "data" {
         return true;
     }
-    // Otherwise, ask the inference scope. We use the line of the
-    // expression itself.
-    let Some((line, _)) = expr_position(cx.source, expr) else {
-        return false;
-    };
-    let scope = cx.inference.scope_at.get(line as usize);
-    if let Some(scope) = scope {
-        if scope.iter().any(|b| b.name == name) {
-            return true;
-        }
+    if cx.program.imports.iter().any(|i| i.name == name) {
+        return true;
     }
-    false
+    cx.inference
+        .lookup_at_offset(cx.source, after_byte, name)
+        .is_some()
 }
 
 fn is_known_function(cx: &LintCx, name: &str) -> bool {
@@ -163,6 +155,45 @@ fn is_known_function(cx: &LintCx, name: &str) -> bool {
         return true;
     }
     cx.inference.functions.contains_key(name)
+}
+
+/// Find the (line, col) of `name` in source at or after `after_byte`.
+fn find_name_position(source: &str, name: &str, after_byte: usize) -> Option<(u32, u32)> {
+    let bytes = source.as_bytes();
+    let name_bytes = name.as_bytes();
+    // Search from after_byte forward for the identifier.
+    let mut i = after_byte;
+    while i + name_bytes.len() <= bytes.len() {
+        if &bytes[i..i + name_bytes.len()] == name_bytes {
+            let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+            let after_idx = i + name_bytes.len();
+            let after_ok = after_idx == bytes.len() || !is_ident_byte(bytes[after_idx]);
+            if before_ok && after_ok {
+                let span = workflow_parser::Span::new(i, after_idx);
+                return span.to_line_col(source).map(|(sl, sc, _, _)| (sl, sc));
+            }
+        }
+        i += 1;
+    }
+    // Fallback: search from the beginning of the source.
+    let mut i = 0;
+    while i + name_bytes.len() <= bytes.len() {
+        if &bytes[i..i + name_bytes.len()] == name_bytes {
+            let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+            let after_idx = i + name_bytes.len();
+            let after_ok = after_idx == bytes.len() || !is_ident_byte(bytes[after_idx]);
+            if before_ok && after_ok {
+                let span = workflow_parser::Span::new(i, after_idx);
+                return span.to_line_col(source).map(|(sl, sc, _, _)| (sl, sc));
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
 }
 
 #[allow(dead_code)]
