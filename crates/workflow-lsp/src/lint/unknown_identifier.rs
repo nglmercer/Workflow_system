@@ -154,7 +154,14 @@ fn is_known_function(cx: &LintCx, name: &str) -> bool {
     if crate::inference::builtins::builtin_for(name).is_some() {
         return true;
     }
-    cx.inference.functions.contains_key(name)
+    if cx.inference.functions.contains_key(name) {
+        return true;
+    }
+    // Check the dynamic registry
+    if cx.inference.registry.contains(name) {
+        return true;
+    }
+    false
 }
 
 /// Find the (line, col) of `name` in source at or after `after_byte`.

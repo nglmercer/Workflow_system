@@ -1,4 +1,5 @@
 use eframe::egui::Color32;
+use std::collections::HashSet;
 
 #[derive(Clone, Copy)]
 pub enum TokenKind {
@@ -17,7 +18,10 @@ pub struct Token {
     pub kind: TokenKind,
 }
 
-pub fn tokenize_line(line: &str) -> Vec<Token> {
+/// Tokenize a line of code with awareness of known function names.
+/// The `known_functions` parameter allows the tokenizer to recognize
+/// functions registered in the dynamic FunctionRegistry.
+pub fn tokenize_line(line: &str, known_functions: &HashSet<String>) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut i = 0;
     let bytes = line.as_bytes();
@@ -89,8 +93,14 @@ pub fn tokenize_line(line: &str) -> Vec<Token> {
             let kind = match word {
                 "workflow" | "fn" | "var" | "if" | "else" | "foreach" | "in" | "on" | "return"
                 | "true" | "false" | "null" | "import" | "from" | "emit" => TokenKind::Keyword,
-                "log" | "len" | "to_string" | "to_number" => TokenKind::Function,
-                _ => TokenKind::Variable,
+                _ => {
+                    // Check if it's a known function (from registry or builtins)
+                    if known_functions.contains(word) {
+                        TokenKind::Function
+                    } else {
+                        TokenKind::Variable
+                    }
+                }
             };
             tokens.push(Token {
                 text: word.to_string(),

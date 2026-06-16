@@ -22,6 +22,7 @@ use eframe::egui::{
     FontId, Pos2, Rect, RichText, ScrollArea, TextEdit, Ui, Vec2,
 };
 use std::collections::BTreeSet;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use workflow_lsp::features::{self, Diagnostic};
@@ -365,10 +366,22 @@ impl EditorApp {
                         egui::Sense::hover(),
                     );
 
+                    // Get known function names from the LSP inference for syntax highlighting
+                    let known_functions: HashSet<String> = self.lsp.get_inference(&self.uri)
+                        .map(|inf| {
+                            let mut names: HashSet<String> = inf.registry.function_names().into_iter().collect();
+                            // Also include locally-defined functions
+                            for name in inf.functions.keys() {
+                                names.insert(name.clone());
+                            }
+                            names
+                        })
+                        .unwrap_or_default();
+
                     let output = TextEdit::multiline(&mut display_text)
                         .font(FontId::monospace(FONT_SIZE))
                         .desired_width(f32::INFINITY)
-                        .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width))
+                        .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width, &known_functions))
                         .show(ui);
 
                     // The TextEdit content starts below its inner margin;

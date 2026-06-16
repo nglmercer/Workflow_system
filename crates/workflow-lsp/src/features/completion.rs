@@ -85,7 +85,8 @@ pub fn build_completions(
     };
     let mut items = Vec::new();
 
-    for mut item in builtin_items() {
+    // Add built-in keywords (these are always available)
+    for mut item in keyword_items() {
         let label = item.label.clone();
         let matches = prefix.is_empty()
             || label.starts_with(&prefix)
@@ -100,6 +101,50 @@ pub fn build_completions(
                 new_text,
             }));
             items.push(item);
+        }
+    }
+
+    // Add functions from the dynamic registry (built-in + user-defined + imported)
+    if let Some(inf) = inference {
+        for entry in inf.registry.builtin_functions().iter().chain(inf.registry.user_functions().iter()) {
+            // Skip keywords we already added
+            if keyword_items().iter().any(|k| k.label == entry.name) {
+                continue;
+            }
+            let matches = prefix.is_empty() || entry.name.starts_with(&prefix);
+            if matches {
+                let insert_text = if entry.params.is_empty() {
+                    format!("{}()$0", entry.name)
+                } else {
+                    format!("{}($1)$0", entry.name)
+                };
+                let detail = if entry.params.is_empty() {
+                    format!("(): {}", entry.return_type.label())
+                } else {
+                    let params: Vec<String> = entry.params.iter().map(|p| {
+                        if p.optional {
+                            format!("{}?: {}", p.name, p.ty.label())
+                        } else {
+                            format!("{}: {}", p.name, p.ty.label())
+                        }
+                    }).collect();
+                    format!("({}): {}", params.join(", "), entry.return_type.label())
+                };
+                items.push(lsp_types::CompletionItem {
+                    label: entry.name.clone(),
+                    kind: Some(lsp_types::CompletionItemKind::FUNCTION),
+                    detail: Some(detail),
+                    documentation: entry.description.as_ref().map(|d| {
+                        lsp_types::Documentation::String(d.clone())
+                    }),
+                    insert_text: Some(insert_text.clone()),
+                    text_edit: Some(LspCompletionTextEdit::Edit(TextEdit {
+                        range: replace_range,
+                        new_text: insert_text,
+                    })),
+                    ..Default::default()
+                });
+            }
         }
     }
 
@@ -575,7 +620,9 @@ pub fn into_completion_with_type(
     completion
 }
 
-fn builtin_items() -> Vec<lsp_types::CompletionItem> {
+/// Returns only keyword completions. Function completions are now
+/// provided dynamically by the FunctionRegistry.
+fn keyword_items() -> Vec<lsp_types::CompletionItem> {
     use lsp_types::CompletionItem;
     vec![
         CompletionItem {
@@ -659,34 +706,6 @@ fn builtin_items() -> Vec<lsp_types::CompletionItem> {
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
             detail: Some("Emit an event".to_string()),
             insert_text: Some("emit ${1:EVENT}".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "log".to_string(),
-            kind: Some(lsp_types::CompletionItemKind::FUNCTION),
-            detail: Some("Log a message".to_string()),
-            insert_text: Some("log(\"${1:message}\")".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "len".to_string(),
-            kind: Some(lsp_types::CompletionItemKind::FUNCTION),
-            detail: Some("Length".to_string()),
-            insert_text: Some("len(${1:value})".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "to_string".to_string(),
-            kind: Some(lsp_types::CompletionItemKind::FUNCTION),
-            detail: Some("Convert to string".to_string()),
-            insert_text: Some("to_string(${1:value})".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "to_number".to_string(),
-            kind: Some(lsp_types::CompletionItemKind::FUNCTION),
-            detail: Some("Convert to number".to_string()),
-            insert_text: Some("to_number(${1:value})".to_string()),
             ..Default::default()
         },
         CompletionItem {
@@ -862,14 +881,17 @@ mod tests {
             "users leaked with prefix 'u': {:?}",
             l
         );
-        // No builtin in the current list starts with `u`, so the
-        // list is expected to be empty. The key invariant is that
-        // the user variable is not surfaced.
-        assert!(
-            !l.iter().any(|s| s.starts_with("u") && *s != "u"),
-            "unexpected 'u*' user variable in completion: {:?}",
-            l
-        );
+        // The only `u*` items allowed are built-in functions like `upper`.
+        // User variables like `users` must not appear.
+        let u_items: Vec<&str> = l.iter().filter(|s| s.starts_with("u") && **s != "u").copied().collect();
+        let allowed_u_builtins = ["upper"];
+        for item in &u_items {
+            assert!(
+                allowed_u_builtins.contains(item),
+                "unexpected 'u*' item in completion: {:?}",
+                item
+            );
+        }
     }
 
     /// An empty prefix (cursor at the start of an empty token)

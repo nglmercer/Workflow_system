@@ -40,10 +40,12 @@ pub mod annotation;
 pub mod builtins;
 pub mod expr;
 pub mod program;
+pub mod registry;
 pub mod schema;
 pub mod ty;
 pub mod value;
 
+pub use registry::{FunctionEntry, FunctionCategory, FunctionRegistry, ParamDescriptor};
 pub use ty::Type;
 pub use value::{FunctionSig, InferredBinding, Value};
 
@@ -64,6 +66,10 @@ pub struct Inference {
     /// Type/value info attached to each scope binding. Keyed by
     /// `(name, scope_id)`, the same scheme the `defs` map uses.
     pub typed: crate::scope::TypedBindings<InferredBinding>,
+    /// Dynamic function registry for looking up functions at runtime.
+    /// This is the single source of truth for all known functions
+    /// (built-in + user-defined + imported).
+    pub registry: FunctionRegistry,
 }
 
 impl Default for Inference {
@@ -73,6 +79,7 @@ impl Default for Inference {
             functions: HashMap::new(),
             scope_index: ScopeIndex::default(),
             typed: crate::scope::TypedBindings::new(),
+            registry: FunctionRegistry::with_builtins(),
         }
     }
 }
@@ -93,6 +100,18 @@ impl Inference {
         source: &str,
         document_path: Option<&str>,
     ) -> Self {
+        Self::analyze_with_path_and_imports(program, source, document_path, &HashMap::new())
+    }
+
+    /// Like [`analyze_with_path`], but also accepts function signatures
+    /// from imported .flow files. This enables cross-file imports where
+    /// functions defined in one file can be used in another.
+    pub fn analyze_with_path_and_imports(
+        program: &FlowProgram,
+        source: &str,
+        document_path: Option<&str>,
+        imported_functions: &HashMap<String, FunctionSig>,
+    ) -> Self {
         let line_count = source.lines().count().max(1);
         let mut inference = Inference {
             scope_at: vec![Vec::new(); line_count],
@@ -102,6 +121,14 @@ impl Inference {
         let annotations = annotation::parse_annotations(source);
         let (_schemas, import_bindings) =
             schema::resolve_schemas_for_program(&program.imports, document_path);
+
+        // Merge imported functions into the inference's function table
+        // and register them in the dynamic registry
+        for (name, sig) in imported_functions {
+            inference.functions.insert(name.clone(), sig.clone());
+            inference.registry.register_from_sig(sig, true);
+        }
+
         program::run_program_with_imports(
             &mut inference,
             program,
@@ -109,6 +136,14 @@ impl Inference {
             &import_bindings,
             source,
         );
+
+        // Also register locally-defined functions in the registry
+        for (name, sig) in &inference.functions {
+            if !imported_functions.contains_key(name) {
+                inference.registry.register_from_sig(sig, false);
+            }
+        }
+
         inference
     }
 
@@ -135,7 +170,20 @@ impl Inference {
                 }
             }
         }
-        builtins::builtin_for(&word)
+        // Check builtins
+        if let Some(builtin) = builtins::builtin_for(&word) {
+            return Some(builtin);
+        }
+        // Check the dynamic registry
+        if let Some(entry) = self.registry.get(&word) {
+            return Some(InferredBinding {
+                name: entry.name,
+                ty: entry.return_type,
+                value: None,
+                annotated: !entry.is_user_defined,
+            });
+        }
+        None
     }
 
     /// Per-line scope view, kept for backward compat. The
@@ -178,7 +226,20 @@ impl Inference {
                 }
             }
         }
-        builtins::builtin_for(name)
+        // Check builtins
+        if let Some(builtin) = builtins::builtin_for(name) {
+            return Some(builtin);
+        }
+        // Check the dynamic registry
+        if let Some(entry) = self.registry.get(name) {
+            return Some(InferredBinding {
+                name: entry.name,
+                ty: entry.return_type,
+                value: None,
+                annotated: !entry.is_user_defined,
+            });
+        }
+        None
     }
 }
 
