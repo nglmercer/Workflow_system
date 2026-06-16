@@ -46,7 +46,11 @@ pub fn paint(
     let text_color = Color32::from_gray(140);
 
     for line_idx in 0..line_count {
-        let y = row_y(galley, line_idx, text_top_offset);
+        // `row_y` returns a y offset relative to the top of the gutter
+        // rect; convert to absolute (parent-space) coordinates before
+        // painting and clip-testing.
+        let y_local = row_y(galley, line_idx, text_top_offset);
+        let y = rect.min.y + y_local;
         if y > rect.max.y {
             break;
         }
