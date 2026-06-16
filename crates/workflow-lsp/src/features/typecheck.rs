@@ -5,6 +5,8 @@
 //! This module is self-contained — it depends only on the public
 //! `inference` API and `workflow-parser` types.
 
+use lsp_types::{Position, Range};
+
 use crate::features::{Diagnostic, DiagnosticSeverity};
 use crate::inference;
 
@@ -98,22 +100,32 @@ fn check_expr(
                         if let Some(arg_type) = infer_expr_type(arg, inference) {
                             if !types_compatible(param_type, &arg_type) {
                                 // Find the argument's position in source
-                                if let Some((start_line, start_col, end_line, end_col)) =
-                                    find_expr_range(source, arg)
-                                {
-                                    diagnostics.push(Diagnostic {
-                                        start_line,
-                                        start_col,
-                                        end_line,
-                                        end_col,
-                                        message: format!(
-                                            "Type mismatch: expected `{}`, got `{}`",
-                                            param_type.label(),
-                                            arg_type.label()
-                                        ),
-                                        severity: DiagnosticSeverity::Warning,
-                                        source: Some("type-checker".to_string()),
-                                    });
+                                if let Some(span) = workflow_parser::find_expr_range(source, arg) {
+                                    if let Some((sl, sc, el, ec)) = span.to_line_col(source) {
+                                        diagnostics.push(Diagnostic {
+                                            start_line: sl,
+                                            start_col: sc,
+                                            end_line: el,
+                                            end_col: ec,
+                                            message: format!(
+                                                "Type mismatch: expected `{}`, got `{}`",
+                                                param_type.label(),
+                                                arg_type.label()
+                                            ),
+                                            severity: DiagnosticSeverity::Warning,
+                                            source: Some("type-checker".to_string()),
+                                            range: Some(Range {
+                                                start: Position {
+                                                    line: sl,
+                                                    character: sc,
+                                                },
+                                                end: Position {
+                                                    line: el,
+                                                    character: ec,
+                                                },
+                                            }),
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -192,60 +204,6 @@ fn types_compatible(expected: &inference::Type, actual: &inference::Type) -> boo
         (inference::Type::Null, inference::Type::Null) => true,
         (inference::Type::Array(a), inference::Type::Array(b)) => types_compatible(a, b),
         _ => false,
-    }
-}
-
-/// Find the source range of an expression (best-effort using line offsets).
-fn find_expr_range(
-    source: &str,
-    expr: &workflow_parser::ast::Expr,
-) -> Option<(u32, u32, u32, u32)> {
-    // Simple heuristic: find the expression text in the source
-    let expr_text = expr_to_text(expr);
-    let lines: Vec<&str> = source.lines().collect();
-
-    for (line_idx, line) in lines.iter().enumerate() {
-        if let Some(col) = line.find(&expr_text) {
-            let start_col = col as u32;
-            let end_col = (col + expr_text.len()) as u32;
-            return Some((line_idx as u32, start_col, line_idx as u32, end_col));
-        }
-    }
-    None
-}
-
-/// Convert an expression to its approximate text representation.
-fn expr_to_text(expr: &workflow_parser::ast::Expr) -> String {
-    match expr {
-        workflow_parser::ast::Expr::String(s) => format!("\"{}\"", s),
-        workflow_parser::ast::Expr::Number(n) => format!("{}", n),
-        workflow_parser::ast::Expr::Bool(b) => format!("{}", b),
-        workflow_parser::ast::Expr::Null => "null".to_string(),
-        workflow_parser::ast::Expr::Var(name) => name.clone(),
-        workflow_parser::ast::Expr::Call { name, args } => {
-            let arg_strs: Vec<String> = args.iter().map(expr_to_text).collect();
-            format!("{}({})", name, arg_strs.join(", "))
-        }
-        workflow_parser::ast::Expr::Member { object, property } => {
-            format!("{}.{}", expr_to_text(object), property)
-        }
-        workflow_parser::ast::Expr::BinaryOp { op, left, right } => {
-            let op_str = match op {
-                workflow_parser::ast::BinaryOp::Add => "+",
-                workflow_parser::ast::BinaryOp::Sub => "-",
-                workflow_parser::ast::BinaryOp::Mul => "*",
-                workflow_parser::ast::BinaryOp::Div => "/",
-                workflow_parser::ast::BinaryOp::Eq => "==",
-                workflow_parser::ast::BinaryOp::Neq => "!=",
-                _ => "?",
-            };
-            format!("{} {} {}", expr_to_text(left), op_str, expr_to_text(right))
-        }
-        workflow_parser::ast::Expr::Array(elems) => {
-            let elem_strs: Vec<String> = elems.iter().map(expr_to_text).collect();
-            format!("[{}]", elem_strs.join(", "))
-        }
-        _ => "...".to_string(),
     }
 }
 

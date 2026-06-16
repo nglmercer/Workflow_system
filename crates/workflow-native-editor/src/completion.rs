@@ -61,21 +61,21 @@ impl CompletionState {
         Some(item)
     }
 
-    /// Apply a `KeyAction` from `super::keybindings` and return the
+    /// Apply a `Command` from `super::keybindings` and return the
     /// index the user just accepted (if any).
-    pub fn handle_key(&mut self, action: crate::keybindings::KeyAction) -> Option<usize> {
-        use crate::keybindings::KeyAction;
+    pub fn handle_key(&mut self, action: crate::keybindings::Command) -> Option<usize> {
+        use crate::keybindings::Command;
         match action {
-            KeyAction::PopupDown => {
+            Command::PopupDown => {
                 self.select_next();
                 Option::None
             }
-            KeyAction::PopupUp => {
+            Command::PopupUp => {
                 self.select_prev();
                 Option::None
             }
-            KeyAction::PopupAccept => self.accept().map(|_| self.index),
-            KeyAction::PopupDismiss => {
+            Command::PopupAccept => self.accept().map(|_| self.index),
+            Command::PopupDismiss => {
                 self.dismiss();
                 Option::None
             }

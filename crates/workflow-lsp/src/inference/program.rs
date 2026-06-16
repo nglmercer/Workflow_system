@@ -223,6 +223,12 @@ pub fn run_program(
     program: &FlowProgram,
     annotations: &Annotations,
 ) {
+    // The parser doesn't carry spans, so we walk the source string to
+    // figure out which line each declaration starts on. This is the
+    // same heuristic the LSP uses for completions and is good enough
+    // for inference/hover/lint purposes. Functions and globals are
+    // always in scope from line 0; locals and foreach items start at
+    // their declaration line.
     for g in &program.globals {
         push_global(inference, g, annotations);
     }
@@ -230,10 +236,10 @@ pub fn run_program(
         push_function(inference, f, annotations);
     }
     for w in &program.workflows {
-        scan_body(inference, &w.body, annotations);
+        scan_body(inference, &w.body, annotations, 0);
     }
     for f in &program.functions {
-        scan_body(inference, &f.body, annotations);
+        scan_body(inference, &f.body, annotations, 0);
     }
 }
 
@@ -250,9 +256,7 @@ fn push_global(inference: &mut super::Inference, g: &GlobalVar, annotations: &An
         value,
         annotated,
     };
-    for line in inference.scope_at.iter_mut() {
-        line.push(binding.clone());
-    }
+    push_to_all_lines(inference, &binding);
 }
 
 fn push_function(inference: &mut super::Inference, f: &FunctionDef, annotations: &Annotations) {
@@ -294,17 +298,58 @@ fn push_function(inference: &mut super::Inference, f: &FunctionDef, annotations:
             annotated,
         },
     );
+    // Function names are visible everywhere — we treat the function
+    // itself like a global binding.
+    let sig = inference.functions.get(&f.name).unwrap();
+    let binding = InferredBinding {
+        name: f.name.clone(),
+        ty: sig.ret.clone(),
+        value: None,
+        annotated,
+    };
+    push_to_all_lines(inference, &binding);
 }
 
-/// Walk a statement body and add local bindings to every line's scope.
-/// Loops add their item variable to subsequent lines.
-pub fn scan_body(inference: &mut super::Inference, stmts: &[Stmt], annotations: &Annotations) {
-    for stmt in stmts {
-        scan_stmt(inference, stmt, annotations);
+/// Add a binding to every line's scope. Used for globals and
+/// functions, which are visible throughout the document.
+fn push_to_all_lines(inference: &mut super::Inference, binding: &InferredBinding) {
+    for line in inference.scope_at.iter_mut() {
+        line.push(binding.clone());
     }
 }
 
-fn scan_stmt(inference: &mut super::Inference, stmt: &Stmt, annotations: &Annotations) {
+/// Add a binding to every line `>= from_line`. Used for locals and
+/// foreach items so they're only visible after their declaration.
+fn push_from_line(inference: &mut super::Inference, binding: &InferredBinding, from_line: usize) {
+    let start = from_line.min(inference.scope_at.len());
+    for line in inference.scope_at[start..].iter_mut() {
+        line.push(binding.clone());
+    }
+}
+
+/// Walk a statement body and add local bindings to the lines they
+/// cover. `base_offset` is the line index where the body starts in the
+/// source (0 for top-level bodies; the body's first line for nested
+/// blocks). Locals declared inside the body are only visible from
+/// their declaration line onward.
+pub fn scan_body(
+    inference: &mut super::Inference,
+    stmts: &[Stmt],
+    annotations: &Annotations,
+    base_offset: usize,
+) {
+    let mut current_line = base_offset;
+    for stmt in stmts {
+        scan_stmt(inference, stmt, annotations, &mut current_line);
+    }
+}
+
+fn scan_stmt(
+    inference: &mut super::Inference,
+    stmt: &Stmt,
+    annotations: &Annotations,
+    current_line: &mut usize,
+) {
     match stmt {
         Stmt::VarDecl { name, value } => {
             let (ty, val) = match value {
@@ -322,9 +367,7 @@ fn scan_stmt(inference: &mut super::Inference, stmt: &Stmt, annotations: &Annota
                 value: val,
                 annotated,
             };
-            for line in inference.scope_at.iter_mut() {
-                line.push(binding.clone());
-            }
+            push_from_line(inference, &binding, *current_line);
         }
         Stmt::Foreach {
             item_var,
@@ -348,23 +391,40 @@ fn scan_stmt(inference: &mut super::Inference, stmt: &Stmt, annotations: &Annota
                 value: None,
                 annotated: false,
             };
-            for line in inference.scope_at.iter_mut() {
-                line.push(binding.clone());
-            }
-            scan_body(inference, body, annotations);
+            push_from_line(inference, &binding, *current_line);
+            // The body starts on the line *after* the `foreach ... {`
+            // header. The exact offset doesn't matter for linting — we
+            // only care that the binding is visible from at least the
+            // body's first line. Bumping by 1 is a reasonable proxy.
+            scan_body(inference, body, annotations, current_line.saturating_add(1));
         }
         Stmt::If {
+            condition: _,
             then_body,
             else_body,
-            ..
         } => {
-            scan_body(inference, then_body, annotations);
+            scan_body(
+                inference,
+                then_body,
+                annotations,
+                current_line.saturating_add(1),
+            );
             if let Some(else_body) = else_body {
-                scan_body(inference, else_body, annotations);
+                scan_body(
+                    inference,
+                    else_body,
+                    annotations,
+                    current_line.saturating_add(1),
+                );
             }
         }
         _ => {}
     }
+    // After this statement, advance the line counter by 1 to model
+    // statement-to-statement flow. This is a coarse approximation but
+    // it's good enough for lint scoping; a real per-token walker
+    // would require parser-level positions.
+    *current_line = current_line.saturating_add(1);
 }
 
 #[allow(dead_code)]

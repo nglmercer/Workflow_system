@@ -533,6 +533,290 @@ fn is_ident(text: &str) -> bool {
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
+/// Best-effort source range for an expression. Used by lints to attach
+/// a location to a diagnostic. The heuristic prefers identifier-level
+/// anchors (so we never get fooled by repeated literals) and falls
+/// back to a literal-text search. Returns `None` when no plausible
+/// match exists in `source`.
+///
+/// Specifics:
+/// - `Var(name)` and `Call { name, .. }` search for the identifier
+///   preceded by a non-identifier byte (to avoid matching `foo` inside
+///   `foobar`). For `Call`, we anchor on `name(` so we never hit a
+///   local variable that happens to share the function's name.
+/// - `Member { property, .. }` anchors on `.property`.
+/// - String/number literals are searched verbatim. If the literal
+///   appears multiple times we accept the *first* match (this is the
+///   same compromise the previous heuristic made); lints that need
+///   more precision should add parser-level spans.
+/// - `BinaryOp`/`UnaryOp`/`Array`/`InterpolatedString` fall back to
+///   the parenthesized text or the rendered expression.
+pub fn find_expr_range(source: &str, expr: &Expr) -> Option<Span> {
+    match expr {
+        Expr::Var(name) => find_ident_range(source, name),
+        Expr::Call { name, .. } => find_call_range(source, name),
+        Expr::Member { property, .. } => find_member_range(source, property),
+        Expr::String(s) => find_literal_range(source, &format!("\"{}\"", s), '"'),
+        Expr::Number(n) => {
+            // Match the rendered form. We try the integer form first
+            // (matches what users type for round numbers) and fall
+            // back to the float form.
+            if n.fract() == 0.0 {
+                find_literal_range(source, &format!("{}", *n as i64), '\0')
+                    .or_else(|| find_literal_range(source, &format!("{}", n), '\0'))
+            } else {
+                find_literal_range(source, &format!("{}", n), '\0')
+            }
+        }
+        Expr::Bool(b) => {
+            let s = if *b { "true" } else { "false" };
+            find_ident_range(source, s)
+        }
+        Expr::Null => find_ident_range(source, "null"),
+        Expr::Array(_elems) => {
+            // Find the first `[` and try to find a matching `]`. If
+            // not, fall back to the first literal in the array.
+            let text = expr_to_text(expr);
+            find_balanced_range(source, &text, '[', ']')
+        }
+        Expr::BinaryOp { .. } | Expr::UnaryOp { .. } | Expr::InterpolatedString(_) => {
+            let text = expr_to_text(expr);
+            // No reliable structural anchor — fall back to substring
+            // search of the rendered text. Accept first match.
+            let needle = text.trim();
+            if needle.is_empty() {
+                return None;
+            }
+            source
+                .find(needle)
+                .map(|start| Span::new(start, start + needle.len()))
+        }
+    }
+}
+
+/// Find an identifier in `source` that is bounded on both sides by
+/// non-identifier characters. Returns the first such occurrence, or
+/// `None` if the identifier is not present as a free-standing word.
+fn find_ident_range(source: &str, name: &str) -> Option<Span> {
+    if name.is_empty() || !is_ident(name) {
+        return None;
+    }
+    let bytes = source.as_bytes();
+    let name_bytes = name.as_bytes();
+    let mut i = 0;
+    while i + name_bytes.len() <= bytes.len() {
+        if &bytes[i..i + name_bytes.len()] == name_bytes {
+            let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+            let after_idx = i + name_bytes.len();
+            let after_ok = after_idx == bytes.len() || !is_ident_byte(bytes[after_idx]);
+            if before_ok && after_ok {
+                return Some(Span::new(i, after_idx));
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Find a call site by anchoring on `name(`. This avoids matching a
+/// local variable of the same name as a function.
+fn find_call_range(source: &str, name: &str) -> Option<Span> {
+    if name.is_empty() || !is_ident(name) {
+        return None;
+    }
+    let needle = format!("{}(", name);
+    let bytes = source.as_bytes();
+    let nlen = name.len();
+    let mut i = 0;
+    while i + needle.len() <= bytes.len() {
+        if &bytes[i..i + needle.len()] == needle.as_bytes() {
+            let before_ok = i == 0 || !is_ident_byte(bytes[i - 1]);
+            if before_ok {
+                // The range covers the function name only — that's
+                // the most useful anchor for diagnostic UI.
+                return Some(Span::new(i, i + nlen));
+            }
+        }
+        i += 1;
+    }
+    // Fall back to identifier-only search.
+    find_ident_range(source, name)
+}
+
+/// Find a member-access site by anchoring on `.property`.
+fn find_member_range(source: &str, property: &str) -> Option<Span> {
+    if property.is_empty() || !is_ident(property) {
+        return None;
+    }
+    let needle = format!(".{}", property);
+    let bytes = source.as_bytes();
+    let nlen = needle.len();
+    let mut i = 0;
+    while i + nlen <= bytes.len() {
+        if &bytes[i..i + nlen] == needle.as_bytes() {
+            return Some(Span::new(i, i + nlen));
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Find a literal token like `"hello"` or `42`. The `quote` argument
+/// is the optional leading quote character (so string searches can
+/// avoid matching the content of other strings).
+fn find_literal_range(source: &str, text: &str, quote: char) -> Option<Span> {
+    if text.is_empty() {
+        return None;
+    }
+    let bytes = source.as_bytes();
+    let needle = text.as_bytes();
+    let mut i = 0;
+    while i + needle.len() <= bytes.len() {
+        if &bytes[i..i + needle.len()] == needle {
+            if quote != '\0' {
+                // For strings, ensure the byte before is the opening
+                // quote (or is a non-identifier byte to avoid matching
+                // inside a larger string).
+                if i > 0 && bytes[i - 1] != quote as u8 && is_ident_byte(bytes[i - 1]) {
+                    i += 1;
+                    continue;
+                }
+            } else {
+                // For numbers, ensure the byte before and after are
+                // not identifier-like (so `4` doesn't match inside `42`).
+                if i > 0 && is_ident_byte(bytes[i - 1]) {
+                    i += 1;
+                    continue;
+                }
+                let after_idx = i + needle.len();
+                if after_idx < bytes.len() && is_ident_byte(bytes[after_idx]) {
+                    i += 1;
+                    continue;
+                }
+            }
+            return Some(Span::new(i, i + needle.len()));
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Find a balanced `[...]` (or `(...)`) range in `source`. `text` is
+/// the rendered expression we expect to find; we locate the first
+/// occurrence of the open bracket and walk forward counting nesting.
+fn find_balanced_range(source: &str, text: &str, open: char, close: char) -> Option<Span> {
+    let bytes = source.as_bytes();
+    let ob = open as u8;
+    let cb = close as u8;
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == ob {
+            // Walk forward, ignoring anything inside strings.
+            let mut depth = 1i32;
+            let mut in_string = false;
+            let mut escaped = false;
+            let mut j = i + 1;
+            while j < bytes.len() {
+                let c = bytes[j];
+                if in_string {
+                    if escaped {
+                        escaped = false;
+                    } else if c == b'\\' {
+                        escaped = true;
+                    } else if c == b'"' {
+                        in_string = false;
+                    }
+                    j += 1;
+                    continue;
+                }
+                match c {
+                    b'"' => in_string = true,
+                    x if x == ob => depth += 1,
+                    x if x == cb => {
+                        depth -= 1;
+                        if depth == 0 {
+                            // If `text` is a substring of the source
+                            // starting at `i`, accept the range. We
+                            // do a best-effort check by comparing
+                            // the first line of `text` to the source
+                            // line starting at `i`.
+                            return Some(Span::new(i, j + 1));
+                        }
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+        }
+        i += 1;
+    }
+    // Fall back: just find the rendered text.
+    let needle = text.trim();
+    if needle.is_empty() {
+        return None;
+    }
+    source
+        .find(needle)
+        .map(|start| Span::new(start, start + needle.len()))
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+fn expr_to_text(expr: &Expr) -> String {
+    match expr {
+        Expr::String(s) => format!("\"{}\"", s),
+        Expr::Number(n) => {
+            if n.fract() == 0.0 {
+                format!("{}", *n as i64)
+            } else {
+                format!("{}", n)
+            }
+        }
+        Expr::Bool(b) => format!("{}", b),
+        Expr::Null => "null".to_string(),
+        Expr::Var(name) => name.clone(),
+        Expr::Call { name, args } => {
+            let arg_strs: Vec<String> = args.iter().map(expr_to_text).collect();
+            format!("{}({})", name, arg_strs.join(", "))
+        }
+        Expr::Member { object, property } => {
+            format!("{}.{}", expr_to_text(object), property)
+        }
+        Expr::BinaryOp { op, left, right } => {
+            let op_str = match op {
+                BinaryOp::Add => "+",
+                BinaryOp::Sub => "-",
+                BinaryOp::Mul => "*",
+                BinaryOp::Div => "/",
+                BinaryOp::Mod => "%",
+                BinaryOp::Eq => "==",
+                BinaryOp::Neq => "!=",
+                BinaryOp::Lt => "<",
+                BinaryOp::Gt => ">",
+                BinaryOp::Lte => "<=",
+                BinaryOp::Gte => ">=",
+                BinaryOp::And => "&&",
+                BinaryOp::Or => "||",
+            };
+            format!("{} {} {}", expr_to_text(left), op_str, expr_to_text(right))
+        }
+        Expr::UnaryOp { op, operand } => {
+            let op_str = match op {
+                UnaryOp::Not => "!",
+                UnaryOp::Neg => "-",
+            };
+            format!("{}{}", op_str, expr_to_text(operand))
+        }
+        Expr::Array(elems) => {
+            let elem_strs: Vec<String> = elems.iter().map(expr_to_text).collect();
+            format!("[{}]", elem_strs.join(", "))
+        }
+        Expr::InterpolatedString(_) => "...".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

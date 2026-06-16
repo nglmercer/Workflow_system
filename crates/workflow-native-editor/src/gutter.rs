@@ -41,7 +41,10 @@ pub fn paint(
         let y = if line_idx < galley.rows.len() {
             galley.rows[line_idx].rect.min.y
         } else {
-            galley.rows.last().map_or(rect.min.y, |r| r.rect.min.y + LINE_HEIGHT)
+            galley
+                .rows
+                .last()
+                .map_or(rect.min.y, |r| r.rect.min.y + LINE_HEIGHT)
         };
         if y > rect.max.y {
             break;

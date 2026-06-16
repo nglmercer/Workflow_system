@@ -125,15 +125,28 @@ impl Analysis {
         }
     }
 
-    /// Walk statements and append scoped symbols for the lines they cover.
-    /// `depth` is the nesting level (used for debugging, not strictly needed).
-    fn scan_stmts(&mut self, stmts: &[Stmt], _depth: usize) {
-        for stmt in stmts {
-            self.scan_stmt(stmt);
+    /// Add a scoped symbol to every line `>= from_line`. Used for
+    /// locals and foreach items so they only appear from their
+    /// declaration onward.
+    fn push_from_line(&mut self, sym: &ScopedSymbol, from_line: usize) {
+        let start = from_line.min(self.scope_at.len());
+        for line in self.scope_at[start..].iter_mut() {
+            line.push(sym.clone());
         }
     }
 
-    fn scan_stmt(&mut self, stmt: &Stmt) {
+    /// Walk statements and append scoped symbols for the lines they cover.
+    /// `base_offset` is the line index where the body starts in the
+    /// source. Locals declared inside the body are visible from
+    /// `current_line` onward.
+    fn scan_stmts(&mut self, stmts: &[Stmt], base_offset: usize) {
+        let mut current_line = base_offset;
+        for stmt in stmts {
+            self.scan_stmt(stmt, &mut current_line);
+        }
+    }
+
+    fn scan_stmt(&mut self, stmt: &Stmt, current_line: &mut usize) {
         match stmt {
             Stmt::VarDecl { name, .. } => {
                 let sym = ScopedSymbol {
@@ -143,9 +156,7 @@ impl Analysis {
                     documentation: None,
                     name_range: None,
                 };
-                for line in self.scope_at.iter_mut() {
-                    line.push(sym.clone());
-                }
+                self.push_from_line(&sym, *current_line);
             }
             Stmt::Foreach { item_var, body, .. } => {
                 let sym = ScopedSymbol {
@@ -155,23 +166,22 @@ impl Analysis {
                     documentation: None,
                     name_range: None,
                 };
-                for line in self.scope_at.iter_mut() {
-                    line.push(sym.clone());
-                }
-                self.scan_stmts(body, 0);
+                self.push_from_line(&sym, *current_line);
+                self.scan_stmts(body, current_line.saturating_add(1));
             }
             Stmt::If {
                 then_body,
                 else_body,
                 ..
             } => {
-                self.scan_stmts(then_body, 0);
+                self.scan_stmts(then_body, current_line.saturating_add(1));
                 if let Some(else_body) = else_body {
-                    self.scan_stmts(else_body, 0);
+                    self.scan_stmts(else_body, current_line.saturating_add(1));
                 }
             }
             _ => {}
         }
+        *current_line = current_line.saturating_add(1);
     }
 
     /// Look up the word at the given position. If found, returns the symbol

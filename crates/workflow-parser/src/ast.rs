@@ -1,5 +1,55 @@
 use serde::{Deserialize, Serialize};
 
+/// A byte-offset range in the source text. `start` and `end` are
+/// UTF-8 byte indices into the source. `start <= end`. Spans are
+/// optional because the parser builds AST nodes via text-only helpers
+/// (`parse_expr_text` etc.) that don't have a way to recover their
+/// absolute byte position in the source — most production paths
+/// leave spans as `None`, but `Spanned<T>` wrappers and a few
+/// expression parsers can populate them. Consumers that need
+/// reliable positions should fall back to a substring search when
+/// `span()` returns `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Span {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl Span {
+    pub fn new(start: usize, end: usize) -> Self {
+        debug_assert!(start <= end, "Span start must be <= end");
+        Self { start, end }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.start >= self.end
+    }
+}
+
+/// Wraps a node with an optional source span.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Spanned<T> {
+    pub node: T,
+    pub span: Option<Span>,
+}
+
+impl<T> Spanned<T> {
+    pub fn new(node: T) -> Self {
+        Self { node, span: None }
+    }
+
+    pub fn with_span(node: T, span: Span) -> Self {
+        Self {
+            node,
+            span: Some(span),
+        }
+    }
+
+    pub fn span(&self) -> Option<Span> {
+        self.span
+    }
+}
+
 /// Top-level AST node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlowProgram {
@@ -135,6 +185,41 @@ pub enum BinaryOp {
 pub enum UnaryOp {
     Not,
     Neg,
+}
+
+/// Convert a UTF-8 byte offset in `source` to a 0-based `(line, col)`.
+/// `col` is in bytes (not characters) — it matches what `lsp_types::Position`
+/// and the rest of the LSP/editor stack use.
+pub fn byte_to_line_col(source: &str, byte: usize) -> (u32, u32) {
+    let mut line: u32 = 0;
+    let mut col: u32 = 0;
+    for (i, ch) in source.char_indices() {
+        if i >= byte {
+            return (line, col);
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
+}
+
+impl Span {
+    /// Convert this span to a `(start_line, start_col, end_line, end_col)`
+    /// tuple suitable for the LSP `Diagnostic` shape. 0-indexed, with
+    /// `col` in the same units as `byte_to_line_col` (bytes). Returns
+    /// `None` if the span's byte range lies outside `source`.
+    pub fn to_line_col(self, source: &str) -> Option<(u32, u32, u32, u32)> {
+        if self.start > source.len() || self.end > source.len() {
+            return None;
+        }
+        let (sl, sc) = byte_to_line_col(source, self.start);
+        let (el, ec) = byte_to_line_col(source, self.end);
+        Some((sl, sc, el, ec))
+    }
 }
 
 impl Expr {

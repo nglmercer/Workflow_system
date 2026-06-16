@@ -12,9 +12,10 @@
 //!   the built-in keyword/function list.
 //! - [`typecheck`] — argument-type-mismatch diagnostics.
 
-use lsp_types::Position;
+use lsp_types::{Position, Range};
 
 use crate::inference;
+use crate::lint::{self, LintCx};
 use crate::state::ServerState;
 
 mod completion;
@@ -82,6 +83,10 @@ pub struct Diagnostic {
     pub severity: DiagnosticSeverity,
     /// Optional source (e.g., "type-checker")
     pub source: Option<String>,
+    /// Optional LSP `Range` (preferred over the four-uint fields when
+    /// available). Set by lints that produce a precise `Span` via
+    /// `workflow_parser::find_expr_range` or similar.
+    pub range: Option<Range>,
 }
 
 // ---------------------------------------------------------------------------
@@ -110,12 +115,26 @@ pub fn diagnostics_at(state: &ServerState, uri: &str) -> Vec<Diagnostic> {
             message: parse_error.clone(),
             severity: DiagnosticSeverity::Error,
             source: Some("parser".to_string()),
+            range: None,
         });
     }
 
     // Type checking diagnostics
     if let Some(inference) = inference {
         diagnostics.extend(typecheck::check_type_mismatches(source, inference));
+    }
+
+    // Lint passes — only run when the program parsed successfully.
+    if let (Some(inference), Some(program)) = (inference, analysis.program.as_ref()) {
+        let disabled = lint::parse_disable_directives(source);
+        let cx = LintCx {
+            source,
+            analysis,
+            inference,
+            program,
+            disabled: &disabled,
+        };
+        diagnostics.extend(lint::run_all(&cx));
     }
 
     diagnostics
