@@ -460,6 +460,15 @@ impl EditorApp {
 
                     let cursor_moved = self.cursor != prev_cursor;
 
+                    // Handle Ctrl+Click for go-to-definition
+                    if cursor_moved && !response.changed() {
+                        // Cursor moved without text change (click)
+                        let ctrl_held = ui.input(|i| i.modifiers.ctrl);
+                        if ctrl_held {
+                            self.goto_definition_at_cursor();
+                        }
+                    }
+
                     if response.changed()
                         && keybindings::should_request_completion(ui, &self.text, self.cursor)
                     {
@@ -572,6 +581,7 @@ impl EditorApp {
             Command::ToggleFoldAtCursor => self.toggle_fold_at_cursor(),
             Command::UnfoldAll => self.collapsed.clear(),
             Command::RunTests => self.run_tests(),
+            Command::GotoDefinition => self.goto_definition_at_cursor(),
         }
     }
 
@@ -903,6 +913,115 @@ impl EditorApp {
             stripped.to_string()
         };
         self.replace_cursor_line(ctx, new_line);
+    }
+
+    /// Go to the definition of the symbol under the cursor.
+    /// For imported functions, this opens the source file.
+    fn goto_definition_at_cursor(&mut self) {
+        let line_idx = self.cursor.line.saturating_sub(1);
+        let lines: Vec<&str> = self.text.split('\n').collect();
+        if line_idx >= lines.len() {
+            return;
+        }
+
+        let line = lines[line_idx];
+        let col = self.cursor.col.saturating_sub(1);
+        if col >= line.len() {
+            return;
+        }
+
+        // Extract the word at the cursor position
+        let word = self.extract_word_at_position(line, col);
+        if word.is_empty() {
+            return;
+        }
+
+        // Check if this is an imported function
+        if let Some(inference) = self.lsp.get_inference(&self.uri) {
+            // Check if the word is a function in the registry
+            if let Some(entry) = inference.registry.get(&word) {
+                if entry.is_user_defined {
+                    // Try to find the source file from the import statements
+                    if let Some(source_path) = self.find_import_source(&word) {
+                        self.status = format!("Opening: {}", source_path);
+                        // Open the source file
+                        if let Ok(path) = std::path::Path::new(&source_path).canonicalize() {
+                            if let Err(e) = self.load_path_into_editor(&path) {
+                                self.status = format!("Failed to open: {}", e);
+                            }
+                        } else {
+                            self.status = format!("File not found: {}", source_path);
+                        }
+                        return;
+                    }
+                }
+                self.status = format!("Function '{}' is a built-in", word);
+                return;
+            }
+
+            // Check if it's a local function
+            if inference.functions.contains_key(&word) {
+                // For local functions, we could jump to the function definition
+                // For now, just show a status message
+                self.status = format!("Local function: {}", word);
+                return;
+            }
+        }
+
+        self.status = format!("No definition found for '{}'", word);
+    }
+
+    /// Extract the word at the given column position in a line.
+    fn extract_word_at_position(&self, line: &str, col: usize) -> String {
+        let bytes = line.as_bytes();
+        if col >= bytes.len() {
+            return String::new();
+        }
+
+        // Find the start of the word (go backwards until we find a non-alphanumeric, non-underscore)
+        let mut start = col;
+        while start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+            start -= 1;
+        }
+
+        // Find the end of the word (go forwards until we find a non-alphanumeric, non-underscore)
+        let mut end = col;
+        while end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+            end += 1;
+        }
+
+        line[start..end].to_string()
+    }
+
+    /// Find the source file path for an imported function by looking
+    /// at the import statements in the current file.
+    fn find_import_source(&self, _function_name: &str) -> Option<String> {
+        let lines: Vec<&str> = self.text.split('\n').collect();
+
+        // Look for import statements that might contain this function
+        for line in &lines {
+            let trimmed = line.trim();
+            if trimmed.starts_with("import ") && trimmed.contains(" from ") {
+                // Parse: import name from "path"
+                if let Some(from_idx) = trimmed.find(" from ") {
+                    let path_part = &trimmed[from_idx + 6..];
+                    let path = path_part.trim().trim_matches('"').trim_matches('\'');
+
+                    // Check if the path is a .flow file
+                    if path.ends_with(".flow") {
+                        // Resolve the path relative to the current file
+                        if let Some(current_dir) = self.file_path.as_ref().and_then(|p| p.parent()) {
+                            let full_path = current_dir.join(path);
+                            if full_path.exists() {
+                                return Some(full_path.to_string_lossy().into_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     /// Toggle the fold region whose header line contains the cursor.

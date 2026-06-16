@@ -175,55 +175,110 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
         line: line as u32,
         character: character as u32,
     };
-    let symbol = analysis.lookup(source, position)?;
 
-    // Combine the existing scope/symbol docs with the type/value inference
-    // result so the user sees both "what kind of thing is this?" and
-    // "what's its type and current value?".
-    let mut body = String::new();
-    if let Some(detail) = &symbol.detail {
-        body.push_str(detail);
-        body.push_str("\n\n");
+    // First try the analysis lookup (works for local symbols)
+    if let Some(symbol) = analysis.lookup(source, position) {
+        let mut body = String::new();
+        if let Some(detail) = &symbol.detail {
+            body.push_str(detail);
+            body.push_str("\n\n");
+        }
+
+        if let Some(inference) = inference {
+            // Check if this is a function and show its signature
+            if let Some(sig) = inference.functions.get(&symbol.name) {
+                let ret_label = sig.ret.label();
+                if sig.annotated {
+                    body.push_str(&format!("`//@{}`\n\n", ret_label));
+                } else {
+                    body.push_str(&format!("**returns:** `{}`\n\n", ret_label));
+                }
+                // Show parameter types if available
+                if !sig.param_types.is_empty() {
+                    let params: Vec<String> = sig
+                        .params
+                        .iter()
+                        .zip(sig.param_types.iter())
+                        .map(|(name, ty)| format!("{}: {}", name, ty.label()))
+                        .collect();
+                    body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
+                }
+            } else if let Some(binding) = inference.lookup(source, position) {
+                if binding.annotated {
+                    body.push_str(&format!("`//@{}`\n\n", binding.ty.label()));
+                } else {
+                    body.push_str(&format!("**type:** `{}`\n\n", binding.ty.label()));
+                }
+                if let Some(value) = &binding.value {
+                    body.push_str(&format!("**value:** `{}`\n\n", format_value(value)));
+                }
+            }
+        }
+
+        if let Some(docs) = &symbol.documentation {
+            body.push_str(docs);
+        }
+        if !body.is_empty() {
+            return Some(body);
+        }
     }
 
+    // Fallback: check if the word at position is a function in the registry
     if let Some(inference) = inference {
-        // Check if this is a function and show its signature
-        if let Some(sig) = inference.functions.get(&symbol.name) {
-            let ret_label = sig.ret.label();
-            if sig.annotated {
-                body.push_str(&format!("`//@{}`\n\n", ret_label));
-            } else {
+        if let Some(word) = crate::analysis::word_at(source, position) {
+            // Check local functions first
+            if let Some(sig) = inference.functions.get(&word) {
+                let ret_label = sig.ret.label();
+                let mut body = format!("**fn** `{}`\n\n", word);
                 body.push_str(&format!("**returns:** `{}`\n\n", ret_label));
+                if !sig.params.is_empty() {
+                    let params: Vec<String> = sig
+                        .params
+                        .iter()
+                        .zip(sig.param_types.iter())
+                        .map(|(name, ty)| format!("{}: {}", name, ty.label()))
+                        .collect();
+                    body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
+                }
+                return Some(body);
             }
-            // Show parameter types if available
-            if !sig.param_types.is_empty() {
-                let params: Vec<String> = sig
-                    .params
-                    .iter()
-                    .zip(sig.param_types.iter())
-                    .map(|(name, ty)| format!("{}: {}", name, ty.label()))
-                    .collect();
-                body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
-            }
-        } else if let Some(binding) = inference.lookup(source, position) {
-            if binding.annotated {
-                body.push_str(&format!("`//@{}`\n\n", binding.ty.label()));
-            } else {
-                body.push_str(&format!("**type:** `{}`\n\n", binding.ty.label()));
-            }
-            if let Some(value) = &binding.value {
-                body.push_str(&format!("**value:** `{}`\n\n", format_value(value)));
+            // Check registry functions
+            if let Some(entry) = inference.registry.get(&word) {
+                let mut body = if entry.is_user_defined {
+                    format!("**fn** `{}` (imported)\n\n", word)
+                } else {
+                    format!("**fn** `{}` (built-in)\n\n", word)
+                };
+
+                // Show category
+                body.push_str(&format!("**category:** {}\n\n", entry.category.label()));
+
+                // Show return type
+                body.push_str(&format!("**returns:** `{}`\n\n", entry.return_type.label()));
+
+                // Show parameters
+                if !entry.params.is_empty() {
+                    let params: Vec<String> = entry.params.iter().map(|p| {
+                        if p.optional {
+                            format!("{}?: {}", p.name, p.ty.label())
+                        } else {
+                            format!("{}: {}", p.name, p.ty.label())
+                        }
+                    }).collect();
+                    body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
+                }
+
+                // Show description if available
+                if let Some(desc) = &entry.description {
+                    body.push_str(desc);
+                }
+
+                return Some(body);
             }
         }
     }
 
-    if let Some(docs) = &symbol.documentation {
-        body.push_str(docs);
-    }
-    if body.is_empty() {
-        body = symbol.name.clone();
-    }
-    Some(body)
+    None
 }
 
 // ---------------------------------------------------------------------------

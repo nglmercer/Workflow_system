@@ -48,6 +48,8 @@ pub enum Command {
     // Navigation (stubs: just update `self.status` for now)
     Find,
     GotoLine,
+    /// Go to definition of the symbol under the cursor.
+    GotoDefinition,
     /// Toggle the keyboard-shortcuts help window.
     ShowShortcuts,
     /// Run tests for the current file.
@@ -82,6 +84,7 @@ impl Command {
             Command::UnfoldAll => "Unfold all",
             Command::Find => "Find",
             Command::GotoLine => "Go to line",
+            Command::GotoDefinition => "Go to definition",
             Command::ShowShortcuts => "Show keyboard shortcuts",
             Command::RunTests => "Run tests",
             Command::None => "(no command)",
@@ -329,6 +332,8 @@ impl Keymap {
             // --- Navigation stubs ---
             (ChordMatcher::Exact(Chord::ctrl(Key::F)), Command::Find),
             (ChordMatcher::Exact(Chord::ctrl(Key::G)), Command::GotoLine),
+            // --- Go to definition (F12 or Ctrl+Click) ---
+            (ChordMatcher::Exact(Chord::key(Key::F12)), Command::GotoDefinition),
             // --- Help ---
             (
                 ChordMatcher::Exact(Chord::key(Key::F1)),
