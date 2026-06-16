@@ -50,17 +50,11 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
                 );
                 ui.add_space(24.0);
                 ui.horizontal(|ui| {
-                    if ui
-                        .button(RichText::new("Open File…").size(16.0))
-                        .clicked()
-                    {
+                    if ui.button(RichText::new("Open File…").size(16.0)).clicked() {
                         action = Some(HomeAction::OpenDialog);
                     }
                     ui.add_space(8.0);
-                    if ui
-                        .button(RichText::new("New File").size(16.0))
-                        .clicked()
-                    {
+                    if ui.button(RichText::new("New File").size(16.0)).clicked() {
                         action = Some(HomeAction::NewFile);
                     }
                 });
@@ -78,10 +72,8 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
                                 let display = format_recent(path);
                                 let response = ui.add_sized(
                                     [360.0, 22.0],
-                                    egui::Button::new(
-                                        RichText::new(display).monospace().small(),
-                                    )
-                                    .frame(false),
+                                    egui::Button::new(RichText::new(display).monospace().small())
+                                        .frame(false),
                                 );
                                 if response.clicked() {
                                     action = Some(HomeAction::OpenPath(path.clone()));
@@ -104,10 +96,7 @@ fn format_recent(path: &std::path::Path) -> String {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("(invalid)");
-    let parent = path
-        .parent()
-        .and_then(|p| p.to_str())
-        .unwrap_or("");
+    let parent = path.parent().and_then(|p| p.to_str()).unwrap_or("");
     if parent.is_empty() {
         name.to_string()
     } else {

@@ -92,7 +92,10 @@ pub enum ExpectClause {
     /// `expect var <name> == <value>` — the workflow's final
     /// scope binding for `name`, or `Null` if unbound (the
     /// assertion will fail in that case).
-    Var { name: String, value: serde_json::Value },
+    Var {
+        name: String,
+        value: serde_json::Value,
+    },
 }
 
 /// Top-level AST node

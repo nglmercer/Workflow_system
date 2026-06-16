@@ -155,6 +155,21 @@ impl Analysis {
     /// Push each workflow destructure parameter into the per-line
     /// scope. Mirrors `inference::program::push_workflow_params`.
     fn push_workflow_params(&mut self, w: &workflow_parser::ast::WorkflowDef) {
+        // Push the event name into scope so hover works on `on EVENT`.
+        let event_sym = ScopedSymbol {
+            name: w.event.clone(),
+            kind: SymbolKind::Variable,
+            detail: Some(format!("event for workflow \"{}\"", w.name)),
+            documentation: Some(format!(
+                "Event `{}` triggers workflow `{}`",
+                w.event, w.name
+            )),
+            name_range: None,
+        };
+        for line in self.scope_at.iter_mut() {
+            line.push(event_sym.clone());
+        }
+
         for p in &w.params {
             let sym = ScopedSymbol {
                 name: p.clone(),

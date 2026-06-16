@@ -954,22 +954,24 @@ impl EditorApp {
             let runner = workflow_test_runner::TestRunner::with_default_config();
             let report = runner
                 .run_source(&source, &virtual_path)
-                .unwrap_or_else(|e| workflow_test_runner::RunReport::from_tests(
-                    &virtual_path,
-                    vec![workflow_test_runner::TestReport {
-                        name: "<runner>".to_string(),
-                        source_path: virtual_path.clone(),
-                        event: String::new(),
-                        asserts: vec![workflow_test_runner::AssertResult::fail(
-                            workflow_test_runner::AssertKind::Logs,
-                            "",
-                            String::new(),
-                            format!("runner error: {}", e),
-                        )],
-                        matched_workflow_count: 0,
-                        passed: false,
-                    }],
-                ));
+                .unwrap_or_else(|e| {
+                    workflow_test_runner::RunReport::from_tests(
+                        &virtual_path,
+                        vec![workflow_test_runner::TestReport {
+                            name: "<runner>".to_string(),
+                            source_path: virtual_path.clone(),
+                            event: String::new(),
+                            asserts: vec![workflow_test_runner::AssertResult::fail(
+                                workflow_test_runner::AssertKind::Logs,
+                                "",
+                                String::new(),
+                                format!("runner error: {}", e),
+                            )],
+                            matched_workflow_count: 0,
+                            passed: false,
+                        }],
+                    )
+                });
             let _ = tx.send(report);
         });
         self.test_receiver = Some(rx);

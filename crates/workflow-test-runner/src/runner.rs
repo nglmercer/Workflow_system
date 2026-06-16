@@ -83,10 +83,11 @@ impl TestRunner {
         source: &str,
         virtual_path: &str,
     ) -> Result<RunReport, TestRunnerError> {
-        let program = FlowParser::parse_flow_program(source).map_err(|e| TestRunnerError::Parse {
-            path: virtual_path.to_string(),
-            message: e,
-        })?;
+        let program =
+            FlowParser::parse_flow_program(source).map_err(|e| TestRunnerError::Parse {
+                path: virtual_path.to_string(),
+                message: e,
+            })?;
         let tests: Vec<TestReport> = program
             .tests
             .iter()
@@ -103,10 +104,11 @@ impl TestRunner {
     ) -> Result<RunReport, TestRunnerError> {
         let mut all_tests: Vec<TestReport> = Vec::new();
         for entry in entries {
-            let test_source = fs::read_to_string(&entry.test_file).map_err(|e| TestRunnerError::Io {
-                path: entry.test_file.to_string_lossy().into_owned(),
-                source: e,
-            })?;
+            let test_source =
+                fs::read_to_string(&entry.test_file).map_err(|e| TestRunnerError::Io {
+                    path: entry.test_file.to_string_lossy().into_owned(),
+                    source: e,
+                })?;
             let test_program = FlowParser::parse_flow_program(&test_source).map_err(|e| {
                 TestRunnerError::Parse {
                     path: entry.test_file.to_string_lossy().into_owned(),
@@ -115,10 +117,11 @@ impl TestRunner {
             })?;
             let host_program = match &entry.host_file {
                 Some(host) => {
-                    let host_source = fs::read_to_string(host).map_err(|e| TestRunnerError::Io {
-                        path: host.to_string_lossy().into_owned(),
-                        source: e,
-                    })?;
+                    let host_source =
+                        fs::read_to_string(host).map_err(|e| TestRunnerError::Io {
+                            path: host.to_string_lossy().into_owned(),
+                            source: e,
+                        })?;
                     let parsed = FlowParser::parse_flow_program(&host_source).map_err(|e| {
                         TestRunnerError::Parse {
                             path: host.to_string_lossy().into_owned(),
@@ -139,11 +142,7 @@ impl TestRunner {
                 if !self.name_matches(&test.name) {
                     continue;
                 }
-                all_tests.push(execute_test(
-                    test,
-                    host,
-                    &entry.test_file.to_string_lossy(),
-                ));
+                all_tests.push(execute_test(test, host, &entry.test_file.to_string_lossy()));
             }
         }
         Ok(RunReport::from_tests(root_label, all_tests))

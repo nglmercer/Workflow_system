@@ -69,8 +69,5 @@ fn print_human(report: &workflow_test_runner::RunReport) {
             );
         }
     }
-    println!(
-        "{} passed, {} failed",
-        report.passed, report.failed
-    );
+    println!("{} passed, {} failed", report.passed, report.failed);
 }

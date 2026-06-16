@@ -96,11 +96,11 @@ fn walk_dir(dir: &Path, out: &mut Vec<DiscoverEntry>) -> Result<(), DiscoverErro
         if p.is_dir() {
             walk_dir(&p, out)?;
         } else if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-            if ext == "flow"
-                && p.file_name()
-                    .and_then(|n| n.to_str())
-                    .map_or(false, |n| n.ends_with(".test.flow"))
-            {
+            let is_test_flow = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.ends_with(".test.flow"));
+            if ext == "flow" && is_test_flow {
                 out.push(DiscoverEntry {
                     test_file: p.clone(),
                     host_file: find_host_for(&p),
@@ -147,10 +147,17 @@ mod tests {
     fn discover_finds_sidecar() {
         let dir = tmp_dir();
         fs::write(dir.join("hello.flow"), "workflow \"X\" { on E }\n").unwrap();
-        fs::write(dir.join("hello.test.flow"), "test \"t\" { on E expect logs [] }\n").unwrap();
+        fs::write(
+            dir.join("hello.test.flow"),
+            "test \"t\" { on E expect logs [] }\n",
+        )
+        .unwrap();
         let entries = discover(&dir).unwrap();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].host_file.as_deref(), Some(dir.join("hello.flow").as_path()));
+        assert_eq!(
+            entries[0].host_file.as_deref(),
+            Some(dir.join("hello.flow").as_path())
+        );
     }
 
     #[test]

@@ -31,11 +31,7 @@ use crate::report::{RunReport, TestReport};
 /// `TestReport`. The `host` is the parsed program containing the
 /// `WorkflowDef`s under test (and any globals/functions the
 /// workflows depend on).
-pub fn execute_test(
-    test: &TestDef,
-    host: &FlowProgram,
-    source_path: &str,
-) -> TestReport {
+pub fn execute_test(test: &TestDef, host: &FlowProgram, source_path: &str) -> TestReport {
     let matches: Vec<&WorkflowDef> = host
         .workflows
         .iter()
@@ -128,10 +124,7 @@ pub fn execute_test(
 /// source and the host — sidecar test files that include the
 /// workflows they exercise inline, plus the editor's "run on
 /// buffer" path, both hit this.
-pub fn execute_tests_for_program(
-    program: &FlowProgram,
-    root_path: &str,
-) -> RunReport {
+pub fn execute_tests_for_program(program: &FlowProgram, root_path: &str) -> RunReport {
     let tests: Vec<TestReport> = program
         .tests
         .iter()

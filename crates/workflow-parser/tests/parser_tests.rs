@@ -507,10 +507,17 @@ mod test_def_tests {
         assert_eq!(t.on.data["name"], serde_json::json!("Ada"));
         assert_eq!(t.on.data["plan"], serde_json::json!("premium"));
         assert_eq!(t.expects.len(), 4);
-        assert!(matches!(&t.expects[0], ExpectClause::Logs(v) if v == &vec!["Hello Ada!".to_string()]));
+        assert!(
+            matches!(&t.expects[0], ExpectClause::Logs(v) if v == &vec!["Hello Ada!".to_string()])
+        );
         assert!(matches!(&t.expects[1], ExpectClause::Emitted(v) if v.is_empty()));
-        assert!(matches!(&t.expects[2], ExpectClause::Return(serde_json::Value::Null)));
-        assert!(matches!(&t.expects[3], ExpectClause::Var { name, value } if name == "greeting" && *value == serde_json::json!("Hello Ada!")));
+        assert!(matches!(
+            &t.expects[2],
+            ExpectClause::Return(serde_json::Value::Null)
+        ));
+        assert!(
+            matches!(&t.expects[3], ExpectClause::Var { name, value } if name == "greeting" && *value == serde_json::json!("Hello Ada!"))
+        );
     }
 
     #[test]
@@ -521,9 +528,13 @@ mod test_def_tests {
         let t = &program.tests[0];
         assert_eq!(t.expects.len(), 4);
         assert!(matches!(&t.expects[0], ExpectClause::Logs(v) if v.len() == 3));
-        assert!(matches!(&t.expects[1], ExpectClause::Emitted(v) if v == &vec!["X".to_string(), "Y".to_string()]));
+        assert!(
+            matches!(&t.expects[1], ExpectClause::Emitted(v) if v == &vec!["X".to_string(), "Y".to_string()])
+        );
         assert!(matches!(&t.expects[2], ExpectClause::Return(v) if v.as_i64() == Some(42)));
-        assert!(matches!(&t.expects[3], ExpectClause::Var { name, value } if name == "total" && value.as_i64() == Some(7)));
+        assert!(
+            matches!(&t.expects[3], ExpectClause::Var { name, value } if name == "total" && value.as_i64() == Some(7))
+        );
     }
 
     #[test]

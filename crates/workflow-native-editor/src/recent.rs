@@ -168,10 +168,9 @@ mod tests {
         }
         assert_eq!(r.entries().len(), MAX_ENTRIES);
         // The most recent insertion should be at the front.
-        assert!(r.entries()[0].to_string_lossy().contains(&format!(
-            "file{}.flow",
-            MAX_ENTRIES + 4
-        )));
+        assert!(r.entries()[0]
+            .to_string_lossy()
+            .contains(&format!("file{}.flow", MAX_ENTRIES + 4)));
     }
 
     #[test]

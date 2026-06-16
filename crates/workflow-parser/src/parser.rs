@@ -243,13 +243,10 @@ fn parse_import(pair: pest::iterators::Pair<Rule>) -> ImportStmt {
                     match child.as_rule() {
                         Rule::STRING => {
                             let s = child.as_str();
-                            source = Some(ImportSource::Path(
-                                s[1..s.len() - 1].to_string(),
-                            ));
+                            source = Some(ImportSource::Path(s[1..s.len() - 1].to_string()));
                         }
                         Rule::value_object => {
-                            source =
-                                Some(ImportSource::Inline(value_object_to_json(child)));
+                            source = Some(ImportSource::Inline(value_object_to_json(child)));
                         }
                         _ => {}
                     }
@@ -280,9 +277,9 @@ fn value_object_to_json(pair: pest::iterators::Pair<Rule>) -> serde_json::Value 
             for child in inner.into_inner() {
                 match child.as_rule() {
                     Rule::IDENT => key = child.as_str().to_string(),
-                    Rule::value_literal
-                    | Rule::value_array
-                    | Rule::value_object => val = value_literal_to_json(child),
+                    Rule::value_literal | Rule::value_array | Rule::value_object => {
+                        val = value_literal_to_json(child)
+                    }
                     _ => {}
                 }
             }
@@ -442,10 +439,8 @@ fn parse_expect_clause(pair: pest::iterators::Pair<Rule>) -> Option<ExpectClause
     let mut var_name: Option<String> = None;
     for inner in pair.into_inner() {
         match inner.as_rule() {
-            Rule::IDENT => {
-                if kind == "var" && var_name.is_none() {
-                    var_name = Some(inner.as_str().to_string());
-                }
+            Rule::IDENT if kind == "var" && var_name.is_none() => {
+                var_name = Some(inner.as_str().to_string());
             }
             Rule::value_literal | Rule::value_array | Rule::value_object => {
                 value = Some(value_literal_to_json(inner));
@@ -516,9 +511,9 @@ fn value_literal_to_json(pair: pest::iterators::Pair<Rule>) -> serde_json::Value
                     for child in inner.into_inner() {
                         match child.as_rule() {
                             Rule::IDENT => key = child.as_str().to_string(),
-                            Rule::value_literal
-                            | Rule::value_array
-                            | Rule::value_object => val = value_literal_to_json(child),
+                            Rule::value_literal | Rule::value_array | Rule::value_object => {
+                                val = value_literal_to_json(child)
+                            }
                             _ => {}
                         }
                     }
@@ -1209,8 +1204,8 @@ mod tests {
 
     #[test]
     fn test_parse_regular_import() {
-        let program = FlowParser::parse_flow_program(r#"import utils from "./utils.flow""#)
-            .unwrap();
+        let program =
+            FlowParser::parse_flow_program(r#"import utils from "./utils.flow""#).unwrap();
         assert_eq!(program.imports.len(), 1);
         assert_eq!(program.imports[0].name, "utils");
         assert_eq!(
@@ -1221,8 +1216,8 @@ mod tests {
 
     #[test]
     fn test_parse_data_import() {
-        let program = FlowParser::parse_flow_program(r#"@import data from "./schema.json""#)
-            .unwrap();
+        let program =
+            FlowParser::parse_flow_program(r#"@import data from "./schema.json""#).unwrap();
         assert_eq!(program.imports.len(), 1);
         assert_eq!(program.imports[0].name, "data");
         assert_eq!(
@@ -1259,9 +1254,7 @@ mod tests {
         assert_eq!(program.imports[0].name, "data");
         assert_eq!(
             program.imports[0].source,
-            ImportSource::Path(
-                "https://api.example.com/schemas/NESTED_DATA.json".to_string()
-            )
+            ImportSource::Path("https://api.example.com/schemas/NESTED_DATA.json".to_string())
         );
     }
 
@@ -1279,8 +1272,16 @@ mod tests {
                 assert!(map.contains_key("users"));
                 assert!(map.contains_key("meta"));
                 let users = map.get("users").unwrap();
-                assert!(users.is_array(), "users should be an array, got {:?}", users);
-                let meta = map.get("meta").unwrap().as_object().expect("meta is object");
+                assert!(
+                    users.is_array(),
+                    "users should be an array, got {:?}",
+                    users
+                );
+                let meta = map
+                    .get("meta")
+                    .unwrap()
+                    .as_object()
+                    .expect("meta is object");
                 assert!(meta.contains_key("count"));
                 assert!(meta.contains_key("source"));
             }
@@ -1294,16 +1295,12 @@ mod tests {
         // point at an inline object too — the schema layer treats
         // both forms uniformly. The name is what binds the schema
         // to a workflow.
-        let program = FlowParser::parse_flow_program(
-            r#"import NESTED_DATA from { users: [], meta: [] }"#,
-        )
-        .unwrap();
+        let program =
+            FlowParser::parse_flow_program(r#"import NESTED_DATA from { users: [], meta: [] }"#)
+                .unwrap();
         assert_eq!(program.imports.len(), 1);
         assert_eq!(program.imports[0].name, "NESTED_DATA");
-        assert!(matches!(
-            program.imports[0].source,
-            ImportSource::Inline(_)
-        ));
+        assert!(matches!(program.imports[0].source, ImportSource::Inline(_)));
     }
 
     #[test]
@@ -1318,10 +1315,7 @@ mod tests {
         .unwrap();
         assert_eq!(program.imports.len(), 1);
         assert_eq!(program.imports[0].name, "USER_REGISTERED");
-        assert!(matches!(
-            program.imports[0].source,
-            ImportSource::Inline(_)
-        ));
+        assert!(matches!(program.imports[0].source, ImportSource::Inline(_)));
     }
 
     #[test]

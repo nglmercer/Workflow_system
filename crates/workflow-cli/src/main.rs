@@ -77,7 +77,9 @@ async fn main() {
     let cli = Cli::parse();
 
     let exit_code: Result<i32, String> = match cli.command {
-        Commands::Validate { path } => commands::validate::run(&path).map(|_| 0).map_err(|e| e.to_string()),
+        Commands::Validate { path } => commands::validate::run(&path)
+            .map(|_| 0)
+            .map_err(|e| e.to_string()),
         Commands::Test { path, filter, json } => {
             // The test subcommand has its own pass/fail exit
             // code (0 on success, 1 on any failure), distinct
@@ -103,10 +105,12 @@ async fn main() {
         Commands::Export { input, output } => commands::export::run(&input, &output)
             .map(|_| 0)
             .map_err(|e| e.to_string()),
-        Commands::Watch { path, event, data } => commands::watch::run(&path, &event, data.as_deref())
-            .await
-            .map(|_| 0)
-            .map_err(|e| e.to_string()),
+        Commands::Watch { path, event, data } => {
+            commands::watch::run(&path, &event, data.as_deref())
+                .await
+                .map(|_| 0)
+                .map_err(|e| e.to_string())
+        }
     };
 
     match exit_code {

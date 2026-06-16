@@ -64,10 +64,7 @@ pub fn parse_annotations(source: &str) -> Annotations {
                     }
                 }
             }
-        } else if !body.contains('{')
-            && !body.contains('[')
-            && !body.contains("->")
-        {
+        } else if !body.contains('{') && !body.contains('[') && !body.contains("->") {
             // `//@T1,T2,...` — positional per-parameter shortcut, one
             // type per parameter of the *next* function declaration.
             // The shortcut accepts a single type (e.g. `//@string`
@@ -126,11 +123,7 @@ pub fn parse_annotations(source: &str) -> Annotations {
 /// The full `//@{a:T, b:T} -> R` form, on the other hand, populates
 /// `ann.functions` and overrides the return type too — that's the
 /// documented contract of the signature form.
-fn apply_param_shortcut(
-    ann: &mut Annotations,
-    body: &str,
-    fn_header: &str,
-) -> Option<()> {
+fn apply_param_shortcut(ann: &mut Annotations, body: &str, fn_header: &str) -> Option<()> {
     // Parse the function header to discover the param names. This way
     // we don't have to trust that the annotation's arity matches the
     // function's arity — a mismatch is a parse error rather than a
@@ -151,7 +144,7 @@ fn apply_param_shortcut(
         // Mismatch — fall through to inference rather than fail loudly.
         return None;
     }
-    for (param, ty) in params.iter().zip(types.into_iter()) {
+    for (param, ty) in params.iter().zip(types) {
         ann.param_types.insert((name.clone(), param.clone()), ty);
     }
     Some(())

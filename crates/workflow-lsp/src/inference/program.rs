@@ -332,11 +332,20 @@ fn push_function_params(inference: &mut super::Inference, f: &FunctionDef) {
 /// how `@import data from "./schema.json"` ends up typing the
 /// destructure params of a workflow that destructures that
 /// `data`-shaped event.
+///
+/// When a destructure param doesn't match any field in the event
+/// schema, it falls back to the whole event type. This supports
+/// patterns like `on COMPLEX_EVENT (data)` where `data` represents
+/// the entire event payload.
 fn push_workflow_params(
     inference: &mut super::Inference,
     w: &WorkflowDef,
     import_bindings: &[InferredBinding],
 ) {
+    // Find the import binding that matches this workflow's event name.
+    // e.g., `on COMPLEX_EVENT (data)` with `@import COMPLEX_EVENT from ...`
+    let event_binding = import_bindings.iter().find(|b| b.name == w.event);
+
     for name in &w.params {
         let ty = import_bindings
             .iter()
@@ -347,12 +356,20 @@ fn push_workflow_params(
                     .map(|(_, t)| t.clone()),
                 _ => None,
             })
+            .or_else(|| {
+                // Fallback: if param doesn't match any field, use the
+                // whole event type. This handles `on COMPLEX_EVENT (data)`
+                // where `data` is the entire event payload.
+                event_binding.map(|b| b.ty.clone())
+            })
             .unwrap_or(Type::Any);
         let binding = InferredBinding {
             name: name.clone(),
             ty,
             value: None,
-            annotated: import_bindings.iter().any(|b| matches!(b.ty, Type::Object(_))),
+            annotated: import_bindings
+                .iter()
+                .any(|b| matches!(b.ty, Type::Object(_))),
         };
         push_to_all_lines(inference, &binding);
     }

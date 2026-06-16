@@ -231,8 +231,7 @@ mod tests {
 
     #[test]
     fn from_path_or_url_distinguishes_url_from_path() {
-        let from_url =
-            DataSchema::from_path_or_url("data", "https://example.com/schema.json");
+        let from_url = DataSchema::from_path_or_url("data", "https://example.com/schema.json");
         assert!(matches!(from_url.source, SchemaSource::Url(_)));
         let from_path = DataSchema::from_path_or_url("data", "./schema.json");
         assert!(matches!(from_path.source, SchemaSource::Path(_)));

@@ -95,9 +95,7 @@ fn render_test_row(ui: &mut egui::Ui, t: &workflow_test_runner::TestReport) {
     let (color, icon) = style_for_pass(t.passed);
     ui.horizontal(|ui| {
         ui.label(RichText::new(icon).color(color));
-        ui.label(
-            RichText::new(format!("{} [on {}]", t.name, t.event)).color(color),
-        );
+        ui.label(RichText::new(format!("{} [on {}]", t.name, t.event)).color(color));
     });
     for a in t.asserts.iter().filter(|a| !a.passed) {
         let var = if a.var_name.is_empty() {
@@ -169,7 +167,12 @@ mod tests {
             name: "T1".to_string(),
             source_path: "x.test.flow".to_string(),
             event: "E".to_string(),
-            asserts: vec![AssertResult::pass(AssertKind::Logs, "", "[\"hi\"]", "[\"hi\"]")],
+            asserts: vec![AssertResult::pass(
+                AssertKind::Logs,
+                "",
+                "[\"hi\"]",
+                "[\"hi\"]",
+            )],
             matched_workflow_count: 1,
             passed: true,
         };
@@ -181,7 +184,12 @@ mod tests {
             name: "T1".to_string(),
             source_path: "x.test.flow".to_string(),
             event: "E".to_string(),
-            asserts: vec![AssertResult::fail(AssertKind::Logs, "", "[\"hi\"]", "[\"bye\"]")],
+            asserts: vec![AssertResult::fail(
+                AssertKind::Logs,
+                "",
+                "[\"hi\"]",
+                "[\"bye\"]",
+            )],
             matched_workflow_count: 1,
             passed: false,
         };
@@ -192,7 +200,10 @@ mod tests {
     fn format_report_marks_pass_and_fail() {
         let r = RunReport::from_tests(
             "x",
-            vec![report_one_pass().tests[0].clone(), report_one_fail().tests[0].clone()],
+            vec![
+                report_one_pass().tests[0].clone(),
+                report_one_fail().tests[0].clone(),
+            ],
         );
         let text = format_report(&r);
         assert!(text.contains("PASS T1"));

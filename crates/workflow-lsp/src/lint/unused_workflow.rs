@@ -54,12 +54,8 @@ impl Lint for UnusedWorkflow {
         // schema's binding name (e.g. `data` for `@import data from
         // ...`, or `NESTED_DATA` for `import NESTED_DATA from ...`)
         // matches the workflow's event name in the typical pattern.
-        let imported_event_names: HashSet<String> = cx
-            .program
-            .imports
-            .iter()
-            .map(|i| i.name.clone())
-            .collect();
+        let imported_event_names: HashSet<String> =
+            cx.program.imports.iter().map(|i| i.name.clone()).collect();
 
         let mut out = Vec::new();
         for w in &cx.program.workflows {
@@ -231,9 +227,7 @@ mod tests {
 }"#;
         let diags = run_lint(source);
         assert!(
-            diags
-                .iter()
-                .any(|d| d.message.contains("lowercase_event")),
+            diags.iter().any(|d| d.message.contains("lowercase_event")),
             "got: {:?}",
             diags
         );
@@ -279,7 +273,9 @@ workflow "W" {
 }"#;
         let diags = run_lint(source);
         assert!(
-            diags.iter().any(|d| d.message.contains("my_external_event")),
+            diags
+                .iter()
+                .any(|d| d.message.contains("my_external_event")),
             "expected the lint to flag the event; got: {:?}",
             diags
         );

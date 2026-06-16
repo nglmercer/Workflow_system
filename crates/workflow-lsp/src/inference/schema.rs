@@ -208,8 +208,8 @@ mod tests {
         // of the document; we use the existing
         // `examples/nested_data.json` file as the target.
         use workflow_parser::ast::{ImportSource, ImportStmt};
-        let doc = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/advanced.flow");
+        let doc =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/advanced.flow");
         let imports = vec![ImportStmt {
             name: "data".to_string(),
             source: ImportSource::Path("./nested_data.json".to_string()),

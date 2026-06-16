@@ -24,12 +24,7 @@ fn run_hello_fixtures_all_pass() {
     assert_eq!(report.passed, 4, "report: {:#?}", report);
     assert_eq!(report.failed, 0);
     for t in &report.tests {
-        assert!(
-            t.passed,
-            "test {} should pass, got: {:#?}",
-            t.name,
-            t
-        );
+        assert!(t.passed, "test {} should pass, got: {:#?}", t.name, t);
         assert!(t.matched_workflow_count >= 1);
     }
 }
@@ -71,9 +66,7 @@ fn run_source_uses_in_memory_buffer() {
     // driven that way without a host file on disk.
     let source = "workflow \"Greet\" {\n  on E\n  log(\"hi \" + data.name)\n}\n\ntest \"Greets\" {\n  on E with { name: \"Ada\" }\n  expect logs [\"hi Ada\"]\n}\n";
     let runner = TestRunner::with_default_config();
-    let report = runner
-        .run_source(source, "<buffer>")
-        .expect("run source");
+    let report = runner.run_source(source, "<buffer>").expect("run source");
     assert_eq!(report.passed, 1);
     assert_eq!(report.failed, 0);
 }

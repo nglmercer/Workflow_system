@@ -65,7 +65,12 @@ pub struct AssertResult {
 }
 
 impl AssertResult {
-    pub fn pass(kind: AssertKind, var_name: impl Into<String>, actual: impl Into<String>, expected: impl Into<String>) -> Self {
+    pub fn pass(
+        kind: AssertKind,
+        var_name: impl Into<String>,
+        actual: impl Into<String>,
+        expected: impl Into<String>,
+    ) -> Self {
         Self {
             kind,
             var_name: var_name.into(),
@@ -75,7 +80,12 @@ impl AssertResult {
         }
     }
 
-    pub fn fail(kind: AssertKind, var_name: impl Into<String>, actual: impl Into<String>, expected: impl Into<String>) -> Self {
+    pub fn fail(
+        kind: AssertKind,
+        var_name: impl Into<String>,
+        actual: impl Into<String>,
+        expected: impl Into<String>,
+    ) -> Self {
         Self {
             kind,
             var_name: var_name.into(),
@@ -96,10 +106,7 @@ impl AssertResult {
 /// rather than an error. This matches the policy that one test
 /// should report every regression it can detect, not just the
 /// first one.
-pub fn evaluate(
-    clause: &ExpectClause,
-    outcome: &WorkflowOutcome,
-) -> Option<AssertResult> {
+pub fn evaluate(clause: &ExpectClause, outcome: &WorkflowOutcome) -> Option<AssertResult> {
     match clause {
         ExpectClause::Logs(expected) => {
             let actual = outcome.logs.clone();
@@ -134,18 +141,27 @@ pub fn evaluate(
             let actual = value_to_json(&outcome.return_value);
             let passed = json_equal(&actual, expected_json);
             let result = if passed {
-                AssertResult::pass(AssertKind::Return, "", value_to_text(&outcome.return_value), value_to_text_json(expected_json))
+                AssertResult::pass(
+                    AssertKind::Return,
+                    "",
+                    value_to_text(&outcome.return_value),
+                    value_to_text_json(expected_json),
+                )
             } else {
-                AssertResult::fail(AssertKind::Return, "", value_to_text(&outcome.return_value), value_to_text_json(expected_json))
+                AssertResult::fail(
+                    AssertKind::Return,
+                    "",
+                    value_to_text(&outcome.return_value),
+                    value_to_text_json(expected_json),
+                )
             };
             Some(result)
         }
-        ExpectClause::Var { name, value: expected_json } => {
-            let actual_value = outcome
-                .scope
-                .get(name)
-                .cloned()
-                .unwrap_or(Value::Null);
+        ExpectClause::Var {
+            name,
+            value: expected_json,
+        } => {
+            let actual_value = outcome.scope.get(name).cloned().unwrap_or(Value::Null);
             let actual = value_to_json(&actual_value);
             let passed = json_equal(&actual, expected_json);
             let result = if passed {
@@ -230,7 +246,11 @@ mod tests {
     use std::collections::HashMap;
     use workflow_parser::evaluator::Value;
 
-    fn outcome_with(logs: Vec<String>, ret: Value, scope: HashMap<String, Value>) -> WorkflowOutcome {
+    fn outcome_with(
+        logs: Vec<String>,
+        ret: Value,
+        scope: HashMap<String, Value>,
+    ) -> WorkflowOutcome {
         WorkflowOutcome {
             logs,
             return_value: ret,

@@ -61,11 +61,7 @@ pub fn show(ctx: &egui::Context, current: Option<&Path>) -> Option<PathBuf> {
         .min_width(140.0)
         .show(ctx, |ui| {
             ui.add_space(4.0);
-            ui.label(
-                RichText::new(parent.display().to_string())
-                    .strong()
-                    .small(),
-            );
+            ui.label(RichText::new(parent.display().to_string()).strong().small());
             ui.separator();
             let files = list_workflow_files(parent);
             if files.is_empty() {
@@ -101,10 +97,7 @@ mod tests {
 
     #[test]
     fn filters_by_extension_and_ignores_dotfiles() {
-        let dir = std::env::temp_dir().join(format!(
-            "flow_editor_test_{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("flow_editor_test_{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("a.flow"), "").unwrap();

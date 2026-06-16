@@ -53,11 +53,11 @@ workflow "Batch Processing" {
 }
 
 workflow "Complex Conditions" {
-  on COMPLEX_EVENT
+  on COMPLEX_EVENT (data)
 
-  if (COMPLEX_EVENT.value > 100 && COMPLEX_EVENT.type == "important") {
+  if (data.value > 100 && data.type == "important") {
     log("Important high value event")
-  } else if (COMPLEX_EVENT.value > 50 || COMPLEX_EVENT.urgent == true) {
+  } else if (data.value > 50 || data.urgent == true) {
     log("Medium priority event")
   } else {
     log("Low priority event")

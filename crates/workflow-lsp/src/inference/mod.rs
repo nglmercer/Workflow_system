@@ -81,12 +81,7 @@ impl Inference {
         let annotations = annotation::parse_annotations(source);
         let (_schemas, import_bindings) =
             schema::resolve_schemas_for_program(&program.imports, document_path);
-        program::run_program_with_imports(
-            &mut inference,
-            program,
-            &annotations,
-            &import_bindings,
-        );
+        program::run_program_with_imports(&mut inference, program, &annotations, &import_bindings);
         inference
     }
 

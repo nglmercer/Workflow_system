@@ -13,3 +13,13 @@
 
 # Code Style
 - Modularize code: split large source files (e.g. 600+ line `app.rs`) into focused modules (e.g. `snippet.rs`, `keys.rs`, `completion.rs`) when multiple distinct concerns accumulate. Prefer one file per cohesive responsibility over keeping everything in one module. Confidence: 0.70
+- Place sidecar test files next to their host as `foo.test.<ext>` (e.g. `hello.test.flow` paired with `hello.flow`). The runner's `find_host_for` strips `.test.<ext>` and looks for the matching base file in the same directory. Confidence: 0.80
+
+# Testing
+- For module-level tests, use the inline `#[cfg(test)] mod tests { use super::*; }` pattern placed at the bottom of the same source file, not a separate `tests/<name>.rs` integration file. Integration tests (`tests/smoke.rs`) are reserved for end-to-end tests that need fixtures on disk or exercise the public API across crate boundaries. Confidence: 0.80
+- Smoke-test the editor binary with a short `timeout` (e.g. `timeout 3 cargo run -p <editor> --bin <bin>`) to catch runtime panics on startup after wiring new panels or state into `App::default`. Confidence: 0.70
+- Add `tests/fixtures/` directories with paired host + test files for end-to-end runner coverage. The convention is `tests/fixtures/<name>.flow` (host) next to `tests/fixtures/<name>.test.flow` (test) — the discovery layer relies on this naming to pair them automatically. Confidence: 0.75
+
+# Workspace
+- Member crates use `version.workspace = true`, `edition.workspace = true`, and `license.workspace = true` in their `Cargo.toml` to inherit from the root `[workspace.package]` block. External dependencies are declared once in the root `[workspace.dependencies]` and referenced from members as `{ workspace = true }`. Confidence: 0.80
+- Inter-crate dependencies go through the workspace dependency table (e.g. `workflow-domain = { path = "../workflow-domain" }`); a new crate that depends on the parser or domain types must add the path dep to its own `Cargo.toml`. Confidence: 0.75
