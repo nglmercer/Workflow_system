@@ -227,7 +227,6 @@ impl EditorApp {
                         Vec2::new(gutter_width, ui.available_height()),
                         egui::Sense::hover(),
                     );
-                    self.paint_gutter(ui, gutter_rect, &regions_for_gutter, &display_text);
 
                     // Editor
                     let output = TextEdit::multiline(&mut display_text)
@@ -235,6 +234,11 @@ impl EditorApp {
                         .desired_width(f32::INFINITY)
                         .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width))
                         .show(ui);
+
+                    // Now paint the gutter using the text editor's response rect
+                    // to ensure proper alignment
+                    let editor_rect = output.response.rect;
+                    self.paint_gutter(ui, gutter_rect, &regions_for_gutter, &display_text, editor_rect.min.y);
 
                     // Capture the *previous* state for the undo history
                     // before the TextEdit mutates it.
@@ -328,6 +332,7 @@ impl EditorApp {
         rect: Rect,
         regions: &[FoldRegion],
         display_text: &str,
+        editor_start_y: f32,
     ) {
         let painter = ui.painter_at(rect);
         // Subtle separator between gutter and editor.
@@ -341,12 +346,9 @@ impl EditorApp {
         let text_color = Color32::from_gray(140);
 
         for line_idx in 0..line_count {
-            // Compute the y for this line. We don't have access to the
-            // galley here, so we use a simple stack: each line is
-            // `LINE_HEIGHT` tall, starting at `rect.min.y`. The
-            // TextEdit lays out with the same `LINE_HEIGHT` minimum row
-            // height, so the rows align.
-            let y = rect.min.y + (line_idx as f32) * LINE_HEIGHT;
+            // Use the editor's start y position to align line numbers
+            // with the actual text lines.
+            let y = editor_start_y + (line_idx as f32) * LINE_HEIGHT;
             if y > rect.max.y {
                 break;
             }
