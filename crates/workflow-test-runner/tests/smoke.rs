@@ -70,3 +70,33 @@ fn run_source_uses_in_memory_buffer() {
     assert_eq!(report.passed, 1);
     assert_eq!(report.failed, 0);
 }
+
+/// Path to the workspace's `examples/` directory. Used by the
+/// integration tests that exercise the example test suites
+/// (basic.test.flow and advanced.test.flow).
+fn examples() -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("examples")
+}
+
+#[test]
+fn run_basic_example_tests() {
+    let runner = TestRunner::with_default_config();
+    let report = runner
+        .run_path(&examples().join("basic.test.flow"))
+        .expect("run basic");
+    assert_eq!(report.passed, 7, "report: {:#?}", report);
+    assert_eq!(report.failed, 0);
+}
+
+#[test]
+fn run_advanced_example_tests() {
+    let runner = TestRunner::with_default_config();
+    let report = runner
+        .run_path(&examples().join("advanced.test.flow"))
+        .expect("run advanced");
+    assert_eq!(report.passed, 7, "report: {:#?}", report);
+    assert_eq!(report.failed, 0);
+}

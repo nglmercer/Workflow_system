@@ -51,7 +51,7 @@ pub struct EditorApp {
     completion: CompletionState,
     status: String,
     cursor: CursorPosition,
-    hover_text: Option<String>,
+    hover_text: Option<popup::HoverContent>,
     hover_pos: Option<Pos2>,
     /// Active LSP snippet, if any. The user accepts a snippet-style
     /// completion and then tabs through the stops. When `stops` is
@@ -323,8 +323,8 @@ impl eframe::App for EditorApp {
             }
         }
 
-        if let (Some(text), Some(pos)) = (self.hover_text.clone(), self.hover_pos) {
-            popup::show_hover(ctx, pos, &text);
+        if let (Some(content), Some(pos)) = (self.hover_text.clone(), self.hover_pos) {
+            popup::show_hover(ctx, pos, &content);
         }
 
         shortcuts_window::show(ctx, &mut self.shortcuts_open, &self.keymap);
@@ -666,7 +666,7 @@ impl EditorApp {
         }
         let col = column_at_x(galley, line_idx, local.x);
         if let Some(text) = features::hover_at(&self.lsp, &self.uri, line_idx, col) {
-            self.hover_text = Some(text);
+            self.hover_text = Some(popup::HoverContent::from_markdown(&text));
             self.hover_pos = Some(pos);
         } else {
             self.hover_text = None;

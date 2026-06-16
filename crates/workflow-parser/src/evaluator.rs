@@ -209,10 +209,8 @@ impl FlowEvaluator {
                     vars.insert(name.clone(), Value::from_json(&context.data));
                 }
             } else if let Value::Object(ref data_map) = Value::from_json(&context.data) {
-                eprintln!("DEBUG destructure data_map={:?} names={:?}", data_map, names);
                 for param in &names {
                     let val = data_map.get(param).cloned().unwrap_or(Value::Null);
-                    eprintln!("DEBUG destructure param={} val={:?}", param, val);
                     vars.insert(param.clone(), val);
                 }
             }
@@ -336,7 +334,19 @@ impl FlowEvaluator {
             Expr::Member { object, property } => {
                 let obj = self.eval_expr(object, vars);
                 match &obj {
-                    Value::Object(map) => map.get(property).cloned().unwrap_or(Value::Null),
+                    Value::Object(map) => {
+                        // `meta.length` on an object returns the
+                        // number of fields, matching how arrays
+                        // and strings work. Without this, the
+                        // test runner's `expect var x == ...`
+                        // against a destructured object would
+                        // always see `Null` for `length`.
+                        if property == "length" {
+                            Value::Number(map.len() as f64)
+                        } else {
+                            map.get(property).cloned().unwrap_or(Value::Null)
+                        }
+                    }
                     Value::Array(arr) => {
                         if property == "length" {
                             Value::Number(arr.len() as f64)

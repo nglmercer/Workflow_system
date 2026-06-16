@@ -41,7 +41,7 @@ pub fn build_completions(
 
     // 2. Destructure param completion: cursor is inside ({...}) or {...}
     //    after `on EVENT` or `@import NAME from`.
-    if let Some(items) = build_destructure_completions(before, position, inference, source) {
+    if let Some(items) = build_destructure_completions(before, position, inference) {
         return items;
     }
 
@@ -241,7 +241,6 @@ fn build_destructure_completions(
     before: &str,
     position: Position,
     inference: Option<&inference::Inference>,
-    source: &str,
 ) -> Option<Vec<lsp_types::CompletionItem>> {
     let trimmed = before.trim_end();
 
@@ -273,7 +272,7 @@ fn build_destructure_completions(
 
     // Only suggest fields that haven't been typed yet.
     let already: Vec<&str> = inner_prefix
-        .split(|c: char| c == ',' || c == '}' || c == ')')
+        .split([',', '}', ')'])
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .collect();
@@ -956,20 +955,18 @@ mod tests {
 
     #[test]
     fn at_import_snippet_expands_correctly() {
-        let source = "@im";
-        let items = completions_at(source, 0, 3);
-        let import_item = items.iter().find(|c| c.label == "@import");
-        // When typing `@im`, `trailing_word` returns `im` (since @ is
-        // not alphanumeric), so the prefix is `im`. `@import` doesn't
-        // start with `im`, so it won't appear. That's expected — the
-        // user typed `@` separately. Typing just `@` shows all builtins.
-        // Instead test that typing `@` alone shows @import.
-        let source2 = "@";
-        let items2 = completions_at(source2, 0, 1);
-        let l2 = labels(&items2);
-        assert!(l2.contains(&"@import"), "missing @import for '@': {:?}", l2);
+        // When typing `@im`, `trailing_word` returns `im` (since `@`
+        // is not alphanumeric), so the prefix is `im` and `@import`
+        // doesn't start with `im`. We can't assert on the snippet
+        // body in that case — the user typed `@` separately and
+        // the prefix no longer matches. So we type just `@` and
+        // verify the snippet body directly.
+        let source = "@";
+        let items = completions_at(source, 0, 1);
+        let l = labels(&items);
+        assert!(l.contains(&"@import"), "missing @import for '@': {:?}", l);
         // And verify the snippet body is correct.
-        let item = items2.iter().find(|c| c.label == "@import").unwrap();
+        let item = items.iter().find(|c| c.label == "@import").unwrap();
         assert_eq!(
             item.insert_text.as_deref(),
             Some("@import ${1:name} from \"${2:path}\"")
