@@ -7,7 +7,7 @@
 
 use eframe::egui::{self, Key, Modifiers, Ui};
 
-use super::app::CursorPosition;
+use super::cursor::CursorPosition;
 
 /// What the user did, as far as global key handling is concerned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,35 +130,6 @@ pub fn take_key_action(
     }
 
     KeyAction::None
-}
-
-/// Apply a [`KeyAction`] to the editor's completion state, returning the
-/// completion index that should be accepted (if any).
-pub fn apply_popup_action(
-    action: KeyAction,
-    completion_visible: &mut bool,
-    completion_index: &mut usize,
-    max_index: usize,
-) -> Option<usize> {
-    match action {
-        KeyAction::PopupDown => {
-            *completion_index = (*completion_index + 1).min(max_index);
-            None
-        }
-        KeyAction::PopupUp => {
-            *completion_index = completion_index.saturating_sub(1);
-            None
-        }
-        KeyAction::PopupAccept => {
-            *completion_visible = false;
-            Some(*completion_index)
-        }
-        KeyAction::PopupDismiss => {
-            *completion_visible = false;
-            None
-        }
-        _ => None,
-    }
 }
 
 /// Decide whether a freshly-typed character should trigger a completion

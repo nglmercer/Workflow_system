@@ -1,5 +1,9 @@
 mod app;
+mod completion;
+mod cursor;
+mod diagnostics_panel;
 mod folding;
+mod gutter;
 mod highlight;
 mod history;
 mod keybindings;

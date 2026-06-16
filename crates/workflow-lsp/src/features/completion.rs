@@ -63,9 +63,18 @@ pub fn build_completions(
     for mut item in builtin_items() {
         let label = item.label.clone();
         if prefix.is_empty() || label.starts_with(&prefix) {
+            // Prefer the snippet body (insert_text) over the bare label so
+            // accepting "if" inside an existing block expands to a full
+            // `if (...) { ... }` template with $1/$2/$0 tab stops, not just
+            // the word "if". Fall back to the label for items that have no
+            // snippet body.
+            let new_text = item
+                .insert_text
+                .clone()
+                .unwrap_or_else(|| item.label.clone());
             item.text_edit = Some(LspCompletionTextEdit::Edit(TextEdit {
                 range: replace_range,
-                new_text: item.label.clone(),
+                new_text,
             }));
             items.push(item);
         }

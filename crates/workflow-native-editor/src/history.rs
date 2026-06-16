@@ -26,7 +26,7 @@
 //! - `head` is the current state. After undo, the previous head goes on
 //!   `future` and `head` becomes whatever was on top of `past`.
 
-use super::app::CursorPosition;
+use super::cursor::CursorPosition;
 use super::snippet::PendingSnippet;
 
 const COALESCE_WINDOW_MS: u128 = 500;
