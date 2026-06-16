@@ -80,8 +80,8 @@ pub fn tokenize_line(line: &str) -> Vec<Token> {
         if ch.is_ascii_alphabetic() || ch == '_' {
             let start = i;
             i += 1;
-            while i < bytes.len() && (bytes[i] as char).is_ascii_alphanumeric()
-                || bytes[i] as char == '_'
+            while i < bytes.len()
+                && ((bytes[i] as char).is_ascii_alphanumeric() || bytes[i] as char == '_')
             {
                 i += 1;
             }

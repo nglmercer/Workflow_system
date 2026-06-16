@@ -1,11 +1,18 @@
 use super::highlight::{token_color, tokenize_line};
 use super::lsp::LspClient;
-use eframe::egui::{self, Color32, FontId, Pos2, Rect, RichText, ScrollArea, Ui, Vec2};
+use eframe::egui::{
+    self, text::LayoutJob, Color32, FontId, Pos2, Rect, RichText, ScrollArea, TextEdit, TextFormat,
+    Ui, Vec2,
+};
 use lsp_types::CompletionItem;
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 
 const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 20.0;
-const CHAR_WIDTH: f32 = 8.4;
+const COMPLETION_WIDTH: f32 = 280.0;
+const COMPLETION_MAX_HEIGHT: f32 = 200.0;
+const COMPLETION_ROW_HEIGHT: f32 = 24.0;
 
 #[derive(Clone)]
 pub struct CompletionItemView {
@@ -14,20 +21,25 @@ pub struct CompletionItemView {
     pub insert_text: String,
 }
 
+#[derive(Default, Clone)]
+struct CursorPosition {
+    line: usize,
+    col: usize,
+}
+
 pub struct EditorApp {
     text: String,
     lsp: Option<LspClient>,
+    lsp_rx: Option<Receiver<Result<LspClient, String>>>,
     uri: String,
     version: i32,
     completions: Vec<CompletionItemView>,
     completion_visible: bool,
     completion_index: usize,
-    completion_rect: Option<Rect>,
-    hover_text: Option<String>,
-    hover_rect: Option<Rect>,
     status: String,
-    cursor_line: usize,
-    cursor_col: usize,
+    cursor: CursorPosition,
+    hover_text: Option<String>,
+    hover_pos: Option<Pos2>,
 }
 
 impl Default for EditorApp {
@@ -51,44 +63,59 @@ fn double(x) {
 }"#
         .to_string();
 
-        let mut app = Self {
+        let (lsp_tx, lsp_rx) = std::sync::mpsc::channel();
+        let uri = "file:///example.flow".to_string();
+        let init_text = text.clone();
+
+        std::thread::spawn(move || {
+            let result = LspClient::start().map(|mut lsp| {
+                let _ = lsp.open_document(&uri, &init_text);
+                lsp
+            });
+            let _ = lsp_tx.send(result.map_err(|e| e.to_string()));
+        });
+
+        Self {
             text,
             lsp: None,
+            lsp_rx: Some(lsp_rx),
             uri: "file:///example.flow".to_string(),
             version: 1,
             completions: Vec::new(),
             completion_visible: false,
             completion_index: 0,
-            completion_rect: None,
-            hover_text: None,
-            hover_rect: None,
             status: "Starting LSP...".to_string(),
-            cursor_line: 1,
-            cursor_col: 1,
-        };
-
-        match LspClient::start() {
-            Ok(mut lsp) => {
-                let _ = lsp.open_document(&app.uri, &app.text);
-                app.lsp = Some(lsp);
-                app.status = "LSP ready".to_string();
-            }
-            Err(err) => {
-                app.status = format!("LSP unavailable: {err}");
-            }
+            cursor: CursorPosition { line: 1, col: 1 },
+            hover_text: None,
+            hover_pos: None,
         }
-
-        app
     }
 }
 
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(rx) = &self.lsp_rx {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(lsp) => {
+                        self.lsp = Some(lsp);
+                        self.status = "LSP ready".to_string();
+                    }
+                    Err(err) => {
+                        self.status = format!("LSP unavailable: {err}");
+                    }
+                }
+                self.lsp_rx = None;
+            } else {
+                ctx.request_repaint();
+            }
+        }
+
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Flow Native Editor").font(FontId::proportional(16.0)));
                 ui.separator();
-                ui.label(format!("Ln {}, Col {}", self.cursor_line, self.cursor_col));
+                ui.label(format!("Ln {}, Col {}", self.cursor.line, self.cursor.col));
                 ui.separator();
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
@@ -101,373 +128,233 @@ impl eframe::App for EditorApp {
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.handle_keyboard_input(ctx);
             self.render_editor(ui);
         });
 
-        if self.completion_visible {
+        if self.completion_visible && !self.completions.is_empty() {
             self.render_completion_popup(ctx);
         }
 
-        if let (Some(hover), Some(rect)) = (self.hover_text.clone(), self.hover_rect) {
-            self.render_hover_popup(ctx, rect, &hover);
+        if let (Some(text), Some(pos)) = (self.hover_text.clone(), self.hover_pos) {
+            self.render_hover_popup(ctx, pos, &text);
         }
     }
 }
 
 impl EditorApp {
-    pub fn handle_keyboard_input(&mut self, ctx: &egui::Context) {
-        if let Some(text) = ctx.input(|i| {
-            i.events.iter().find_map(|event| {
-                if let egui::Event::Text(text) = event {
-                    Some(text.clone())
-                } else {
-                    None
-                }
-            })
-        }) {
-            self.insert_text(&text);
-        }
+    fn render_editor(&mut self, ui: &mut Ui) {
+        ScrollArea::vertical()
+            .auto_shrink([false; 2])
+            .show(ui, |ui| {
+                let mut text = std::mem::take(&mut self.text);
+                let output = TextEdit::multiline(&mut text)
+                    .font(FontId::monospace(FONT_SIZE))
+                    .desired_width(f32::INFINITY)
+                    .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width))
+                    .show(ui);
+                self.text = text;
 
+                let response = output.response;
+                let galley = output.galley;
+
+                if response.changed() {
+                    self.update_lsp_document();
+                }
+
+                if let Some(range) = &output.cursor_range {
+                    let primary = range.primary;
+                    let line = primary.rcursor.row + 1;
+                    let col = primary.rcursor.column + 1;
+                    let prev = (self.cursor.line, self.cursor.col);
+                    if line != self.cursor.line || col != self.cursor.col {
+                        self.cursor = CursorPosition { line, col };
+                        if response.changed() {
+                            self.request_completion();
+                        }
+                    }
+                    if response.gained_focus() && prev == (1, 1) {
+                        self.request_completion();
+                    }
+                }
+
+                self.update_hover(response.rect, &galley, response.hover_pos());
+            });
+    }
+
+    fn request_completion(&mut self) {
+        if let Some(lsp) = &mut self.lsp {
+            if let Ok(items) = lsp.completion(&self.uri, self.cursor.line - 1, self.cursor.col - 1)
+            {
+                self.completions = items.into_iter().map(completion_item_view).collect();
+                self.completion_visible = !self.completions.is_empty();
+                if self.completion_visible && self.completion_index >= self.completions.len() {
+                    self.completion_index = 0;
+                }
+            }
+        }
+    }
+
+    fn update_hover(&mut self, rect: Rect, galley: &Arc<egui::Galley>, hover_pos: Option<Pos2>) {
+        let pos = match hover_pos {
+            Some(p) => p,
+            None => {
+                self.hover_text = None;
+                self.hover_pos = None;
+                return;
+            }
+        };
+        if !rect.contains(pos) {
+            self.hover_text = None;
+            self.hover_pos = None;
+            return;
+        }
+        let local = pos - rect.min;
+        let mut line_idx = 0usize;
+        let mut best_y = f32::NEG_INFINITY;
+        for (idx, row) in galley.rows.iter().enumerate() {
+            let y = row.rect.min.y;
+            if y <= local.y && y >= best_y {
+                best_y = y;
+                line_idx = idx;
+            }
+        }
+        if line_idx >= galley.rows.len() {
+            self.hover_text = None;
+            self.hover_pos = None;
+            return;
+        }
+        let row = &galley.rows[line_idx];
+        let row_min_x = row.rect.min.x;
+        let col = row
+            .glyphs
+            .iter()
+            .take_while(|g| g.pos.x + g.size.x - row_min_x <= local.x)
+            .count();
+
+        if let Some(lsp) = &mut self.lsp {
+            if let Ok(Some(text)) = lsp.hover(&self.uri, line_idx, col) {
+                self.hover_text = Some(text);
+                self.hover_pos = Some(pos);
+            } else {
+                self.hover_text = None;
+                self.hover_pos = None;
+            }
+        }
+    }
+
+    fn render_completion_popup(&mut self, ctx: &egui::Context) {
+        if self.completions.is_empty() {
+            return;
+        }
+        let height =
+            (self.completions.len() as f32 * COMPLETION_ROW_HEIGHT).min(COMPLETION_MAX_HEIGHT);
+
+        // We need access to the TextEdit's response to anchor the popup, but
+        // we don't store it across frames to keep things simple. Place popup
+        // near the bottom-left of the central area as a fallback.
+        let area = ctx.available_rect();
+        let popup_rect = Rect::from_min_size(
+            Pos2::new(area.min.x + 16.0, area.max.y - height - 16.0),
+            Vec2::new(COMPLETION_WIDTH, height),
+        );
+
+        let mut clicked_idx = None;
+        let current_index = self.completion_index;
+        let max_index = self.completions.len().saturating_sub(1);
+
+        egui::Window::new("Completions")
+            .fixed_pos(popup_rect.min)
+            .fixed_size(Vec2::new(COMPLETION_WIDTH, height))
+            .resizable(false)
+            .collapsible(false)
+            .title_bar(false)
+            .show(ctx, |ui| {
+                ScrollArea::vertical().show(ui, |ui| {
+                    for (idx, item) in self.completions.iter().enumerate() {
+                        let selected = idx == current_index;
+                        let bg = if selected {
+                            Color32::from_rgb(40, 80, 140)
+                        } else {
+                            Color32::TRANSPARENT
+                        };
+                        let (rect, response) = ui.allocate_exact_size(
+                            Vec2::new(COMPLETION_WIDTH - 8.0, COMPLETION_ROW_HEIGHT),
+                            egui::Sense::click(),
+                        );
+                        if response.hovered() || selected {
+                            ui.painter().rect_filled(rect, 2.0, bg);
+                        }
+                        ui.painter().text(
+                            rect.min + Vec2::new(6.0, 4.0),
+                            egui::Align2::LEFT_TOP,
+                            &item.label,
+                            FontId::monospace(13.0),
+                            Color32::WHITE,
+                        );
+                        if let Some(detail) = &item.detail {
+                            ui.painter().text(
+                                rect.min + Vec2::new(160.0, 6.0),
+                                egui::Align2::LEFT_TOP,
+                                detail,
+                                FontId::proportional(11.0),
+                                Color32::GRAY,
+                            );
+                        }
+                        if response.clicked() {
+                            clicked_idx = Some(idx);
+                        }
+                    }
+                });
+            });
+
+        // Keyboard navigation within the popup
         ctx.input(|i| {
             for event in &i.events {
                 match event {
                     egui::Event::Key {
                         key: egui::Key::ArrowDown,
                         pressed: true,
-                        modifiers,
                         ..
-                    } if self.completion_visible && modifiers.ctrl => {
-                        self.completion_index = (self.completion_index + 1)
-                            .min(self.completions.len().saturating_sub(1));
+                    } if self.completion_visible => {
+                        self.completion_index = (self.completion_index + 1).min(max_index);
                     }
                     egui::Event::Key {
                         key: egui::Key::ArrowUp,
                         pressed: true,
-                        modifiers,
                         ..
-                    } if self.completion_visible && modifiers.ctrl => {
+                    } if self.completion_visible => {
                         self.completion_index = self.completion_index.saturating_sub(1);
                     }
                     egui::Event::Key {
                         key: egui::Key::Enter,
                         pressed: true,
-                        modifiers,
                         ..
-                    } if self.completion_visible && modifiers.ctrl => {
+                    } if self.completion_visible => {
                         self.insert_completion(self.completion_index);
                     }
-                    egui::Event::Key {
-                        key: egui::Key::ArrowLeft,
-                        pressed: true,
-                        ..
-                    } => self.move_cursor_left(),
-                    egui::Event::Key {
-                        key: egui::Key::ArrowRight,
-                        pressed: true,
-                        ..
-                    } => self.move_cursor_right(),
-                    egui::Event::Key {
-                        key: egui::Key::ArrowUp,
-                        pressed: true,
-                        ..
-                    } => self.move_cursor_up(),
-                    egui::Event::Key {
-                        key: egui::Key::ArrowDown,
-                        pressed: true,
-                        ..
-                    } => self.move_cursor_down(),
-                    egui::Event::Key {
-                        key: egui::Key::Backspace,
-                        pressed: true,
-                        ..
-                    } => self.delete_before_cursor(),
-                    egui::Event::Key {
-                        key: egui::Key::Enter,
-                        pressed: true,
-                        ..
-                    } => self.insert_text("\n"),
-                    egui::Event::Key {
-                        key: egui::Key::Tab,
-                        pressed: true,
-                        ..
-                    } => self.insert_text("  "),
-                    egui::Event::Key {
-                        key: egui::Key::Escape,
-                        pressed: true,
-                        ..
-                    } => self.completion_visible = false,
                     _ => {}
                 }
             }
         });
-    }
 
-    fn move_cursor_left(&mut self) {
-        if self.cursor_col > 1 {
-            self.cursor_col -= 1;
-        } else if self.cursor_line > 1 {
-            self.cursor_line -= 1;
-            let line = self
-                .text
-                .split('\n')
-                .nth(self.cursor_line - 1)
-                .unwrap_or("")
-                .chars()
-                .count();
-            self.cursor_col = line + 1;
+        if let Some(idx) = clicked_idx {
+            self.insert_completion(idx);
         }
     }
 
-    fn move_cursor_right(&mut self) {
-        let lines: Vec<&str> = self.text.split('\n').collect();
-        if self.cursor_line <= lines.len() {
-            let line_len = lines[self.cursor_line - 1].chars().count() + 1;
-            if self.cursor_col < line_len {
-                self.cursor_col += 1;
-            } else if self.cursor_line < lines.len() {
-                self.cursor_line += 1;
-                self.cursor_col = 1;
-            }
-        }
-    }
-
-    fn move_cursor_up(&mut self) {
-        if self.cursor_line > 1 {
-            self.cursor_line -= 1;
-        }
-    }
-
-    fn move_cursor_down(&mut self) {
-        let line_count = self.text.split('\n').count();
-        if self.cursor_line < line_count {
-            self.cursor_line += 1;
-        }
-    }
-
-    fn delete_before_cursor(&mut self) {
-        if self.cursor_col > 1 {
-            let pos = self.cursor_offset();
-            if pos > 0 {
-                self.text.remove(pos - 1);
-                self.cursor_col -= 1;
-                self.update_lsp_document();
-            }
-        } else if self.cursor_line > 1 {
-            let pos = self.cursor_offset();
-            if pos > 0 {
-                self.text.remove(pos - 1);
-                self.cursor_line -= 1;
-                let line = self
-                    .text
-                    .split('\n')
-                    .nth(self.cursor_line - 1)
-                    .unwrap_or("")
-                    .chars()
-                    .count();
-                self.cursor_col = line + 1;
-                self.update_lsp_document();
-            }
-        }
-    }
-
-    fn insert_text(&mut self, text: &str) {
-        let pos = self.cursor_offset();
-        self.text.insert_str(pos, text);
-        self.update_cursor_after_insert(text);
-        self.update_lsp_document();
-    }
-
-    fn update_cursor_after_insert(&mut self, text: &str) {
-        for ch in text.chars() {
-            if ch == '\n' {
-                self.cursor_line += 1;
-                self.cursor_col = 1;
-            } else {
-                self.cursor_col += 1;
-            }
-        }
-    }
-
-    fn cursor_offset(&self) -> usize {
-        let mut offset = 0;
-        for (idx, line) in self.text.split('\n').enumerate() {
-            if idx + 1 == self.cursor_line {
-                break;
-            }
-            offset += line.chars().count() + 1;
-        }
-        offset + self.cursor_col.saturating_sub(1)
-    }
-
-    fn render_editor(&mut self, ui: &mut Ui) {
-        let available = ui.available_size_before_wrap();
-        let (_rect, response) = ui.allocate_exact_size(available, egui::Sense::click());
-
-        ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            .show_viewport(ui, |ui, viewport| {
-                let painter = ui.painter();
-                let mut cursor_pos = None;
-                let mut hover_pos = None;
-
-                let lines: Vec<&str> = self.text.split('\n').collect();
-                let visible_start = viewport.min.y as usize;
-                let visible_end = ((viewport.max.y - viewport.min.y) / LINE_HEIGHT + 2.0) as usize;
-
-                for (line_idx, line) in lines.iter().enumerate() {
-                    if line_idx < visible_start.saturating_sub(2)
-                        || line_idx > visible_start + visible_end
-                    {
-                        continue;
-                    }
-
-                    let y = line_idx as f32 * LINE_HEIGHT - viewport.min.y + 10.0;
-                    let x = 48.0 - viewport.min.x;
-
-                    painter.text(
-                        Pos2::new(8.0, y + LINE_HEIGHT * 0.75),
-                        egui::Align2::LEFT_TOP,
-                        format!("{:3}", line_idx + 1),
-                        FontId::monospace(FONT_SIZE),
-                        Color32::from_gray(100),
-                    );
-
-                    let tokens = tokenize_line(line);
-                    let mut x_offset = x;
-                    for token in tokens {
-                        let color = token_color(token.kind);
-                        painter.text(
-                            Pos2::new(x_offset, y + LINE_HEIGHT * 0.75),
-                            egui::Align2::LEFT_TOP,
-                            &token.text,
-                            FontId::monospace(FONT_SIZE),
-                            color,
-                        );
-                        x_offset += token.text.len() as f32 * CHAR_WIDTH;
-                    }
-
-                    if line_idx == self.cursor_line.saturating_sub(1) {
-                        let cursor_x = x + self.cursor_col.saturating_sub(1) as f32 * CHAR_WIDTH;
-                        let cursor_y = y;
-                        painter.line_segment(
-                            [
-                                Pos2::new(cursor_x, cursor_y),
-                                Pos2::new(cursor_x, cursor_y + LINE_HEIGHT - 2.0),
-                            ],
-                            egui::Stroke::new(2.0, Color32::WHITE),
-                        );
-                        cursor_pos = Some(Pos2::new(
-                            cursor_x - viewport.min.x,
-                            cursor_y - viewport.min.y,
-                        ));
-                    }
-                }
-
-                if let Some(pos) = response.hover_pos() {
-                    let local_x = pos.x + viewport.min.x;
-                    let local_y = pos.y + viewport.min.y;
-                    let line_idx = ((local_y - 10.0) / LINE_HEIGHT).round() as usize;
-                    let col_idx = ((local_x - 48.0) / CHAR_WIDTH).round() as usize;
-
-                    if line_idx < lines.len() {
-                        hover_pos = Some((line_idx, col_idx, local_x, local_y));
-                    }
-                }
-
-                if let Some((line_idx, col_idx, local_x, local_y)) = hover_pos {
-                    if let Some(lsp) = &mut self.lsp {
-                        if let Ok(Some(hover)) = lsp.hover(&self.uri, line_idx, col_idx) {
-                            self.hover_text = Some(hover);
-                            self.hover_rect = Some(Rect::from_min_max(
-                                Pos2::new(local_x - viewport.min.x, local_y - viewport.min.y),
-                                Pos2::new(
-                                    local_x - viewport.min.x + 200.0,
-                                    local_y - viewport.min.y + 80.0,
-                                ),
-                            ));
-                        }
-                    }
-                }
-
-                if cursor_pos.is_some() {
-                    if let Some(lsp) = &mut self.lsp {
-                        if let Ok(items) = lsp.completion(
-                            &self.uri,
-                            self.cursor_line.saturating_sub(1),
-                            self.cursor_col.saturating_sub(1),
-                        ) {
-                            self.completions =
-                                items.into_iter().map(completion_item_view).collect();
-                            self.completion_visible = !self.completions.is_empty();
-                            self.completion_index = 0;
-                            if let Some(pos) = cursor_pos {
-                                self.completion_rect =
-                                    Some(Rect::from_min_size(pos, Vec2::new(280.0, 200.0)));
-                            }
-                        }
-                    }
-                }
-            });
-    }
-
-    fn render_completion_popup(&mut self, ctx: &egui::Context) {
-        if let Some(rect) = self.completion_rect {
-            let width = 280.0;
-            let height = (self.completions.len() as f32 * 24.0).min(200.0);
-            let popup_rect = Rect::from_min_size(rect.min, Vec2::new(width, height));
-
-            egui::Window::new("Completions")
-                .fixed_pos(popup_rect.min)
-                .fixed_size(Vec2::new(width, height))
-                .resizable(false)
-                .collapsible(false)
-                .title_bar(false)
-                .show(ctx, |ui| {
-                    let mut clicked_idx = None;
-                    ScrollArea::vertical().show(ui, |ui| {
-                        for (idx, item) in self.completions.iter().enumerate() {
-                            let selected = idx == self.completion_index;
-                            let bg = if selected {
-                                Color32::from_rgb(40, 80, 140)
-                            } else {
-                                Color32::TRANSPARENT
-                            };
-
-                            let response = ui.allocate_rect(
-                                Rect::from_min_size(ui.cursor().min, Vec2::new(width - 8.0, 24.0)),
-                                egui::Sense::click(),
-                            );
-
-                            if response.hovered() || selected {
-                                ui.painter().rect_filled(response.rect, 2.0, bg);
-                            }
-
-                            ui.label(RichText::new(&item.label).monospace());
-                            if let Some(detail) = &item.detail {
-                                ui.label(RichText::new(detail).size(10.0).color(Color32::GRAY));
-                            }
-
-                            if response.clicked() {
-                                clicked_idx = Some(idx);
-                            }
-                        }
-                    });
-                    if let Some(idx) = clicked_idx {
-                        self.insert_completion(idx);
-                    }
-                });
-        }
-    }
-
-    fn render_hover_popup(&mut self, _ctx: &egui::Context, rect: Rect, hover: &str) {
+    fn render_hover_popup(&self, ctx: &egui::Context, pos: Pos2, text: &str) {
         egui::Window::new("Hover")
-            .fixed_pos(rect.min)
-            .fixed_size(Vec2::new(240.0, 100.0))
+            .fixed_pos(pos + Vec2::new(12.0, 12.0))
+            .fixed_size(Vec2::new(260.0, 100.0))
             .resizable(false)
             .collapsible(false)
-            .show(_ctx, |ui| {
-                ui.label(RichText::new(hover).monospace());
+            .title_bar(false)
+            .show(ctx, |ui| {
+                ui.label(
+                    RichText::new(text)
+                        .monospace()
+                        .color(Color32::from_gray(220)),
+                );
             });
     }
 
@@ -475,29 +362,29 @@ impl EditorApp {
         if idx >= self.completions.len() {
             return;
         }
-
         let item = self.completions[idx].clone();
-        let cursor_pos = self.cursor_offset();
-        let before = &self.text[..cursor_pos];
-
-        let word_start = before
+        let before = &self.text[..self.text.len().min(self.text.len())];
+        let lines: Vec<&str> = before.split('\n').collect();
+        let line_idx = self.cursor.line.saturating_sub(1);
+        let col_idx = self.cursor.col.saturating_sub(1);
+        let mut offset = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            if i == line_idx {
+                offset += col_idx.min(line.chars().count());
+                break;
+            } else {
+                offset += line.chars().count() + 1;
+            }
+        }
+        let after = &self.text[offset..];
+        let word_start = before[..offset]
             .char_indices()
             .rev()
             .find(|(_, ch)| !ch.is_alphanumeric() && *ch != '_' && *ch != '.')
-            .map(|(idx, _)| idx + 1)
+            .map(|(i, _)| i + 1)
             .unwrap_or(0);
-
-        let dot_match = before[word_start..].rfind('.');
-        let insert_start = if let Some(dot_idx) = dot_match {
-            word_start + dot_idx + 1
-        } else {
-            word_start
-        };
-
-        self.text
-            .replace_range(insert_start..cursor_pos, &item.insert_text);
-        self.cursor_col = self.cursor_col.saturating_sub(cursor_pos - insert_start)
-            + item.insert_text.chars().count();
+        let prefix = &self.text[..word_start];
+        self.text = format!("{}{}{}", prefix, item.insert_text, after);
         self.completion_visible = false;
         self.update_lsp_document();
     }
@@ -516,4 +403,35 @@ fn completion_item_view(item: CompletionItem) -> CompletionItemView {
         detail: item.detail,
         insert_text: item.insert_text.unwrap_or_default(),
     }
+}
+
+fn layout_flow(ui: &egui::Ui, text: &str, wrap_width: f32) -> std::sync::Arc<egui::Galley> {
+    let mut job = LayoutJob::default();
+    job.wrap.max_width = wrap_width;
+    job.first_row_min_height = LINE_HEIGHT;
+
+    let default_format = TextFormat {
+        font_id: FontId::monospace(FONT_SIZE),
+        color: Color32::from_gray(220),
+        ..Default::default()
+    };
+
+    let lines: Vec<&str> = text.split('\n').collect();
+    for (line_idx, raw_line) in lines.iter().enumerate() {
+        let tokens = tokenize_line(raw_line);
+        if tokens.is_empty() {
+            job.append("", 0.0, default_format.clone());
+        } else {
+            for token in tokens {
+                let mut format = default_format.clone();
+                format.color = token_color(token.kind);
+                job.append(&token.text, 0.0, format);
+            }
+        }
+        if line_idx + 1 < lines.len() {
+            job.append("\n", 0.0, default_format.clone());
+        }
+    }
+
+    ui.fonts(|f| f.layout_job(job))
 }
