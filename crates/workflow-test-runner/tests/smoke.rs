@@ -71,6 +71,24 @@ fn run_source_uses_in_memory_buffer() {
     assert_eq!(report.failed, 0);
 }
 
+#[test]
+fn run_source_with_host_pairs_in_memory_test_with_in_memory_host() {
+    // The editor's sidecar `*.test.flow` path: the test buffer
+    // is unsaved, but the matching `*.flow` host is read from
+    // disk. The two sources are passed separately to the
+    // runner; without the host, every test would report
+    // "no workflow handles event 'E'".
+    let host = "workflow \"Greet\" {\n  on E\n  log(\"hi \" + data.name)\n}\n";
+    let test = "test \"Greets\" {\n  on E with { name: \"Ada\" }\n  expect logs [\"hi Ada\"]\n}\n";
+    let runner = TestRunner::with_default_config();
+    let report = runner
+        .run_source_with_host(test, "<buffer.test.flow>", Some(host), Some("/tmp/host.flow"))
+        .expect("run with host");
+    assert_eq!(report.passed, 1);
+    assert_eq!(report.failed, 0);
+    assert!(report.tests[0].matched_workflow_count >= 1);
+}
+
 /// Path to the workspace's `examples/` directory. Used by the
 /// integration tests that exercise the example test suites
 /// (basic.test.flow and advanced.test.flow).

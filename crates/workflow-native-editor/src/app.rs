@@ -949,11 +949,41 @@ impl EditorApp {
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned())
             .unwrap_or_else(|| "<buffer>".to_string());
+
+        // If the open file is a sidecar `*.test.flow`, look for
+        // its sibling `*.flow` on disk and feed both to the
+        // runner. The test buffer is the source of truth for
+        // the `TestDef`s, but the `WorkflowDef`s live in the
+        // host file — without it, every test would report
+        // "no workflow handles event '<X>'".
+        let sidecar = self.file_path.as_ref().and_then(|p| {
+            let name = p.file_name()?.to_str()?;
+            let stem = name.strip_suffix(".test.flow")?;
+            let host = p.with_file_name(format!("{stem}.flow"));
+            if host.exists() {
+                Some(host)
+            } else {
+                None
+            }
+        });
+        let (host_source, host_path): (Option<String>, Option<String>) = match &sidecar {
+            Some(p) => match std::fs::read_to_string(p) {
+                Ok(s) => (Some(s), Some(p.to_string_lossy().into_owned())),
+                Err(_) => (None, None),
+            },
+            None => (None, None),
+        };
+
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let runner = workflow_test_runner::TestRunner::with_default_config();
             let report = runner
-                .run_source(&source, &virtual_path)
+                .run_source_with_host(
+                    &source,
+                    &virtual_path,
+                    host_source.as_deref(),
+                    host_path.as_deref(),
+                )
                 .unwrap_or_else(|e| {
                     workflow_test_runner::RunReport::from_tests(
                         &virtual_path,

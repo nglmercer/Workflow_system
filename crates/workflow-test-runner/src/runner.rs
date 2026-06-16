@@ -16,7 +16,7 @@
 //! `*.test.flow` with its `*.flow` host before running.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 use workflow_parser::FlowParser;
@@ -95,6 +95,53 @@ impl TestRunner {
             .map(|t| execute_test(t, &program, Path::new(""), virtual_path))
             .collect();
         Ok(RunReport::from_tests(virtual_path, tests))
+    }
+
+    /// Parse an in-memory test buffer and run its tests against
+    /// an in-memory host. Used by the editor's "Run on buffer"
+    /// path when the user has a sidecar pair open: `test_source`
+    /// is the unsaved `*.test.flow` buffer, `host_source` is the
+    /// matching `*.flow` (read from disk by the caller). If
+    /// `host_source` is `None`, the test buffer itself supplies
+    /// the `WorkflowDef`s (single-file mode, same as
+    /// [`Self::run_source`]).
+    ///
+    /// `host_path` is used to resolve the host's relative
+    /// `@import` paths; it can be empty when the host has no
+    /// imports or when the test buffer is the host.
+    pub fn run_source_with_host(
+        &self,
+        test_source: &str,
+        test_path: &str,
+        host_source: Option<&str>,
+        host_path: Option<&str>,
+    ) -> Result<RunReport, TestRunnerError> {
+        let test_program =
+            FlowParser::parse_flow_program(test_source).map_err(|e| TestRunnerError::Parse {
+                path: test_path.to_string(),
+                message: e,
+            })?;
+        let host_program = match (host_source, host_path) {
+            (Some(src), Some(path)) => Some(
+                FlowParser::parse_flow_program(src).map_err(|e| TestRunnerError::Parse {
+                    path: path.to_string(),
+                    message: e,
+                })?,
+            ),
+            _ => None,
+        };
+        let host = host_program.as_ref().unwrap_or(&test_program);
+        let host_dir: PathBuf = host_path
+            .map(PathBuf::from)
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_default();
+        let tests: Vec<TestReport> = test_program
+            .tests
+            .iter()
+            .filter(|t| self.name_matches(&t.name))
+            .map(|t| execute_test(t, host, &host_dir, test_path))
+            .collect();
+        Ok(RunReport::from_tests(test_path, tests))
     }
 
     fn run_entries(
