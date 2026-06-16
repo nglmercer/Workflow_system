@@ -45,7 +45,12 @@ pub fn build_completions(
         return items;
     }
 
-    // 3. Member completions: "foo.bar" or "foo."
+    // 3. Event completion: cursor is after `on ` or `emit ` (or `emit("`)
+    if let Some(items) = build_event_completions(before, position, inference) {
+        return items;
+    }
+
+    // 4. Member completions: "foo.bar" or "foo."
     if let Some(dot_idx) = before.rfind('.') {
         let object_text = &before[..dot_idx];
         let ident_start = object_text
@@ -60,7 +65,7 @@ pub fn build_completions(
         }
     }
 
-    // 4. Identifier / keyword completion.
+    // 5. Identifier / keyword completion.
     let prefix = trailing_word(before);
     let prefix_start_col = col - prefix.len();
 
@@ -425,6 +430,118 @@ fn extract_event_name(before_brace: &str) -> Option<String> {
         }
     }
     None
+}
+
+// ---------------------------------------------------------------------------
+// Event completion
+// ---------------------------------------------------------------------------
+
+/// When the cursor is after `on ` or `emit `, suggest known events.
+/// Also works for `emit("` to suggest events inside the string.
+fn build_event_completions(
+    before: &str,
+    position: Position,
+    inference: Option<&inference::Inference>,
+) -> Option<Vec<lsp_types::CompletionItem>> {
+    let trimmed = before.trim_end();
+    let inf = inference?;
+
+    // Check for `on ` followed by a partial event name
+    let after_on = if let Some(idx) = trimmed.rfind("on ") {
+        let after = &trimmed[idx + 3..];
+        // Make sure there's no `{` after `on` (that's destructure)
+        if after.contains('{') {
+            return None;
+        }
+        Some(after)
+    } else {
+        None
+    };
+
+    // Check for `emit("` or `emit("` followed by a partial event name
+    let after_emit = if let Some(idx) = trimmed.rfind("emit(\"") {
+        Some(&trimmed[idx + 6..])
+    } else {
+        trimmed.rfind("emit('").map(|idx| &trimmed[idx + 6..])
+    };
+
+    let (prefix, prefix_start_col) = if let Some(after) = after_on {
+        (after.to_string(), trimmed.len() - after.len())
+    } else if let Some(after) = after_emit {
+        // The prefix is inside the string, so we need to adjust for the quote
+        (after.to_string(), trimmed.len() - after.len())
+    } else {
+        return None;
+    };
+
+    let replace_range = Range {
+        start: Position {
+            line: position.line,
+            character: prefix_start_col as u32,
+        },
+        end: Position {
+            line: position.line,
+            character: position.character,
+        },
+    };
+
+    let mut items = Vec::new();
+
+    // Add all known events from the inference
+    for (name, info) in &inf.events {
+        let matches = prefix.is_empty() || name.starts_with(&prefix);
+        if matches {
+            let detail = if info.is_external {
+                format!("external event (line {})", info.line + 1)
+            } else {
+                format!("event (line {})", info.line + 1)
+            };
+            let documentation = match info.usage {
+                inference::EventUsage::On => "Listened to by a workflow",
+                inference::EventUsage::Emit => "Emitted by code",
+                inference::EventUsage::Import => "Imported from external schema",
+            };
+            items.push(lsp_types::CompletionItem {
+                label: name.clone(),
+                kind: Some(lsp_types::CompletionItemKind::ENUM),
+                detail: Some(detail),
+                documentation: Some(lsp_types::Documentation::String(documentation.to_string())),
+                text_edit: Some(LspCompletionTextEdit::Edit(TextEdit {
+                    range: replace_range,
+                    new_text: name.clone(),
+                })),
+                ..Default::default()
+            });
+        }
+    }
+
+    // Also suggest common event naming patterns as snippets
+    if prefix.is_empty() || "USER_".starts_with(&prefix) {
+        items.push(lsp_types::CompletionItem {
+            label: "USER_REGISTERED".to_string(),
+            kind: Some(lsp_types::CompletionItemKind::ENUM),
+            detail: Some("example event".to_string()),
+            text_edit: Some(LspCompletionTextEdit::Edit(TextEdit {
+                range: replace_range,
+                new_text: "USER_REGISTERED".to_string(),
+            })),
+            ..Default::default()
+        });
+    }
+    if prefix.is_empty() || "PAYMENT_".starts_with(&prefix) {
+        items.push(lsp_types::CompletionItem {
+            label: "PAYMENT_RECEIVED".to_string(),
+            kind: Some(lsp_types::CompletionItemKind::ENUM),
+            detail: Some("example event".to_string()),
+            text_edit: Some(LspCompletionTextEdit::Edit(TextEdit {
+                range: replace_range,
+                new_text: "PAYMENT_RECEIVED".to_string(),
+            })),
+            ..Default::default()
+        });
+    }
+
+    Some(items)
 }
 
 /// Build the list of completions for a member access expression

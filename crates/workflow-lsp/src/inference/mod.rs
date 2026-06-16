@@ -70,6 +70,36 @@ pub struct Inference {
     /// This is the single source of truth for all known functions
     /// (built-in + user-defined + imported).
     pub registry: FunctionRegistry,
+    /// All known events in the program. Collected from:
+    /// - `on EVENT` statements in workflows
+    /// - `emit("EVENT")` calls in function/workflow bodies
+    /// - Events can be marked as `external` (SCREAMING_SNAKE_CASE)
+    ///   or `internal` (defined in this file or imported)
+    pub events: HashMap<String, EventInfo>,
+}
+
+/// Information about a known event.
+#[derive(Debug, Clone)]
+pub struct EventInfo {
+    /// The event name (e.g., "USER_REGISTERED", "payment_received")
+    pub name: String,
+    /// Whether this event is external (SCREAMING_SNAKE_CASE convention)
+    pub is_external: bool,
+    /// Line where this event is defined/used (0-indexed)
+    pub line: u32,
+    /// The type of usage: "on", "emit", or "import"
+    pub usage: EventUsage,
+}
+
+/// How an event is used in the code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EventUsage {
+    /// Event is listened to via `on EVENT`
+    On,
+    /// Event is emitted via `emit("EVENT")`
+    Emit,
+    /// Event is imported from an external schema
+    Import,
 }
 
 impl Default for Inference {
@@ -80,6 +110,7 @@ impl Default for Inference {
             scope_index: ScopeIndex::default(),
             typed: crate::scope::TypedBindings::new(),
             registry: FunctionRegistry::with_builtins(),
+            events: HashMap::new(),
         }
     }
 }
@@ -144,7 +175,39 @@ impl Inference {
             }
         }
 
+        // Collect events from the program
+        inference.collect_events(program, source);
+
         inference
+    }
+
+    /// Collect all events from `on EVENT` and `emit("EVENT")` statements.
+    fn collect_events(&mut self, program: &FlowProgram, source: &str) {
+        // Collect events from `on EVENT` statements
+        for workflow in &program.workflows {
+            let is_external = is_screaming_snake_case(&workflow.event);
+            let line = source[..workflow.span.start]
+                .chars()
+                .filter(|c| *c == '\n')
+                .count() as u32;
+            self.events.insert(
+                workflow.event.clone(),
+                EventInfo {
+                    name: workflow.event.clone(),
+                    is_external,
+                    line,
+                    usage: EventUsage::On,
+                },
+            );
+        }
+
+        // Collect events from `emit("EVENT")` calls
+        for func in &program.functions {
+            collect_emit_events(&func.body, source, &mut self.events);
+        }
+        for workflow in &program.workflows {
+            collect_emit_events(&workflow.body, source, &mut self.events);
+        }
     }
 
     /// Like `analyze`, but tolerates a parse error. The resulting
@@ -240,6 +303,97 @@ impl Inference {
             });
         }
         None
+    }
+}
+
+/// Check if a string is in SCREAMING_SNAKE_CASE (convention for external events).
+fn is_screaming_snake_case(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    let mut has_upper = false;
+    let mut has_underscore = false;
+    for (i, c) in s.chars().enumerate() {
+        if c.is_uppercase() {
+            has_upper = true;
+        } else if c == '_' {
+            has_underscore = true;
+            // Consecutive underscores are not allowed
+            if i > 0 && s.as_bytes()[i - 1] == b'_' {
+                return false;
+            }
+        } else if !c.is_ascii_lowercase() && !c.is_ascii_digit() {
+            return false;
+        }
+    }
+    // Must have at least one uppercase letter and use underscores
+    has_upper && has_underscore
+}
+
+/// Collect events from `emit("EVENT")` calls in statements.
+fn collect_emit_events(
+    stmts: &[workflow_parser::ast::Stmt],
+    source: &str,
+    events: &mut HashMap<String, EventInfo>,
+) {
+    for stmt in stmts {
+        match stmt {
+            workflow_parser::ast::Stmt::Expr(expr, span)
+            | workflow_parser::ast::Stmt::Log(expr, span) => {
+                collect_emit_from_expr(expr, source, *span, events);
+            }
+            workflow_parser::ast::Stmt::If {
+                condition,
+                then_body,
+                else_body,
+                ..
+            } => {
+                collect_emit_from_expr(condition, source, stmt.span(), events);
+                collect_emit_events(then_body, source, events);
+                if let Some(eb) = else_body {
+                    collect_emit_events(eb, source, events);
+                }
+            }
+            workflow_parser::ast::Stmt::Foreach { body, .. } => {
+                collect_emit_events(body, source, events);
+            }
+            workflow_parser::ast::Stmt::VarDecl { value: Some(v), .. } => {
+                collect_emit_from_expr(v, source, stmt.span(), events);
+            }
+            workflow_parser::ast::Stmt::Return { value: Some(v), .. } => {
+                collect_emit_from_expr(v, source, stmt.span(), events);
+            }
+            workflow_parser::ast::Stmt::Assign { value, .. } => {
+                collect_emit_from_expr(value, source, stmt.span(), events);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Collect events from `emit("EVENT")` calls in an expression.
+fn collect_emit_from_expr(
+    expr: &workflow_parser::ast::Expr,
+    source: &str,
+    _span: workflow_parser::ast::Span,
+    events: &mut HashMap<String, EventInfo>,
+) {
+    if let workflow_parser::ast::Expr::Call { name, args } = expr {
+        if name == "emit" {
+            if let Some(workflow_parser::ast::Expr::String(event_name)) = args.first() {
+                let line = source[.._span.start].chars().filter(|c| *c == '\n').count() as u32;
+                let is_external = is_screaming_snake_case(event_name);
+                events.insert(
+                    event_name.clone(),
+                    EventInfo {
+                        name: event_name.clone(),
+                        is_external,
+                        line,
+                        usage: EventUsage::Emit,
+                    },
+                );
+            }
+        }
     }
 }
 

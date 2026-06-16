@@ -15,6 +15,7 @@
 use lsp_types::{Position, Range};
 
 use crate::inference;
+use crate::inference::EventUsage;
 use crate::lint::{self, LintCx};
 use crate::state::ServerState;
 
@@ -276,6 +277,31 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
                 if let Some(desc) = &entry.description {
                     body.push_str(desc);
                 }
+
+                return Some(body);
+            }
+
+            // Check if the word is an event
+            if let Some(event_info) = inference.events.get(&word) {
+                let mut body = format!("**event** `{}`\n\n", word);
+
+                // Show event type
+                if event_info.is_external {
+                    body.push_str("**type:** external (SCREAMING_SNAKE_CASE)\n\n");
+                } else {
+                    body.push_str("**type:** internal\n\n");
+                }
+
+                // Show usage
+                let usage_desc = match event_info.usage {
+                    EventUsage::On => "Listened to by a workflow",
+                    EventUsage::Emit => "Emitted by code",
+                    EventUsage::Import => "Imported from external schema",
+                };
+                body.push_str(&format!("**usage:** {}\n\n", usage_desc));
+
+                // Show line number
+                body.push_str(&format!("**defined at:** line {}\n", event_info.line + 1));
 
                 return Some(body);
             }
