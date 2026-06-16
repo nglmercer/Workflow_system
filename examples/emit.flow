@@ -1,0 +1,27 @@
+// Example workflow using emit() to trigger downstream events.
+
+workflow "User Registration" {
+  on USER_REGISTERED
+
+  if (data.plan == "premium") {
+    log("Premium user: " + data.name)
+    emit("USER_ACTIVATED")
+  } else {
+    log("Free user: " + data.name)
+  }
+}
+
+workflow "Batch Start" {
+  on BATCH_START
+
+  log("Starting batch: " + data.id)
+  emit("BATCH_STARTED")
+  emit("BATCH_LOGGED")
+}
+
+workflow "Payment Processing" {
+  on PAYMENT_RECEIVED
+
+  log("Processing payment: " + data.amount + " " + data.currency)
+  emit("PAYMENT_PROCESSED")
+}

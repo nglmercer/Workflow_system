@@ -1,0 +1,21 @@
+// Shared utility functions for cross-file imports.
+// Imported by cross_file_import.flow via:
+//   import utils from "./shared_utils.flow"
+
+//@string,@string
+fn formatCurrency(amount, currency) {
+  return currency + " " + amount
+}
+
+//@string
+fn validateEmail(email) {
+  if (email.length > 5) {
+    return true
+  }
+  return false
+}
+
+fn greet(name) {
+  log("Hello " + name + "!")
+  return true
+}

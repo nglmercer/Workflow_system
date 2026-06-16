@@ -22,8 +22,9 @@ pub enum AssertKind {
     /// captured log strings.
     Logs,
     /// `expect emitted [...]` — element-wise equality with the
-    /// emitted event list. Today the `.flow` evaluator doesn't
-    /// emit, so `actual` is always `[]` until emission is added.
+    /// emitted event list. The `.flow` evaluator records events
+    /// emitted via `emit("EVENT")` calls in the outcome's
+    /// `emitted` field.
     Emitted,
     /// `expect return <value>` — equality with the workflow's
     /// final `return` value (or `Null` if it fell off the end).
@@ -97,9 +98,8 @@ impl AssertResult {
 }
 
 /// Evaluate a single [`ExpectClause`] against a [`WorkflowOutcome`]
-/// and produce an [`AssertResult`]. Returns `None` for the
-/// unsupported `Emitted` kind (today the `.flow` evaluator doesn't
-/// emit events, so the runner always reports `[]`).
+/// and produce an [`AssertResult`]. Returns `None` for
+/// unsupported clause types.
 ///
 /// The function never panics: any unexpected shape (e.g. comparing
 /// a `String` to a `Number`) yields a `passed = false` result
@@ -121,12 +121,7 @@ pub fn evaluate(clause: &ExpectClause, outcome: &WorkflowOutcome) -> Option<Asse
             Some(result)
         }
         ExpectClause::Emitted(expected) => {
-            // The .flow evaluator does not yet emit events. We
-            // intentionally allow this assertion to pass when the
-            // test author wrote `expect emitted []` — that's the
-            // common shape. Any non-empty expected list will fail
-            // and signal to the author that emission isn't wired.
-            let actual: Vec<String> = Vec::new();
+            let actual = outcome.emitted.clone();
             let passed = actual == *expected;
             let actual_text = vec_to_text(&actual);
             let expected_text = vec_to_text(expected);
@@ -253,6 +248,7 @@ mod tests {
     ) -> WorkflowOutcome {
         WorkflowOutcome {
             logs,
+            emitted: Vec::new(),
             return_value: ret,
             scope,
         }
@@ -295,5 +291,50 @@ mod tests {
         let outcome = outcome_with(vec![], Value::Null, HashMap::new());
         let r = evaluate(&ExpectClause::Return(serde_json::Value::Null), &outcome).unwrap();
         assert!(r.passed);
+    }
+
+    #[test]
+    fn emitted_pass_when_equal() {
+        let mut outcome = outcome_with(vec![], Value::Null, HashMap::new());
+        outcome.emitted = vec!["EVENT_A".to_string(), "EVENT_B".to_string()];
+        let r = evaluate(
+            &ExpectClause::Emitted(vec!["EVENT_A".to_string(), "EVENT_B".to_string()]),
+            &outcome,
+        )
+        .unwrap();
+        assert!(r.passed);
+        assert_eq!(r.kind, AssertKind::Emitted);
+    }
+
+    #[test]
+    fn emitted_fail_when_mismatch() {
+        let mut outcome = outcome_with(vec![], Value::Null, HashMap::new());
+        outcome.emitted = vec!["EVENT_A".to_string()];
+        let r = evaluate(
+            &ExpectClause::Emitted(vec!["EVENT_B".to_string()]),
+            &outcome,
+        )
+        .unwrap();
+        assert!(!r.passed);
+        assert_eq!(r.actual, "[\"EVENT_A\"]");
+        assert_eq!(r.expected, "[\"EVENT_B\"]");
+    }
+
+    #[test]
+    fn emitted_empty_passes_when_expected_empty() {
+        let outcome = outcome_with(vec![], Value::Null, HashMap::new());
+        let r = evaluate(&ExpectClause::Emitted(vec![]), &outcome).unwrap();
+        assert!(r.passed);
+    }
+
+    #[test]
+    fn emitted_fail_when_expected_nonempty_but_actual_empty() {
+        let outcome = outcome_with(vec![], Value::Null, HashMap::new());
+        let r = evaluate(
+            &ExpectClause::Emitted(vec!["EVENT_A".to_string()]),
+            &outcome,
+        )
+        .unwrap();
+        assert!(!r.passed);
     }
 }

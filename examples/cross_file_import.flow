@@ -1,0 +1,20 @@
+// Example workflow that imports shared functions from another .flow file.
+import utils from "./shared_utils.flow"
+
+workflow "User Welcome" {
+  on USER_REGISTERED
+
+  greet(data.name)
+  if (validateEmail(data.email)) {
+    log("Email valid: " + data.email)
+  } else {
+    log("Email invalid: " + data.email)
+  }
+}
+
+workflow "Payment Summary" {
+  on PAYMENT_RECEIVED
+
+  var summary = formatCurrency(data.amount, data.currency)
+  log("Payment: " + summary)
+}

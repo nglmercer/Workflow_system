@@ -106,9 +106,7 @@ pub enum ExpectClause {
     /// captured log strings.
     Logs(Vec<String>),
     /// `expect emitted [...]` — element-wise equality with the
-    /// list of events the engine emits. The `.flow` evaluator
-    /// does not yet emit events, so `actual` is `[]` until
-    /// emission is added.
+    /// list of events emitted via `emit("EVENT")` calls.
     Emitted(Vec<String>),
     /// `expect return <value>` — the workflow's last `return`
     /// expression result, or `Null` if the workflow fell off the

@@ -70,6 +70,26 @@ impl RuleEngine {
         self.evaluate_context(ctx).await
     }
 
+    /// Process a list of emitted event names through the engine.
+    /// Each event is dispatched with the given data payload. This
+    /// bridges the `.flow` evaluator's `emit()` calls to the
+    /// engine's rule matching, allowing workflows to trigger
+    /// downstream rules via emitted events.
+    pub async fn process_emitted_events(
+        &mut self,
+        emitted: &[String],
+        data: &serde_json::Value,
+    ) -> WorkflowResult<Vec<TriggerResult>> {
+        let mut all_results = Vec::new();
+        for event_name in emitted {
+            let results = self
+                .process_event_simple(event_name, data.clone(), None)
+                .await?;
+            all_results.extend(results);
+        }
+        Ok(all_results)
+    }
+
     pub async fn process_event(
         &mut self,
         event: workflow_domain::TriggerEvent,

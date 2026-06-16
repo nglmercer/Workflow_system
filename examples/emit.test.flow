@@ -1,0 +1,25 @@
+// Tests for the emit() built-in function.
+// Run with:
+//   cargo run -p workflow-cli -- test examples/emit.test.flow
+
+test "emit records event name" {
+  on USER_REGISTERED with { name: "Ada", plan: "premium" }
+  expect emitted ["USER_ACTIVATED"]
+}
+
+test "emit multiple events" {
+  on BATCH_START with { id: "b-1" }
+  expect emitted ["BATCH_STARTED", "BATCH_LOGGED"]
+}
+
+test "emit with log" {
+  on PAYMENT_RECEIVED with { amount: 500, currency: "USD" }
+  expect emitted ["PAYMENT_PROCESSED"]
+  expect logs ["Processing payment: 500 USD"]
+}
+
+test "no emit when condition fails" {
+  on USER_REGISTERED with { name: "Bob", plan: "free" }
+  expect emitted []
+  expect logs ["Free user: Bob"]
+}

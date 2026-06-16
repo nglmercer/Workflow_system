@@ -1,0 +1,19 @@
+// Tests for cross-file imports. Verifies that functions imported
+// from another .flow file are accessible in the host workflow.
+// Run with:
+//   cargo run -p workflow-cli -- test examples/cross_file_import.test.flow
+
+test "greet from imported module" {
+  on USER_REGISTERED with { name: "Ada", email: "ada@example.com" }
+  expect logs ["Hello Ada!", "Email valid: ada@example.com"]
+}
+
+test "formatCurrency from imported module" {
+  on PAYMENT_RECEIVED with { amount: 42, currency: "USD" }
+  expect logs ["Payment: USD 42"]
+}
+
+test "validateEmail rejects short emails" {
+  on USER_REGISTERED with { name: "Bob", email: "a@b" }
+  expect logs ["Hello Bob!", "Email invalid: a@b"]
+}

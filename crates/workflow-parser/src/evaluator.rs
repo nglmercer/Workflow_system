@@ -97,6 +97,8 @@ impl std::fmt::Display for Value {
 pub struct WorkflowOutcome {
     /// The captured log strings, in emission order.
     pub logs: Vec<String>,
+    /// The events emitted via `emit("EVENT")`, in call order.
+    pub emitted: Vec<String>,
     /// The value produced by the last `return` statement, or
     /// `Value::Null` if the workflow fell off the end with no
     /// `return`.
@@ -114,6 +116,7 @@ pub struct FlowEvaluator {
     globals: HashMap<String, Value>,
     functions: HashMap<String, FunctionDef>,
     logs: Vec<String>,
+    emitted: Vec<String>,
 }
 
 impl FlowEvaluator {
@@ -122,6 +125,7 @@ impl FlowEvaluator {
             globals: HashMap::new(),
             functions: HashMap::new(),
             logs: Vec::new(),
+            emitted: Vec::new(),
         }
     }
 
@@ -175,6 +179,7 @@ impl FlowEvaluator {
         context: &TriggerContext,
     ) -> WorkflowResult<WorkflowOutcome> {
         self.logs.clear();
+        self.emitted.clear();
 
         let mut vars = HashMap::new();
         vars.insert("data".to_string(), Value::from_json(&context.data));
@@ -226,6 +231,7 @@ impl FlowEvaluator {
 
         Ok(WorkflowOutcome {
             logs: self.logs.clone(),
+            emitted: self.emitted.clone(),
             return_value: ret.unwrap_or(Value::Null),
             scope: vars,
         })
@@ -483,6 +489,14 @@ impl FlowEvaluator {
                 }
                 Value::Null
             }
+            "emit" => {
+                if let Some(val) = args.first() {
+                    if let Value::String(event) = val {
+                        self.emitted.push(event.clone());
+                    }
+                }
+                Value::Null
+            }
             "len" => {
                 if let Some(val) = args.first() {
                     Value::Number(val.len() as f64)
@@ -539,6 +553,30 @@ impl FlowEvaluator {
 
     pub fn get_logs(&self) -> &[String] {
         &self.logs
+    }
+
+    pub fn get_emitted(&self) -> &[String] {
+        &self.emitted
+    }
+
+    /// Merge another program's globals and functions into this
+    /// evaluator. Functions from `other` are added only if the
+    /// name doesn't already exist (first-writer-wins). Globals
+    /// from `other` are added only if the name doesn't already
+    /// exist. This supports cross-file imports where a `.flow`
+    /// file imports another `.flow` file for shared functions.
+    pub fn merge_program(&mut self, other: &FlowProgram) {
+        for f in &other.functions {
+            self.functions
+                .entry(f.name.clone())
+                .or_insert_with(|| f.clone());
+        }
+        for g in &other.globals {
+            if !self.globals.contains_key(&g.name) {
+                let value = self.eval_expr(&g.value, &HashMap::new());
+                self.globals.insert(g.name.clone(), value);
+            }
+        }
     }
 }
 
@@ -615,5 +653,108 @@ mod tests {
         let expr = Expr::member(Expr::var("name"), "length");
         let result = evaluator.eval_expr(&expr, &vars);
         assert!(matches!(result, Value::Number(5.0)));
+    }
+
+    #[test]
+    fn test_emit_records_event() {
+        let mut evaluator = FlowEvaluator::new();
+        let args = vec![Value::String("USER_ACTIVATED".to_string())];
+
+        let result = evaluator.call_function("emit", &args);
+        assert!(matches!(result, Value::Null));
+        assert_eq!(evaluator.get_emitted(), &["USER_ACTIVATED"]);
+    }
+
+    #[test]
+    fn test_emit_multiple_events() {
+        let mut evaluator = FlowEvaluator::new();
+
+        evaluator.call_function("emit", &[Value::String("EVENT_A".to_string())]);
+        evaluator.call_function("emit", &[Value::String("EVENT_B".to_string())]);
+        evaluator.call_function("emit", &[Value::String("EVENT_C".to_string())]);
+
+        assert_eq!(evaluator.get_emitted(), &["EVENT_A", "EVENT_B", "EVENT_C"]);
+    }
+
+    #[test]
+    fn test_emit_with_non_string_is_ignored() {
+        let mut evaluator = FlowEvaluator::new();
+
+        evaluator.call_function("emit", &[Value::Number(42.0)]);
+        evaluator.call_function("emit", &[Value::Bool(true)]);
+        evaluator.call_function("emit", &[Value::Null]);
+
+        assert!(evaluator.get_emitted().is_empty());
+    }
+
+    #[test]
+    fn test_merge_program_adds_functions() {
+        let mut evaluator = FlowEvaluator::new();
+
+        let other = FlowProgram {
+            imports: vec![],
+            globals: vec![],
+            functions: vec![FunctionDef {
+                name: "greet".to_string(),
+                params: vec!["name".to_string()],
+                body: vec![Stmt::Log(
+                    Expr::binary(BinaryOp::Add, Expr::string("Hello "), Expr::var("name")),
+                    Span::default(),
+                )],
+                span: Span::default(),
+            }],
+            workflows: vec![],
+            tests: vec![],
+            span: Span::default(),
+        };
+
+        evaluator.merge_program(&other);
+
+        // The function should now be callable
+        let args = vec![Value::String("World".to_string())];
+        evaluator.call_function("greet", &args);
+        assert_eq!(evaluator.get_logs(), &["Hello World"]);
+    }
+
+    #[test]
+    fn test_merge_program_does_not_overwrite_existing() {
+        let mut evaluator = FlowEvaluator::new();
+
+        // Load a program with a function
+        let host = FlowProgram {
+            imports: vec![],
+            globals: vec![],
+            functions: vec![FunctionDef {
+                name: "greet".to_string(),
+                params: vec!["name".to_string()],
+                body: vec![Stmt::Log(Expr::string("Original"), Span::default())],
+                span: Span::default(),
+            }],
+            workflows: vec![],
+            tests: vec![],
+            span: Span::default(),
+        };
+        evaluator.load_program(&host);
+
+        // Try to merge another program with the same function name
+        let other = FlowProgram {
+            imports: vec![],
+            globals: vec![],
+            functions: vec![FunctionDef {
+                name: "greet".to_string(),
+                params: vec!["name".to_string()],
+                body: vec![Stmt::Log(Expr::string("Override"), Span::default())],
+                span: Span::default(),
+            }],
+            workflows: vec![],
+            tests: vec![],
+            span: Span::default(),
+        };
+        evaluator.merge_program(&other);
+
+        // The original function should still be used
+        let args = vec![Value::String("World".to_string())];
+        evaluator.call_function("greet", &args);
+        assert_eq!(evaluator.get_logs(), &["Original"]);
     }
 }

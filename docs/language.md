@@ -83,9 +83,11 @@ Inside the body you can:
 - **Call functions** with `fnName(args, ...)`. Built-in
   functions include `log(message)` (records into the
   workflow's log buffer — the value the test runner's
-  `expect logs [...]` assertions read), plus the standard
-  operators and any globals you declared at the top of the
-  file.
+  `expect logs [...]` assertions read), `emit(event_name)`
+  (records an event name into the emitted events list —
+  the value the test runner's `expect emitted [...]`
+  assertions read), plus the standard operators and any
+  globals you declared at the top of the file.
 - **Branch** with `if (cond) { … } else if (cond) { … } else { … }`.
 - **Loop** with `foreach (item in collection) { … }` or
   `while (cond) { … }`. `break` and `continue` are
@@ -144,6 +146,46 @@ A missing JSON file is reported as a failing assertion
 thing rather than chasing "null" values through their
 workflows.
 
+## `.flow` module imports
+
+A `.flow` file can import functions and globals from another
+`.flow` file using the `import` statement:
+
+```flow
+import utils from "./shared_utils.flow"
+```
+
+This merges the imported file's functions and globals into the
+current evaluator. Functions are merged with first-writer-wins
+semantics — if the host file already defines a function with
+the same name, the imported version is skipped.
+
+Example: a shared utilities file with common functions:
+
+```flow
+// shared_utils.flow
+fn greet(name) {
+  log("Hello " + name + "!")
+  return true
+}
+
+fn formatCurrency(amount, currency) {
+  return currency + " " + amount
+}
+```
+
+And a workflow that imports and uses them:
+
+```flow
+// main.flow
+import utils from "./shared_utils.flow"
+
+workflow "Welcome" {
+  on USER_REGISTERED
+  greet(data.name)
+}
+```
+
 ## Type expressions
 
 A workflow can carry a `//@` type annotation that documents
@@ -197,11 +239,23 @@ The components:
   workflow's `log(...)` calls populate the log buffer; the
   assertion compares the collected array as a string.
 - **`expect emitted [...]`** — element-wise equality
-  against the emitted event list. Today the `.flow`
-  evaluator does not produce emits, so this assertion
-  always sees `actual = []` and the test fails unless the
-  expected list is also `[]`. Reserved for a future
-  `emit` statement.
+  against the list of events emitted via `emit("EVENT")`
+  calls. The workflow's `emit(...)` calls populate the
+  emitted events list; the assertion compares the collected
+  array as a string. Example:
+  ```flow
+  workflow "User Signup" {
+    on USER_REGISTERED
+    log("Welcome!")
+    emit("USER_ACTIVATED")
+  }
+
+  test "Signup emits activation" {
+    on USER_REGISTERED
+    expect emitted ["USER_ACTIVATED"]
+    expect logs ["Welcome!"]
+  }
+  ```
 - **`expect return <value>`** — equality against the
   workflow's final `return` value (or `null` if it fell
   off the end without a `return`).

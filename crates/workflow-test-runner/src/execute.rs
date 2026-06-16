@@ -26,6 +26,7 @@ use std::path::{Path, PathBuf};
 use workflow_domain::TriggerContext;
 use workflow_parser::ast::{FlowProgram, ImportSource, ImportStmt, OnClause, TestDef, WorkflowDef};
 use workflow_parser::evaluator::{FlowEvaluator, Value, WorkflowOutcome};
+use workflow_parser::FlowParser;
 
 use crate::assert::{evaluate, AssertKind, AssertResult};
 use crate::report::{RunReport, TestReport};
@@ -107,12 +108,17 @@ pub fn execute_test(
     // scopes (last writer wins for any given name, which is
     // what users expect when two workflows both set `greeting`).
     let mut combined_logs: Vec<String> = Vec::new();
+    let mut combined_emitted: Vec<String> = Vec::new();
     let mut combined_scope = std::collections::HashMap::new();
     let mut combined_return = Value::Null;
 
     for workflow in &matches {
         let ctx = trigger_context_from_data(&test.on, merged_data.to_json());
-        let mut evaluator = new_evaluator_with_program(host, &import_resolution.globals);
+        let mut evaluator = new_evaluator_with_program(
+            host,
+            &import_resolution.globals,
+            &import_resolution.flow_programs,
+        );
         let outcome = match evaluator.execute_workflow_with_result(workflow, &ctx) {
             Ok(out) => out,
             Err(e) => {
@@ -126,6 +132,7 @@ pub fn execute_test(
             }
         };
         combined_logs.extend(outcome.logs);
+        combined_emitted.extend(outcome.emitted);
         for (k, v) in outcome.scope {
             combined_scope.insert(k, v);
         }
@@ -137,6 +144,7 @@ pub fn execute_test(
 
     let combined = WorkflowOutcome {
         logs: combined_logs,
+        emitted: combined_emitted,
         return_value: combined_return,
         scope: combined_scope,
     };
@@ -174,15 +182,20 @@ pub fn execute_tests_for_program(program: &FlowProgram, root_path: &str) -> RunR
 }
 
 /// Build a `FlowEvaluator` preloaded with the host program's
-/// globals, function definitions, and `@import`-bound payloads.
-/// Each test gets a fresh one to avoid cross-test leakage.
+/// globals, function definitions, `@import`-bound payloads, and
+/// any `.flow` module imports for shared functions. Each test
+/// gets a fresh one to avoid cross-test leakage.
 fn new_evaluator_with_program(
     host: &FlowProgram,
     imported_globals: &HashMap<String, Value>,
+    flow_programs: &[FlowProgram],
 ) -> FlowEvaluator {
     let mut ev = FlowEvaluator::new();
     ev.load_program(host);
     ev.populate_globals(imported_globals.clone());
+    for program in flow_programs {
+        ev.merge_program(program);
+    }
     ev
 }
 
@@ -245,17 +258,19 @@ fn merge_json(base: &serde_json::Value, overlay: &serde_json::Value) -> serde_js
 /// `import <name> from "*.json"`) declarations into runtime
 /// bindings. `globals` is keyed by import name; `failures`
 /// carries human-readable diagnostics for any import that
-/// couldn't be resolved.
+/// couldn't be resolved. `flow_programs` holds parsed `.flow`
+/// modules whose functions/globals can be merged into the
+/// evaluator.
 #[derive(Debug, Default)]
 struct ImportResolution {
     globals: HashMap<String, Value>,
+    flow_programs: Vec<FlowProgram>,
     failures: Vec<String>,
 }
 
 /// Walk every import in the host program and resolve the ones
 /// that bind a payload (i.e. JSON paths and inline JSON
-/// literals). `.flow` module imports are ignored — they don't
-/// produce a runtime binding the workflows can reference.
+/// literals) or import `.flow` modules for shared functions.
 fn populate_imports(imports: &[ImportStmt], source_dir: &Path) -> ImportResolution {
     let mut out = ImportResolution::default();
     for import in imports {
@@ -265,32 +280,51 @@ fn populate_imports(imports: &[ImportStmt], source_dir: &Path) -> ImportResoluti
                     .insert(import.name.clone(), Value::from_json(value));
             }
             ImportSource::Path(path_str) => {
-                // Only JSON schemas produce a runtime binding
-                // worth injecting. `.flow` paths are module
-                // imports and are skipped here.
-                if !is_json_path(path_str) {
-                    continue;
-                }
-                let resolved = resolve_relative(source_dir, path_str);
-                match std::fs::read_to_string(&resolved) {
-                    Ok(contents) => match serde_json::from_str::<serde_json::Value>(&contents) {
-                        Ok(value) => {
-                            out.globals
-                                .insert(import.name.clone(), Value::from_json(&value));
+                if is_json_path(path_str) {
+                    let resolved = resolve_relative(source_dir, path_str);
+                    match std::fs::read_to_string(&resolved) {
+                        Ok(contents) => {
+                            match serde_json::from_str::<serde_json::Value>(&contents) {
+                                Ok(value) => {
+                                    out.globals
+                                        .insert(import.name.clone(), Value::from_json(&value));
+                                }
+                                Err(e) => out.failures.push(format!(
+                                    "{} from {}: invalid JSON: {}",
+                                    import.name,
+                                    resolved.display(),
+                                    e
+                                )),
+                            }
                         }
                         Err(e) => out.failures.push(format!(
-                            "{} from {}: invalid JSON: {}",
+                            "{} from {}: {}",
                             import.name,
                             resolved.display(),
                             e
                         )),
-                    },
-                    Err(e) => out.failures.push(format!(
-                        "{} from {}: {}",
-                        import.name,
-                        resolved.display(),
-                        e
-                    )),
+                    }
+                } else if is_flow_path(path_str) {
+                    let resolved = resolve_relative(source_dir, path_str);
+                    match std::fs::read_to_string(&resolved) {
+                        Ok(contents) => match FlowParser::parse_flow_program(&contents) {
+                            Ok(program) => {
+                                out.flow_programs.push(program);
+                            }
+                            Err(e) => out.failures.push(format!(
+                                "{} from {}: parse error: {}",
+                                import.name,
+                                resolved.display(),
+                                e
+                            )),
+                        },
+                        Err(e) => out.failures.push(format!(
+                            "{} from {}: {}",
+                            import.name,
+                            resolved.display(),
+                            e
+                        )),
+                    }
                 }
             }
         }
@@ -307,6 +341,16 @@ fn is_json_path(path_str: &str) -> bool {
         .extension()
         .and_then(|e| e.to_str())
         .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+}
+
+/// True when `path_str` ends in `.flow` (case-insensitive).
+/// Used to detect module imports that should be parsed and
+/// merged into the evaluator for shared function access.
+fn is_flow_path(path_str: &str) -> bool {
+    Path::new(path_str)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("flow"))
 }
 
 /// Resolve `path_str` against `source_dir`. Absolute paths are
@@ -493,5 +537,51 @@ mod tests {
             "expected an import-resolution failure in {:#?}",
             report
         );
+    }
+
+    #[test]
+    fn emit_records_events_in_outcome() {
+        let host = parse(
+            r#"workflow "Emit" {
+  on E
+  emit("EVENT_A")
+  emit("EVENT_B")
+  log("done")
+}"#,
+        );
+        let program = parse(
+            r#"test "Emit works" {
+  on E
+  expect emitted ["EVENT_A", "EVENT_B"]
+  expect logs ["done"]
+}"#,
+        );
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
+        assert!(report.passed, "report: {:#?}", report);
+    }
+
+    #[test]
+    fn emit_conditional_events() {
+        let host = parse(
+            r#"workflow "Conditional Emit" {
+  on E
+  if (data.premium == true) {
+    emit("PREMIUM_EVENT")
+    log("premium")
+  } else {
+    emit("FREE_EVENT")
+    log("free")
+  }
+}"#,
+        );
+        let program = parse(
+            r#"test "Premium emit" {
+  on E with { premium: true }
+  expect emitted ["PREMIUM_EVENT"]
+  expect logs ["premium"]
+}"#,
+        );
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
+        assert!(report.passed, "report: {:#?}", report);
     }
 }
