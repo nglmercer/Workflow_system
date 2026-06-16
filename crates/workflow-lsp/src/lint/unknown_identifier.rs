@@ -44,6 +44,7 @@ fn check_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
                 condition,
                 then_body,
                 else_body,
+            ..
             } => {
                 check_expr(cx, condition, out);
                 check_stmts(cx, then_body, out);
@@ -51,12 +52,12 @@ fn check_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
                     check_stmts(cx, eb, out);
                 }
             }
-            Stmt::Return { value } => {
+            Stmt::Return { value, .. } => {
                 if let Some(v) = value {
                     check_expr(cx, v, out);
                 }
             }
-            Stmt::Expr(e) | Stmt::Log(e) => check_expr(cx, e, out),
+            Stmt::Expr(e, _) | Stmt::Log(e, _) => check_expr(cx, e, out),
             Stmt::Foreach { iterable, body, .. } => {
                 check_expr(cx, iterable, out);
                 check_stmts(cx, body, out);

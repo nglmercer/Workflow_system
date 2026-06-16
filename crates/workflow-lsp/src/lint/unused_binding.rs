@@ -56,6 +56,7 @@ fn collect_stmts_refs(stmts: &[Stmt], refs: &mut HashSet<String>) {
                 condition,
                 then_body,
                 else_body,
+            ..
             } => {
                 collect_refs(condition, refs);
                 collect_stmts_refs(then_body, refs);
@@ -63,12 +64,12 @@ fn collect_stmts_refs(stmts: &[Stmt], refs: &mut HashSet<String>) {
                     collect_stmts_refs(eb, refs);
                 }
             }
-            Stmt::Return { value } => {
+            Stmt::Return { value, .. } => {
                 if let Some(v) = value {
                     collect_refs(v, refs);
                 }
             }
-            Stmt::Expr(e) | Stmt::Log(e) => collect_refs(e, refs),
+            Stmt::Expr(e, _) | Stmt::Log(e, _) => collect_refs(e, refs),
             Stmt::Foreach { iterable, body, .. } => {
                 collect_refs(iterable, refs);
                 collect_stmts_refs(body, refs);
@@ -114,7 +115,7 @@ fn collect_refs(expr: &Expr, refs: &mut HashSet<String>) {
 fn scan_locals(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>, refs: &HashSet<String>) {
     for s in stmts {
         match s {
-            Stmt::VarDecl { name, value } if !refs.contains(name) => {
+            Stmt::VarDecl { name, value, .. } if !refs.contains(name) => {
                 if let Some((line, col)) = var_decl_position(cx, name, value) {
                     if cx.disabled.is_disabled("unused-binding", line) {
                         continue;

@@ -57,6 +57,7 @@ fn check_stmts(
                 condition,
                 then_body,
                 else_body,
+            ..
             } => {
                 check_expr(condition, source, inference, diagnostics);
                 check_stmts(then_body, source, inference, diagnostics);
@@ -64,10 +65,10 @@ fn check_stmts(
                     check_stmts(else_stmts, source, inference, diagnostics);
                 }
             }
-            workflow_parser::ast::Stmt::Return { value: Some(expr) } => {
+            workflow_parser::ast::Stmt::Return { value: Some(expr), .. } => {
                 check_expr(expr, source, inference, diagnostics);
             }
-            workflow_parser::ast::Stmt::Expr(expr) | workflow_parser::ast::Stmt::Log(expr) => {
+            workflow_parser::ast::Stmt::Expr(expr, _) | workflow_parser::ast::Stmt::Log(expr, _) => {
                 check_expr(expr, source, inference, diagnostics);
             }
             workflow_parser::ast::Stmt::Foreach { iterable, body, .. } => {

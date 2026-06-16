@@ -242,7 +242,7 @@ impl FlowEvaluator {
         vars: &mut HashMap<String, Value>,
     ) -> WorkflowResult<Option<Value>> {
         match stmt {
-            Stmt::VarDecl { name, value } => {
+            Stmt::VarDecl { name, value, .. } => {
                 let val = value
                     .as_ref()
                     .map(|e| self.eval_expr(e, vars))
@@ -250,7 +250,7 @@ impl FlowEvaluator {
                 vars.insert(name.clone(), val);
                 Ok(None)
             }
-            Stmt::Assign { name, value } => {
+            Stmt::Assign { name, value, .. } => {
                 let val = self.eval_expr(value, vars);
                 // Assigning to an unbound variable is a no-op
                 // (the var gets created with the assigned value).
@@ -265,6 +265,7 @@ impl FlowEvaluator {
                 condition,
                 then_body,
                 else_body,
+                ..
             } => {
                 let cond_val = self.eval_expr(condition, vars);
                 let branch = if cond_val.is_truthy() {
@@ -279,18 +280,18 @@ impl FlowEvaluator {
                 }
                 Ok(None)
             }
-            Stmt::Return { value } => {
+            Stmt::Return { value, .. } => {
                 let val = value
                     .as_ref()
                     .map(|e| self.eval_expr(e, vars))
                     .unwrap_or(Value::Null);
                 Ok(Some(val))
             }
-            Stmt::Expr(expr) => {
+            Stmt::Expr(expr, _) => {
                 self.eval_expr(expr, vars);
                 Ok(None)
             }
-            Stmt::Log(expr) => {
+            Stmt::Log(expr, _) => {
                 let val = self.eval_expr(expr, vars);
                 self.logs.push(val.to_string());
                 Ok(None)
@@ -299,6 +300,7 @@ impl FlowEvaluator {
                 item_var,
                 iterable,
                 body,
+                ..
             } => {
                 let arr = self.eval_expr(iterable, vars);
                 if let Value::Array(items) = arr {

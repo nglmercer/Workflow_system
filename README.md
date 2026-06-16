@@ -2,12 +2,27 @@
 
 A Rust-based agnostic trigger/rule engine with WASM support for cross-language workflow execution.
 
+## Documentation
+
+Developer documentation lives in [`docs/`](docs/):
+
+- [docs/language.md](docs/language.md) — the `.flow` DSL: events, workflows, type expressions, `@import` schemas, and the `on … with { … }` test shape.
+- [docs/architecture.md](docs/architecture.md) — the workspace layout, the crate dependency graph, and the data flow from `.flow` source to executed workflows.
+- [docs/cli.md](docs/cli.md) — the `workflow` binary: every subcommand, the loader's file-extension dispatch, and the exit-code conventions.
+- [docs/test-runner.md](docs/test-runner.md) — the `*.test.flow` sidecar convention and the three runner entry points (`run_path`, `run_source`, `run_source_with_host`).
+- [docs/editor.md](docs/editor.md) — the native egui editor: panel layout, the popup subsystem, the keybindings surface, and the test-panel pipeline.
+- [docs/lsp.md](docs/lsp.md) — the language server: the `workflow_lsp::features::*` in-process API and the stdio JSON-RPC surface.
+- [docs/wasm.md](docs/wasm.md) — the `wasm-bindgen` crate: the `WasmRuleEngine` class and the `executeFlow` entry point.
+- [docs/actions.md](docs/actions.md) — the `ActionHandler` trait, the built-in handlers, and how to register a custom one.
+
 ## Features
 
 - **Rule Engine**: Evaluate events against conditions and execute actions
-- **Multiple Formats**: JSON, YAML, TOML, and custom `.flow` files
+- **`.flow` DSL**: a richer superset of the legacy rule format — workflows, type annotations, sidecar tests, JSON `@import` schemas
+- **Multiple Formats**: JSON, YAML, TOML, and `.flow` files
 - **WASM Support**: Compile to WebAssembly for browser/Node.js use
 - **CLI Tools**: Validate, evaluate, export, and watch workflows
+- **Native Editor**: egui/eframe desktop app with in-process LSP, hover/completion popups, and a built-in test runner
 - **Extensible**: Custom action handlers via `ActionHandler` trait
 
 ## Quick Start
@@ -26,6 +41,9 @@ cargo run -p workflow-cli -- export rules/workflows.flow -o output.json
 
 # Watch for changes
 cargo run -p workflow-cli -- watch rules/ -e TEST -d '{}'
+
+# Run sidecar `*.test.flow` test suites
+cargo run -p workflow-cli -- test examples/basic.test.flow
 ```
 
 ### Rust Usage
@@ -52,125 +70,7 @@ let results = engine.process_event_simple(
 ).await?;
 ```
 
-### WASM Usage
-
-```javascript
-import init, { WasmRuleEngine } from "workflow-wasm";
-
-await init();
-const engine = new WasmRuleEngine(JSON.stringify({
-    rules: [/* ... */],
-    global_settings: {}
-}));
-
-const results = await engine.processEventSimple(
-    "USER_REGISTERED",
-    JSON.stringify({ userId: "123" })
-);
-```
-
-## File Formats
-
-### YAML (.yaml, .yml)
-```yaml
-- id: welcome-user
-  on: USER_REGISTERED
-  do:
-    type: log_message
-    params:
-      message: "Welcome ${data.userId}!"
-```
-
-### JSON (.json)
-```json
-[{
-    "id": "welcome-user",
-    "on": "USER_REGISTERED",
-    "do": {
-        "type": "log_message",
-        "params": { "message": "Welcome ${data.userId}!" }
-    }
-}]
-```
-
-### Flow (.flow)
-Custom format using YAML syntax:
-```yaml
-- id: welcome-user
-  name: Welcome User
-  description: Greet new users
-  on: USER_REGISTERED
-  do:
-    type: log_message
-    params:
-      message: "Welcome ${data.userId}!"
-```
-
-## Operators
-
-| Operator | Description |
-|----------|-------------|
-| EQ, == | Equal |
-| NEQ, != | Not Equal |
-| GT, > | Greater Than |
-| GTE, >= | Greater Than or Equal |
-| LT, < | Less Than |
-| LTE, <= | Less Than or Equal |
-| IN | Value in Array |
-| NOT_IN | Value not in Array |
-| CONTAINS | String/Array contains |
-| STARTS_WITH | String starts with |
-| ENDS_WITH | String ends with |
-| IS_EMPTY | Value is empty |
-| IS_NULL | Value is null |
-| HAS_KEY | Object has key |
-| MATCHES | Regex match |
-| RANGE | Number in range [min, max] |
-
-## Built-in Actions
-
-- `log_message` - Log a message with level (info/warn/error/debug)
-- `set_var` - Set a variable in context
-- `noop` - No operation (for testing)
-
-## Custom Actions
-
-Implement the `ActionHandler` trait:
-
-```rust
-use workflow_engine::ActionHandler;
-
-struct MyHandler;
-
-#[async_trait]
-impl ActionHandler for MyHandler {
-    fn action_type(&self) -> &str { "my_action" }
-
-    async fn execute(
-        &self,
-        params: &Option<ActionParams>,
-        context: &TriggerContext,
-    ) -> WorkflowResult<serde_json::Value> {
-        // Your logic here
-        Ok(serde_json::json!({ "success": true }))
-    }
-}
-
-engine.register_handler(Box::new(MyHandler));
-```
-
-## Building
-
-```bash
-# Native build
-cargo build --release
-
-# WASM build
-wasm-pack build --target web --release crates/workflow-wasm
-```
-
-## Testing
-
-```bash
-cargo test --workspace
-```
+The native editor (`cargo run -p workflow-native-editor --bin
+flow-editor`) has a built-in test panel that runs the
+`*.test.flow` test suite for the open file. See
+[docs/editor.md](docs/editor.md).

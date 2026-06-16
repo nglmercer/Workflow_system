@@ -21,7 +21,7 @@ mod parser_tests {
     fn test_parse_log() {
         let stmts = FlowParser::parse_program(r#"log("Hello")"#).unwrap();
         assert_eq!(stmts.len(), 1);
-        assert!(matches!(&stmts[0], Stmt::Log(_)));
+        assert!(matches!(&stmts[0], Stmt::Log(_, _)));
     }
 
     #[test]
@@ -77,7 +77,7 @@ mod parser_tests {
         let stmts = FlowParser::parse_program(code).unwrap();
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
-            Stmt::On { event, params } => {
+            Stmt::On { event, params, .. } => {
                 assert_eq!(event, "TEST_EVENT");
                 assert!(params.is_empty());
             }
@@ -91,7 +91,7 @@ mod parser_tests {
         let stmts = FlowParser::parse_program(code).unwrap();
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
-            Stmt::On { event, params } => {
+            Stmt::On { event, params, .. } => {
                 assert_eq!(event, "TEST_EVENT");
                 assert_eq!(params, &vec!["users".to_string(), "meta".to_string()]);
             }

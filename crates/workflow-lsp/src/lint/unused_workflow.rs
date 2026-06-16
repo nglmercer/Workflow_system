@@ -119,11 +119,12 @@ fn is_screaming_snake_case(name: &str) -> bool {
 fn collect_emits(stmts: &[Stmt], out: &mut HashSet<String>) {
     for s in stmts {
         match s {
-            Stmt::Expr(e) | Stmt::Log(e) => collect_emits_in_expr(e, out),
+            Stmt::Expr(e, _) | Stmt::Log(e, _) => collect_emits_in_expr(e, out),
             Stmt::If {
                 condition,
                 then_body,
                 else_body,
+            ..
             } => {
                 collect_emits_in_expr(condition, out);
                 collect_emits(then_body, out);
@@ -131,7 +132,7 @@ fn collect_emits(stmts: &[Stmt], out: &mut HashSet<String>) {
                     collect_emits(eb, out);
                 }
             }
-            Stmt::Return { value } => {
+            Stmt::Return { value, .. } => {
                 if let Some(v) = value {
                     collect_emits_in_expr(v, out);
                 }

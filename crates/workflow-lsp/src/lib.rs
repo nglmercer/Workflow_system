@@ -13,6 +13,7 @@ pub mod features;
 pub mod handlers;
 pub mod inference;
 pub mod lint;
+pub mod scope;
 pub mod state;
 
 pub use state::ServerState;

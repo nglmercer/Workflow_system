@@ -33,7 +33,7 @@ impl<'a> Walker<'a> {
         // type is the implicit return.
         if ret.is_none() {
             if let Some(last_expr) = body.iter().rev().find_map(|s| match s {
-                Stmt::Expr(v) => Some(v),
+                Stmt::Expr(v, _) => Some(v),
                 _ => None,
             }) {
                 let (t, _) = infer_expr_with_ctx(last_expr, scope, self.functions, &[]);
@@ -51,11 +51,11 @@ impl<'a> Walker<'a> {
     ) {
         for stmt in body {
             match stmt {
-                Stmt::Return { value: Some(v) } => {
+                Stmt::Return { value: Some(v), .. } => {
                     let (t, _) = infer_expr_with_ctx(v, scope, self.functions, &[]);
                     *ret = Some(narrow(ret.take(), t));
                 }
-                Stmt::Return { value: None } => {
+                Stmt::Return { value: None, .. } => {
                     // Bare `return` — the function may return null,
                     // but we only narrow if no other site has produced
                     // a concrete type.
@@ -99,6 +99,7 @@ impl<'a> Walker<'a> {
                 condition,
                 then_body,
                 else_body,
+            ..
             } => {
                 self.collect_param_usage_in_expr(condition, param, out);
                 for s in then_body {
@@ -110,9 +111,9 @@ impl<'a> Walker<'a> {
                     }
                 }
             }
-            Stmt::Return { value: Some(v) } => self.collect_param_usage_in_expr(v, param, out),
-            Stmt::Return { value: None } => {}
-            Stmt::Expr(v) | Stmt::Log(v) => self.collect_param_usage_in_expr(v, param, out),
+            Stmt::Return { value: Some(v), .. } => self.collect_param_usage_in_expr(v, param, out),
+            Stmt::Return { value: None, .. } => {}
+            Stmt::Expr(v, _) | Stmt::Log(v, _) => self.collect_param_usage_in_expr(v, param, out),
             Stmt::Foreach { iterable, body, .. } => {
                 self.collect_param_usage_in_expr(iterable, param, out);
                 for s in body {
@@ -526,7 +527,7 @@ fn scan_stmt(
         .cloned()
         .unwrap_or_default();
     match stmt {
-        Stmt::VarDecl { name, value } => {
+        Stmt::VarDecl { name, value, .. } => {
             let (ty, val) = match value {
                 Some(v) => infer_expr_with_ctx(v, &scope, &inference.functions, &[]),
                 None => (Type::Any, None),
@@ -548,6 +549,7 @@ fn scan_stmt(
             item_var,
             iterable,
             body,
+            ..
         } => {
             let inner = infer_expr_with_ctx(iterable, &scope, &inference.functions, &[]).0;
             let ty = match inner {
@@ -571,6 +573,7 @@ fn scan_stmt(
             condition: _,
             then_body,
             else_body,
+            ..
         } => {
             scan_body(
                 inference,

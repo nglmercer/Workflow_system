@@ -45,6 +45,7 @@ fn scan_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
                 condition,
                 then_body,
                 else_body,
+            ..
             } => {
                 scan_expr(cx, condition, out);
                 scan_stmts(cx, then_body, out);
@@ -52,12 +53,12 @@ fn scan_stmts(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>) {
                     scan_stmts(cx, eb, out);
                 }
             }
-            Stmt::Return { value } => {
+            Stmt::Return { value, .. } => {
                 if let Some(v) = value {
                     scan_expr(cx, v, out);
                 }
             }
-            Stmt::Expr(e) | Stmt::Log(e) => scan_expr(cx, e, out),
+            Stmt::Expr(e, _) | Stmt::Log(e, _) => scan_expr(cx, e, out),
             Stmt::Foreach { iterable, body, .. } => {
                 scan_expr(cx, iterable, out);
                 scan_stmts(cx, body, out);

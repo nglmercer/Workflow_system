@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 /// A byte-offset range in the source text. `start` and `end` are
-/// UTF-8 byte indices into the source. `start <= end`. Spans are
-/// optional because the parser builds AST nodes via text-only helpers
-/// (`parse_expr_text` etc.) that don't have a way to recover their
-/// absolute byte position in the source — most production paths
-/// leave spans as `None`, but `Spanned<T>` wrappers and a few
-/// expression parsers can populate them. Consumers that need
-/// reliable positions should fall back to a substring search when
-/// `span()` returns `None`.
+/// UTF-8 byte indices into the source. `start <= end`. Every
+/// statement, declaration, function/workflow and block carries a
+/// `span` field; the parser populates it from the pest
+/// `Pair::as_span()` byte ranges. The struct is `Option`-less for
+/// statements because we have full position information from the
+/// pest grammar; the few `Expr` nodes that come out of the
+/// text-based `parse_expr_text` helper don't have a span, which is
+/// fine because the scope walker only needs statement/block spans.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Span {
     pub start: usize,
@@ -24,9 +24,17 @@ impl Span {
     pub fn is_empty(&self) -> bool {
         self.start >= self.end
     }
+
+    /// True if the byte offset falls inside this span.
+    pub fn contains(&self, offset: usize) -> bool {
+        offset >= self.start && offset <= self.end
+    }
 }
 
-/// Wraps a node with an optional source span.
+/// Wraps a node with an optional source span. Kept for places that
+/// want to attach a span to a node that doesn't have one as a
+/// required field (e.g. expression sub-trees coming out of the
+/// text-based parser).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Spanned<T> {
     pub node: T,
@@ -47,6 +55,23 @@ impl<T> Spanned<T> {
 
     pub fn span(&self) -> Option<Span> {
         self.span
+    }
+}
+
+impl Stmt {
+    /// The byte range this statement occupies in the source. Used
+    /// by the scope walker to decide where a declaration's
+    /// binding becomes visible.
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::VarDecl { span, .. } => *span,
+            Stmt::Assign { span, .. } => *span,
+            Stmt::If { span, .. } => *span,
+            Stmt::Return { span, .. } => *span,
+            Stmt::Expr(_, span) | Stmt::Log(_, span) => *span,
+            Stmt::Foreach { span, .. } => *span,
+            Stmt::On { span, .. } => *span,
+        }
     }
 }
 
@@ -108,6 +133,10 @@ pub struct FlowProgram {
     /// Sidecar `test "..." { ... }` blocks. Empty for non-test files.
     #[serde(default)]
     pub tests: Vec<TestDef>,
+    /// Span of the entire program in the source (used as the
+    /// "global" parent scope's extent for byte-offset lookups).
+    #[serde(default)]
+    pub span: Span,
 }
 
 /// Where an imported binding comes from. The parser produces one of
@@ -137,6 +166,8 @@ pub enum ImportSource {
 pub struct ImportStmt {
     pub name: String,
     pub source: ImportSource,
+    #[serde(default)]
+    pub span: Span,
 }
 
 /// Global variable declaration
@@ -144,6 +175,8 @@ pub struct ImportStmt {
 pub struct GlobalVar {
     pub name: String,
     pub value: Expr,
+    #[serde(default)]
+    pub span: Span,
 }
 
 /// Function definition
@@ -152,6 +185,10 @@ pub struct FunctionDef {
     pub name: String,
     pub params: Vec<String>,
     pub body: Vec<Stmt>,
+    /// Span of the whole `fn name(...) { ... }` block. Used as
+    /// the scope extent for the function's parameters.
+    #[serde(default)]
+    pub span: Span,
 }
 
 /// Workflow definition
@@ -161,14 +198,22 @@ pub struct WorkflowDef {
     pub event: String,
     pub params: Vec<String>,
     pub body: Vec<Stmt>,
+    /// Span of the whole `workflow "..." { ... }` block. Used as
+    /// the scope extent for the workflow's destructure params.
+    #[serde(default)]
+    pub span: Span,
 }
 
-/// Statement types
+/// Statement types. Every variant carries a `span: Span` so the
+/// scope walker can compute byte-offset ranges without doing
+/// string searches. The `span` covers the entire syntactic
+/// construct, including any nested `if`/`foreach` block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Stmt {
     VarDecl {
         name: String,
         value: Option<Expr>,
+        span: Span,
     },
     /// Reassignment to an existing variable, e.g.
     /// `total = total + 1`. Distinct from `VarDecl` (which
@@ -178,25 +223,30 @@ pub enum Stmt {
     Assign {
         name: String,
         value: Expr,
+        span: Span,
     },
     If {
         condition: Expr,
         then_body: Vec<Stmt>,
         else_body: Option<Vec<Stmt>>,
+        span: Span,
     },
     Return {
         value: Option<Expr>,
+        span: Span,
     },
-    Expr(Expr),
-    Log(Expr),
+    Expr(Expr, Span),
+    Log(Expr, Span),
     Foreach {
         item_var: String,
         iterable: Expr,
         body: Vec<Stmt>,
+        span: Span,
     },
     On {
         event: String,
         params: Vec<String>,
+        span: Span,
     },
 }
 

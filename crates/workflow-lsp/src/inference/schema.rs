@@ -170,10 +170,12 @@ mod tests {
             ImportStmt {
                 name: "USER_REGISTERED".to_string(),
                 source: ImportSource::Inline(json!({ "email": "", "plan": "" })),
+            span: workflow_parser::ast::Span::default(),
             },
             ImportStmt {
                 name: "BATCH_START".to_string(),
                 source: ImportSource::Inline(json!({ "items": [] })),
+            span: workflow_parser::ast::Span::default(),
             },
         ];
         let (schemas, bindings) = resolve_schemas_for_program(&imports, None);
@@ -213,6 +215,7 @@ mod tests {
         let imports = vec![ImportStmt {
             name: "data".to_string(),
             source: ImportSource::Path("./nested_data.json".to_string()),
+        span: workflow_parser::ast::Span::default(),
         }];
         let (_schemas, bindings) = resolve_schemas_for_program(&imports, doc.to_str());
         assert_eq!(bindings.len(), 1);

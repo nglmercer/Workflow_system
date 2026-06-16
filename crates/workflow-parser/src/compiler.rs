@@ -82,7 +82,7 @@ impl FlowCompiler {
 
         for stmt in stmts {
             match stmt {
-                Stmt::VarDecl { name, value } => {
+                Stmt::VarDecl { name, value, .. } => {
                     actions.push(Action {
                         action_type: "set_var".to_string(),
                         params: Some({
@@ -105,6 +105,7 @@ impl FlowCompiler {
                     condition,
                     then_body,
                     else_body,
+                    ..
                 } => {
                     let then_actions = Self::compile_stmts(then_body, _functions)?;
                     let else_actions = else_body
@@ -164,7 +165,7 @@ impl FlowCompiler {
 
                     actions.extend(group_actions);
                 }
-                Stmt::Log(expr) => {
+                Stmt::Log(expr, _) => {
                     actions.push(Action {
                         action_type: "log_message".to_string(),
                         params: Some({
@@ -182,7 +183,7 @@ impl FlowCompiler {
                     });
                 }
                 Stmt::Return { .. } => {}
-                Stmt::Expr(Expr::Call { name, args }) => {
+                Stmt::Expr(Expr::Call { name, args }, _) => {
                     actions.push(Action {
                         action_type: name.clone(),
                         params: Some(
@@ -201,11 +202,12 @@ impl FlowCompiler {
                         repeat: None,
                     });
                 }
-                Stmt::Expr(_) => {}
+                Stmt::Expr(_, _) => {}
                 Stmt::Foreach {
                     item_var,
                     iterable,
                     body,
+                    ..
                 } => {
                     let inner_actions = Self::compile_stmts(body, _functions)?;
                     actions.push(Action {
@@ -328,9 +330,11 @@ mod tests {
                 name: "Test Workflow".to_string(),
                 event: "TEST_EVENT".to_string(),
                 params: vec![],
-                body: vec![Stmt::Log(Expr::string("Hello World"))],
+                body: vec![Stmt::Log(Expr::string("Hello World"), Span::default())],
+                span: Span::default(),
             }],
             tests: vec![],
+            span: Span::default(),
         };
 
         let rules = FlowCompiler::compile(&program).unwrap();
@@ -348,13 +352,18 @@ mod tests {
                 name: "Nested Loops".to_string(),
                 event: "NESTED_DATA".to_string(),
                 params: vec!["users".to_string(), "meta".to_string()],
-                body: vec![Stmt::Log(Expr::binary(
-                    BinaryOp::Add,
-                    Expr::string("Users: "),
-                    Expr::member(Expr::var("users"), "length"),
-                ))],
+                body: vec![Stmt::Log(
+                    Expr::binary(
+                        BinaryOp::Add,
+                        Expr::string("Users: "),
+                        Expr::member(Expr::var("users"), "length"),
+                    ),
+                    Span::default(),
+                )],
+                span: Span::default(),
             }],
             tests: vec![],
+            span: Span::default(),
         };
 
         let rules = FlowCompiler::compile(&program).unwrap();
@@ -385,10 +394,13 @@ mod tests {
                 body: vec![Stmt::Foreach {
                     item_var: "item".to_string(),
                     iterable: Expr::member(Expr::var("data"), "items"),
-                    body: vec![Stmt::Log(Expr::var("item"))],
+                    body: vec![Stmt::Log(Expr::var("item"), Span::default())],
+                    span: Span::default(),
                 }],
+                span: Span::default(),
             }],
             tests: vec![],
+            span: Span::default(),
         };
 
         let rules = FlowCompiler::compile(&program).unwrap();

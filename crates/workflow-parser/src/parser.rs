@@ -7,6 +7,14 @@ use crate::ast::*;
 #[grammar = "flow.pest"]
 pub struct FlowParser;
 
+/// Extract the byte-offset span covered by a pest `Pair`. pest's
+/// `Pair::as_span()` returns a `pest::Span` with `start()` and
+/// `end()` returning absolute byte offsets into the input.
+fn span_of(pair: &pest::iterators::Pair<Rule>) -> Span {
+    let s = pair.as_span();
+    Span::new(s.start(), s.end())
+}
+
 impl FlowParser {
     pub fn parse_program(input: &str) -> Result<Vec<Stmt>, String> {
         let pairs =
@@ -26,12 +34,18 @@ impl FlowParser {
     pub fn parse_flow_program(input: &str) -> Result<FlowProgram, String> {
         let pairs =
             FlowParser::parse(Rule::program, input).map_err(|e| format!("Parse error: {}", e))?;
+        let program_span = pairs
+            .clone()
+            .next()
+            .map(|p| span_of(&p))
+            .unwrap_or_default();
         let mut program = FlowProgram {
             imports: Vec::new(),
             globals: Vec::new(),
             functions: Vec::new(),
             workflows: Vec::new(),
             tests: Vec::new(),
+            span: program_span,
         };
 
         for pair in pairs {
@@ -58,10 +72,11 @@ impl FlowParser {
                         // becomes a global binding. Anything else
                         // is silently dropped.
                         let _ = other;
-                        if let Some(Stmt::VarDecl { name, value }) = parse_stmt(inner) {
+                        if let Some(Stmt::VarDecl { name, value, span }) = parse_stmt(inner) {
                             program.globals.push(GlobalVar {
                                 name,
                                 value: value.unwrap_or(Expr::Null),
+                                span,
                             });
                         }
                     }
@@ -89,14 +104,16 @@ fn parse_stmt(pair: pest::iterators::Pair<Rule>) -> Option<Stmt> {
         Rule::foreach_stmt => Some(parse_foreach(inner)),
         Rule::on_stmt => Some(parse_on(inner)),
         Rule::expr_stmt => {
+            let span = span_of(&inner);
             let text = inner.as_str().to_string();
-            Some(Stmt::Expr(parse_expr_text(&text)))
+            Some(Stmt::Expr(parse_expr_text(&text), span))
         }
         _ => None,
     }
 }
 
 fn parse_assign_stmt(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    let span = span_of(&pair);
     let mut name = String::new();
     let mut value = Expr::Null;
     for inner in pair.into_inner() {
@@ -108,10 +125,11 @@ fn parse_assign_stmt(pair: pest::iterators::Pair<Rule>) -> Stmt {
             _ => {}
         }
     }
-    Stmt::Assign { name, value }
+    Stmt::Assign { name, value, span }
 }
 
 fn parse_var_decl(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    let span = span_of(&pair);
     let mut name = None;
     let mut value = None;
     for inner in pair.into_inner() {
@@ -124,18 +142,21 @@ fn parse_var_decl(pair: pest::iterators::Pair<Rule>) -> Stmt {
     Stmt::VarDecl {
         name: name.unwrap_or_default(),
         value,
+        span,
     }
 }
 
 fn parse_return(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    let span = span_of(&pair);
     let value = pair
         .into_inner()
         .find(|p| p.as_rule() == Rule::expr)
         .map(parse_expr);
-    Stmt::Return { value }
+    Stmt::Return { value, span }
 }
 
 fn parse_if(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    let span = span_of(&pair);
     let mut condition = None;
     let mut then_body = Vec::new();
     let mut else_body = None;
@@ -164,19 +185,22 @@ fn parse_if(pair: pest::iterators::Pair<Rule>) -> Stmt {
         condition: condition.unwrap_or(Expr::Bool(true)),
         then_body,
         else_body,
+        span,
     }
 }
 
 fn parse_log(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    let span = span_of(&pair);
     let expr = pair
         .into_inner()
         .next()
         .map(parse_expr)
         .unwrap_or(Expr::Null);
-    Stmt::Log(expr)
+    Stmt::Log(expr, span)
 }
 
 fn parse_foreach(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    let span = span_of(&pair);
     let mut item_var = None;
     let mut iterable = None;
     let mut body = Vec::new();
@@ -200,10 +224,12 @@ fn parse_foreach(pair: pest::iterators::Pair<Rule>) -> Stmt {
         item_var: item_var.unwrap_or_default(),
         iterable: iterable.unwrap_or(Expr::Null),
         body,
+        span,
     }
 }
 
 fn parse_on(pair: pest::iterators::Pair<Rule>) -> Stmt {
+    let span = span_of(&pair);
     let mut event = String::new();
     let mut params = Vec::new();
 
@@ -233,7 +259,11 @@ fn parse_on(pair: pest::iterators::Pair<Rule>) -> Stmt {
         }
     }
 
-    Stmt::On { event, params }
+    Stmt::On {
+        event,
+        params,
+        span,
+    }
 }
 
 fn parse_block(pair: pest::iterators::Pair<Rule>) -> Vec<Stmt> {
@@ -260,6 +290,7 @@ fn parse_import(pair: pest::iterators::Pair<Rule>) -> ImportStmt {
     // `import_source` is an indirection that holds either a STRING
     // (path or URL) or a `value_object` (inline JSON schema). We
     // descend into the first one we see.
+    let span = span_of(&pair);
     let mut name = String::new();
     let mut source: Option<ImportSource> = None;
 
@@ -289,6 +320,7 @@ fn parse_import(pair: pest::iterators::Pair<Rule>) -> ImportStmt {
     ImportStmt {
         name,
         source: source.unwrap_or(ImportSource::Path(String::new())),
+        span,
     }
 }
 
@@ -320,6 +352,7 @@ fn value_object_to_json(pair: pest::iterators::Pair<Rule>) -> serde_json::Value 
 }
 
 fn parse_fn_def(pair: pest::iterators::Pair<Rule>) -> FunctionDef {
+    let span = span_of(&pair);
     let mut name = String::new();
     let mut params = Vec::new();
     let mut body = Vec::new();
@@ -339,10 +372,16 @@ fn parse_fn_def(pair: pest::iterators::Pair<Rule>) -> FunctionDef {
         }
     }
 
-    FunctionDef { name, params, body }
+    FunctionDef {
+        name,
+        params,
+        body,
+        span,
+    }
 }
 
 fn parse_workflow_def(pair: pest::iterators::Pair<Rule>) -> WorkflowDef {
+    let span = span_of(&pair);
     let mut name = String::new();
     let mut event = String::new();
     let mut params = Vec::new();
@@ -361,6 +400,7 @@ fn parse_workflow_def(pair: pest::iterators::Pair<Rule>) -> WorkflowDef {
                         Stmt::On {
                             event: evt,
                             params: p,
+                            ..
                         } => {
                             event = evt.clone();
                             params = p.clone();
@@ -380,6 +420,7 @@ fn parse_workflow_def(pair: pest::iterators::Pair<Rule>) -> WorkflowDef {
         event,
         params,
         body,
+        span,
     }
 }
 
@@ -1192,7 +1233,7 @@ mod tests {
     fn test_parse_log() {
         let stmts = FlowParser::parse_program(r#"log("Hello")"#).unwrap();
         assert_eq!(stmts.len(), 1);
-        assert!(matches!(&stmts[0], Stmt::Log(_)));
+        assert!(matches!(&stmts[0], Stmt::Log(_, _)));
     }
 
     #[test]
@@ -1239,7 +1280,7 @@ mod tests {
         let stmts = FlowParser::parse_program(code).unwrap();
         assert_eq!(stmts.len(), 1);
         match &stmts[0] {
-            Stmt::On { event, params } => {
+            Stmt::On { event, params, .. } => {
                 assert_eq!(event, "TEST_EVENT");
                 assert!(params.is_empty());
             }
