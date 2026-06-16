@@ -45,8 +45,10 @@ impl Analysis {
             Ok(p) => Some(p),
             Err(err) => {
                 // Even on parse failure we still try to give partial help.
-                let mut analysis = Analysis::default();
-                analysis.parse_error = Some(err);
+                let mut analysis = Analysis {
+                    parse_error: Some(err),
+                    ..Analysis::default()
+                };
                 analysis.build_fallback(source);
                 return analysis;
             }

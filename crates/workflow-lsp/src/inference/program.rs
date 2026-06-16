@@ -207,7 +207,7 @@ fn uses_param(expr: &Expr, param: &str) -> bool {
 fn narrow(a: Option<Type>, b: Type) -> Type {
     match a {
         None => b,
-        Some(prev) if prev == Type::Any => b,
+        Some(Type::Any) => b,
         Some(prev) if b == Type::Any => prev,
         Some(prev) if prev == b => prev,
         Some(_) => Type::Any,

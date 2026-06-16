@@ -243,13 +243,15 @@ mod tests {
 
     #[test]
     fn state_request_then_navigate() {
-        let mut state = CompletionState::default();
-        state.items = vec![
-            completion_with_insert_text("a", "a"),
-            completion_with_insert_text("b", "b"),
-            completion_with_insert_text("c", "c"),
-        ];
-        state.visible = true;
+        let mut state = CompletionState {
+            items: vec![
+                completion_with_insert_text("a", "a"),
+                completion_with_insert_text("b", "b"),
+                completion_with_insert_text("c", "c"),
+            ],
+            visible: true,
+            ..CompletionState::default()
+        };
         assert_eq!(state.index, 0);
         state.select_next();
         assert_eq!(state.index, 1);

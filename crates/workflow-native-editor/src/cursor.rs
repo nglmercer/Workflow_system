@@ -113,13 +113,11 @@ pub fn cursor_screen_pos(galley: &egui::Galley, editor_rect: Rect, row: usize, c
     let galley_row = &galley.rows[row];
     let row_min_x = galley_row.rect.min.x;
     let mut cursor_x = row_min_x;
-    let mut glyph_count = 0;
-    for glyph in &galley_row.glyphs {
+    for (glyph_count, glyph) in galley_row.glyphs.iter().enumerate() {
         if glyph_count >= col {
             break;
         }
         cursor_x = glyph.pos.x + glyph.size.x;
-        glyph_count += 1;
     }
     let cursor_y = galley_row.rect.min.y;
     editor_rect.min + Vec2::new(cursor_x - editor_rect.min.x, cursor_y - editor_rect.min.y)
@@ -198,8 +196,8 @@ mod tests {
     fn round_trip_line_col() {
         let text = "alpha\nbeta\ngamma";
         let max_cols = [5, 4, 5];
-        for line in 0..3 {
-            for col in 0..max_cols[line] {
+        for (line, &line_cols) in max_cols.iter().enumerate() {
+            for col in 0..line_cols {
                 let offset = line_col_to_char(text, line, col);
                 let (l2, c2) = char_to_line_col(text, offset);
                 let l2_0 = l2 - 1;

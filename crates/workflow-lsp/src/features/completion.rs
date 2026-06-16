@@ -151,8 +151,8 @@ pub fn into_completion(item: lsp_types::CompletionItem) -> Completion {
         _ => CompletionKind::Variable,
     };
 
-    let text_edit = item.text_edit.and_then(|te| match te {
-        lsp_types::CompletionTextEdit::Edit(edit) => Some(CompletionTextEdit {
+    let text_edit = item.text_edit.map(|te| match te {
+        lsp_types::CompletionTextEdit::Edit(edit) => CompletionTextEdit {
             range: (
                 edit.range.start.line,
                 edit.range.start.character,
@@ -160,8 +160,8 @@ pub fn into_completion(item: lsp_types::CompletionItem) -> Completion {
                 edit.range.end.character,
             ),
             new_text: edit.new_text,
-        }),
-        lsp_types::CompletionTextEdit::InsertAndReplace(ir) => Some(CompletionTextEdit {
+        },
+        lsp_types::CompletionTextEdit::InsertAndReplace(ir) => CompletionTextEdit {
             range: (
                 ir.insert.start.line,
                 ir.insert.start.character,
@@ -169,7 +169,7 @@ pub fn into_completion(item: lsp_types::CompletionItem) -> Completion {
                 ir.insert.end.character,
             ),
             new_text: ir.new_text,
-        }),
+        },
     });
 
     Completion {

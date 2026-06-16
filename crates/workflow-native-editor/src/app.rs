@@ -184,7 +184,7 @@ impl EditorApp {
             .auto_shrink([false; 2])
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let line_count = display_text.lines().count().max(1);
+                    let line_count = display_text.split('\n').count().max(1);
                     let gutter_width = gutter::width_for_line_count(line_count);
                     let content_height = line_count as f32 * LINE_HEIGHT;
 
@@ -199,11 +199,11 @@ impl EditorApp {
                         .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width))
                         .show(ui);
 
-                    let editor_rect = output.response.rect;
+                    let galley = output.galley.clone();
                     gutter::paint(
                         ui,
                         gutter_rect,
-                        editor_rect.min.y,
+                        &output.galley,
                         &regions_for_gutter,
                         &display_text,
                         &mut self.collapsed,
@@ -219,7 +219,6 @@ impl EditorApp {
                     self.apply_snippet_cursor(&output);
 
                     let response = output.response;
-                    let galley = output.galley;
 
                     if response.changed() {
                         // Splice the visible edits back into the
@@ -417,7 +416,7 @@ impl EditorApp {
             self.hover_pos = None;
             return;
         }
-        let col = column_at_x(&galley, line_idx, local.x);
+        let col = column_at_x(galley, line_idx, local.x);
         if let Some(text) = features::hover_at(&self.lsp, &self.uri, line_idx, col) {
             self.hover_text = Some(text);
             self.hover_pos = Some(pos);

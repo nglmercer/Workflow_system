@@ -14,37 +14,38 @@ use super::layouter::LINE_HEIGHT;
 
 /// Paint line numbers and fold chevrons into the given `rect`.
 ///
-/// `editor_start_y` is the screen-space Y of the first line of text
-/// (typically the `TextEdit`'s `response.rect.min.y`). The line
-/// numbers are aligned to the text editor's lines, not the gutter's
-/// own top edge, so the two stay in sync as the user scrolls.
+/// `galley` is the laid-out text from the `TextEdit`; its row
+/// positions already account for the widget's inner margin, so the
+/// line numbers stay perfectly aligned with the code.
 ///
 /// `collapsed` is mutated in place when the user clicks a chevron.
 pub fn paint(
     ui: &mut egui::Ui,
     rect: Rect,
-    editor_start_y: f32,
+    galley: &egui::Galley,
     regions: &[FoldRegion],
     display_text: &str,
     collapsed: &mut BTreeSet<usize>,
 ) {
     let painter = ui.painter_at(rect);
-    // Subtle separator between gutter and editor.
     painter.line_segment(
         [rect.right_top(), rect.right_bottom()],
         (1.0, Color32::from_gray(60)),
     );
 
     let font = FontId::monospace(super::layouter::FONT_SIZE);
-    let line_count = display_text.lines().count().max(1);
+    let line_count = display_text.split('\n').count().max(1);
     let text_color = Color32::from_gray(140);
 
     for line_idx in 0..line_count {
-        let y = editor_start_y + (line_idx as f32) * LINE_HEIGHT;
+        let y = if line_idx < galley.rows.len() {
+            galley.rows[line_idx].rect.min.y
+        } else {
+            galley.rows.last().map_or(rect.min.y, |r| r.rect.min.y + LINE_HEIGHT)
+        };
         if y > rect.max.y {
             break;
         }
-        // Right-align the number within the chevron + digit area.
         let num = format!("{}", line_idx + 1);
         let anchor = Pos2::new(rect.max.x - 6.0, y);
         painter.text(anchor, Align2::RIGHT_TOP, num, font.clone(), text_color);
