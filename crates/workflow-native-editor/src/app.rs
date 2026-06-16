@@ -22,7 +22,9 @@ use super::layouter::{layout_flow, FONT_SIZE};
 use super::popup;
 use super::snippet::{self, PendingSnippet};
 
-#[derive(Default, Clone, Copy)]
+use super::history::{History, Snapshot};
+
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CursorPosition {
     pub line: usize,
     pub col: usize,
@@ -47,6 +49,13 @@ pub struct EditorApp {
     /// from the start of the document). We re-derive the cursor position
     /// for each stop relative to this anchor.
     snippet_anchor: usize,
+    history: History,
+    /// Wall-clock time used to coalesce typing edits into a single undo
+    /// step. We don't need a real clock — a frame counter is fine.
+    edit_clock_ms: u128,
+    /// Snapshot of the editor state at the start of the current frame.
+    /// If the user typed this frame, we push this to the undo stack.
+    frame_start: Option<Snapshot>,
 }
 
 const EXAMPLE_PROGRAM: &str = r#"workflow "Native Example" {
@@ -87,6 +96,9 @@ impl Default for EditorApp {
             hover_pos: None,
             pending_snippet: None,
             snippet_anchor: 0,
+            history: History::new(),
+            edit_clock_ms: 0,
+            frame_start: None,
         }
     }
 }
@@ -104,8 +116,11 @@ impl eframe::App for EditorApp {
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                     if ui.button("Clear").clicked() {
+                        // Structural edit — one undo step, not coalesced.
+                        self.history.snapshot(self.snapshot()).commit_structural();
                         self.text.clear();
                         self.lsp.update_document(&self.uri, &self.text);
+                        self.frame_start = Some(self.snapshot());
                     }
                 });
             });
@@ -116,8 +131,7 @@ impl eframe::App for EditorApp {
         });
 
         if self.completion_visible && !self.completions.is_empty() {
-            if let Some(idx) =
-                popup::show_completion(ctx, &self.completions, self.completion_index)
+            if let Some(idx) = popup::show_completion(ctx, &self.completions, self.completion_index)
             {
                 self.insert_completion(idx);
             }
@@ -131,6 +145,11 @@ impl eframe::App for EditorApp {
 
 impl EditorApp {
     fn render_editor(&mut self, ui: &mut Ui) {
+        // Save the *pre-edit* state once per frame so we can push it to
+        // the undo stack if the user typed.
+        if self.frame_start.is_none() {
+            self.frame_start = Some(self.snapshot());
+        }
         ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
@@ -142,6 +161,12 @@ impl EditorApp {
                     .show(ui);
                 self.text = text;
 
+                // Capture the *previous* state for the undo history before
+                // the TextEdit mutates it. We take a snapshot of the
+                // pre-edit text and cursor at the start of each frame.
+                let pre_edit = self.frame_start.take();
+                let post_edit = self.snapshot();
+
                 // Apply the snippet cursor before we move any fields out of
                 // `output` — the apply function needs a borrow of the whole
                 // struct.
@@ -151,6 +176,14 @@ impl EditorApp {
                 let galley = output.galley;
 
                 if response.changed() {
+                    // Commit the pre-edit state to the undo stack. The
+                    // history module coalesces this with previous edits if
+                    // it falls within the typing window.
+                    if let Some(prev) = pre_edit {
+                        let mut snap = prev;
+                        snap.last_edit_at_ms = self.now_ms();
+                        self.history.snapshot(snap).commit_typing();
+                    }
                     self.lsp.update_document(&self.uri, &self.text);
                     // The user typed something: the snippet's selection is
                     // no longer meaningful, so drop it.
@@ -175,17 +208,19 @@ impl EditorApp {
                 }
 
                 self.update_hover(response.rect, &galley, response.hover_pos());
+
+                // If nothing changed this frame, the post-edit snapshot is
+                // the new "frame start" for the next frame.
+                if !response.changed() {
+                    self.frame_start = Some(post_edit);
+                }
             });
     }
 
     /// Run the global key handlers, then apply the result to editor state.
     fn handle_global_keys(&mut self, ctx: &egui::Context) {
         let popup_open = self.completion_visible && !self.completions.is_empty();
-        let action = keybindings::take_key_action(
-            ctx,
-            popup_open,
-            self.pending_snippet.is_some(),
-        );
+        let action = keybindings::take_key_action(ctx, popup_open, self.pending_snippet.is_some());
         match action {
             KeyAction::None => {}
             KeyAction::PopupUp
@@ -212,6 +247,46 @@ impl EditorApp {
             KeyAction::SnippetCancel => {
                 self.pending_snippet = None;
             }
+            KeyAction::Undo => self.undo(),
+            KeyAction::Redo => self.redo(),
+        }
+    }
+
+    fn undo(&mut self) {
+        if let Some(snap) = self.history.undo() {
+            self.apply_snapshot(snap);
+        }
+    }
+
+    fn redo(&mut self) {
+        if let Some(snap) = self.history.redo() {
+            self.apply_snapshot(snap);
+        }
+    }
+
+    fn apply_snapshot(&mut self, snap: Snapshot) {
+        self.text = snap.text;
+        self.cursor = snap.cursor;
+        self.pending_snippet = snap.pending_snippet;
+        self.snippet_anchor = 0;
+        self.lsp.update_document(&self.uri, &self.text);
+        // The frame_start was captured before this undo/redo; invalidate
+        // it so the next render captures a fresh pre-edit snapshot.
+        self.frame_start = None;
+        self.completion_visible = false;
+    }
+
+    fn now_ms(&mut self) -> u128 {
+        self.edit_clock_ms = self.edit_clock_ms.wrapping_add(16);
+        self.edit_clock_ms
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            text: self.text.clone(),
+            cursor: self.cursor,
+            pending_snippet: self.pending_snippet.clone(),
+            last_edit_at_ms: self.edit_clock_ms,
         }
     }
 
@@ -284,9 +359,7 @@ impl EditorApp {
             .take_while(|g| g.pos.x + g.size.x - row_min_x <= local.x)
             .count();
 
-        if let Some(text) =
-            workflow_lsp::features::hover_at(&self.lsp, &self.uri, line_idx, col)
-        {
+        if let Some(text) = workflow_lsp::features::hover_at(&self.lsp, &self.uri, line_idx, col) {
             self.hover_text = Some(text);
             self.hover_pos = Some(pos);
         } else {
@@ -299,6 +372,9 @@ impl EditorApp {
         if idx >= self.completions.len() {
             return;
         }
+        // Structural edit — push the current state so the user can undo
+        // the whole completion in one step.
+        let pre_snap = self.snapshot();
         let item = self.completions[idx].clone();
         let raw = item.insert_text.unwrap_or(item.label);
 
@@ -345,6 +421,10 @@ impl EditorApp {
 
         self.completion_visible = false;
         self.lsp.update_document(&self.uri, &self.text);
+        // Commit *after* the mutation: the snapshot we took is the
+        // pre-edit state, which is what we want on the undo stack.
+        self.history.snapshot(pre_snap).commit_structural();
+        self.frame_start = Some(self.snapshot());
     }
 
     fn apply_replacement(&mut self, start_chars: usize, end_chars: usize, replacement: &str) {

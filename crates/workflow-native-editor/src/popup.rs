@@ -18,8 +18,7 @@ pub fn show_completion(
         return None;
     }
 
-    let height =
-        (completions.len() as f32 * COMPLETION_ROW_HEIGHT).min(COMPLETION_MAX_HEIGHT);
+    let height = (completions.len() as f32 * COMPLETION_ROW_HEIGHT).min(COMPLETION_MAX_HEIGHT);
     let area = ctx.available_rect();
     let popup_rect = Rect::from_min_size(
         Pos2::new(area.min.x + 16.0, area.max.y - height - 16.0),
@@ -84,7 +83,11 @@ pub fn show_hover(ctx: &egui::Context, pos: Pos2, text: &str) {
         .collapsible(false)
         .title_bar(false)
         .show(ctx, |ui| {
-            ui.label(RichText::new(text).monospace().color(Color32::from_gray(220)));
+            ui.label(
+                RichText::new(text)
+                    .monospace()
+                    .color(Color32::from_gray(220)),
+            );
         });
 }
 

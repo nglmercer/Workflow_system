@@ -24,6 +24,10 @@ pub enum KeyAction {
     SnippetAdvance,
     /// Cancel the active snippet.
     SnippetCancel,
+    /// Undo the last edit.
+    Undo,
+    /// Redo the next edit.
+    Redo,
     /// No global key was pressed this frame.
     None,
 }
@@ -41,6 +45,8 @@ pub fn take_key_action(
     // `count_and_consume_key` (mutable) on `i` at the same time.
     let mut popup_keys: Vec<(Key, Modifiers)> = Vec::new();
     let mut snippet_keys: Vec<(Key, Modifiers)> = Vec::new();
+    let mut undo_keys: Vec<(Key, Modifiers)> = Vec::new();
+    let mut redo_keys: Vec<(Key, Modifiers)> = Vec::new();
     ctx.input(|i| {
         for event in &i.events {
             if let egui::Event::Key {
@@ -50,6 +56,7 @@ pub fn take_key_action(
                 ..
             } = event
             {
+                let is_ctrl = modifiers.ctrl || modifiers.command;
                 if popup_open
                     && matches!(
                         key,
@@ -59,6 +66,10 @@ pub fn take_key_action(
                     popup_keys.push((*key, *modifiers));
                 } else if has_active_snippet && (*key == Key::Tab || *key == Key::Escape) {
                     snippet_keys.push((*key, *modifiers));
+                } else if is_ctrl && *key == Key::Z && modifiers.shift {
+                    redo_keys.push((*key, *modifiers));
+                } else if is_ctrl && *key == Key::Z {
+                    undo_keys.push((*key, *modifiers));
                 }
             }
         }
@@ -98,6 +109,24 @@ pub fn take_key_action(
             }
         });
         return action;
+    }
+
+    if !undo_keys.is_empty() {
+        ctx.input_mut(|i| {
+            for (key, mods) in &undo_keys {
+                let _ = i.count_and_consume_key(*mods, *key);
+            }
+        });
+        return KeyAction::Undo;
+    }
+
+    if !redo_keys.is_empty() {
+        ctx.input_mut(|i| {
+            for (key, mods) in &redo_keys {
+                let _ = i.count_and_consume_key(*mods, *key);
+            }
+        });
+        return KeyAction::Redo;
     }
 
     KeyAction::None

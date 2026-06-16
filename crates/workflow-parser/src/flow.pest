@@ -51,4 +51,6 @@ import_stmt = { "import" ~ IDENT ~ "from" ~ STRING }
 workflow_def = { "workflow" ~ STRING ~ block }
 
 // Top level
-program = { (import_stmt | fn_def | workflow_def | stmt)* }
+program = { (import_stmt | fn_def | workflow_def | stmt | comment)* }
+
+comment = @{ "//" ~ (!"\n" ~ ANY)* }

@@ -1,5 +1,6 @@
 mod app;
 mod highlight;
+mod history;
 mod keybindings;
 mod layouter;
 mod popup;

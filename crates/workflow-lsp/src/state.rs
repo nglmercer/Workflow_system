@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use lsp_types::Position;
 
 use crate::analysis::Analysis;
+use crate::inference::Inference;
 
 pub struct ServerState {
     pub documents: HashMap<String, String>,
     pub analyses: HashMap<String, Analysis>,
+    pub inferences: HashMap<String, Inference>,
 }
 
 impl ServerState {
@@ -14,13 +16,22 @@ impl ServerState {
         Self {
             documents: HashMap::new(),
             analyses: HashMap::new(),
+            inferences: HashMap::new(),
         }
     }
 
     pub fn update_document(&mut self, uri: &str, content: &str) {
         self.documents.insert(uri.to_string(), content.to_string());
-        self.analyses
-            .insert(uri.to_string(), Analysis::analyze(content));
+        let analysis = Analysis::analyze(content);
+        let inference = match workflow_parser::FlowParser::parse_flow_program(content) {
+            Ok(program) => Inference::analyze(&program, content),
+            Err(_) => {
+                let line_count = content.lines().count();
+                Inference::empty(line_count)
+            }
+        };
+        self.analyses.insert(uri.to_string(), analysis);
+        self.inferences.insert(uri.to_string(), inference);
     }
 
     pub fn get_document(&self, uri: &str) -> Option<&String> {
@@ -29,6 +40,10 @@ impl ServerState {
 
     pub fn get_analysis(&self, uri: &str) -> Option<&Analysis> {
         self.analyses.get(uri)
+    }
+
+    pub fn get_inference(&self, uri: &str) -> Option<&Inference> {
+        self.inferences.get(uri)
     }
 
     /// Convenience: look up the word at the given position without going

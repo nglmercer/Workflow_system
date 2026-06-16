@@ -9,6 +9,7 @@
 use lsp_types::Position;
 
 use crate::analysis::Analysis;
+use crate::inference;
 use crate::state::ServerState;
 
 /// A single completion entry, decoupled from `lsp_types::CompletionItem`
@@ -49,31 +50,46 @@ pub fn completions_at(
         line: line as u32,
         character: character as u32,
     };
+    let inference = state.get_inference(uri);
     build_completions(analysis, source, position)
         .into_iter()
-        .map(into_completion)
+        .map(|item| into_completion_with_type(item, inference, source, position))
         .collect()
 }
 
 /// Compute hover documentation for the given cursor position.
-pub fn hover_at(
-    state: &ServerState,
-    uri: &str,
-    line: usize,
-    character: usize,
-) -> Option<String> {
+pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -> Option<String> {
     let source = state.get_document(uri)?;
     let analysis = state.get_analysis(uri)?;
+    let inference = state.get_inference(uri);
     let position = Position {
         line: line as u32,
         character: character as u32,
     };
     let symbol = analysis.lookup(source, position)?;
+
+    // Combine the existing scope/symbol docs with the type/value inference
+    // result so the user sees both "what kind of thing is this?" and
+    // "what's its type and current value?".
     let mut body = String::new();
     if let Some(detail) = &symbol.detail {
         body.push_str(detail);
         body.push_str("\n\n");
     }
+
+    if let Some(inference) = inference {
+        if let Some(binding) = inference.lookup(source, position) {
+            if binding.annotated {
+                body.push_str(&format!("`//@{}`\n\n", binding.ty.label()));
+            } else {
+                body.push_str(&format!("**type:** `{}`\n\n", binding.ty.label()));
+            }
+            if let Some(value) = &binding.value {
+                body.push_str(&format!("**value:** `{}`\n\n", format_value(value)));
+            }
+        }
+    }
+
     if let Some(docs) = &symbol.documentation {
         body.push_str(docs);
     }
@@ -81,6 +97,25 @@ pub fn hover_at(
         body = symbol.name.clone();
     }
     Some(body)
+}
+
+fn format_value(v: &inference::Value) -> String {
+    match v {
+        inference::Value::String(s) => format!("\"{}\"", s),
+        inference::Value::Number(n) => {
+            if n.fract() == 0.0 {
+                format!("{}", *n as i64)
+            } else {
+                format!("{}", n)
+            }
+        }
+        inference::Value::Bool(b) => format!("{}", b),
+        inference::Value::Null => "null".to_string(),
+        inference::Value::Array(items) => {
+            let parts: Vec<String> = items.iter().map(format_value).collect();
+            format!("[{}]", parts.join(", "))
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +137,38 @@ fn into_completion(item: lsp_types::CompletionItem) -> Completion {
         insert_text: item.insert_text,
         kind,
     }
+}
+
+/// Same as [`into_completion`], but if the completion is a variable we
+/// already know about, we replace the LSP wire-format detail with the
+/// inferred type (and a folded value, if any).
+fn into_completion_with_type(
+    item: lsp_types::CompletionItem,
+    inference: Option<&inference::Inference>,
+    source: &str,
+    position: Position,
+) -> Completion {
+    let mut completion = into_completion(item);
+    if let (CompletionKind::Variable, Some(inference)) = (completion.kind, inference) {
+        // Look the label up as if it were a word at the current position
+        // — for a `Var` completion, the label is the variable name.
+        let word_position = Position {
+            line: position.line,
+            character: position
+                .character
+                .saturating_sub(completion.label.chars().count() as u32),
+        };
+        if let Some(binding) = inference.lookup(source, word_position) {
+            if binding.name == completion.label {
+                let mut detail = binding.ty.label();
+                if let Some(value) = &binding.value {
+                    detail.push_str(&format!(" = {}", format_value(value)));
+                }
+                completion.detail = Some(detail);
+            }
+        }
+    }
+    completion
 }
 
 /// The completion logic, shared with the JSON-RPC handler. We keep a private

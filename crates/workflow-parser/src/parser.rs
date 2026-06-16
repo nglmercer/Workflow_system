@@ -46,6 +46,9 @@ impl FlowParser {
                     Rule::workflow_def => {
                         program.workflows.push(parse_workflow_def(inner));
                     }
+                    Rule::comment => {
+                        // Top-level comment — ignored.
+                    }
                     _ => {
                         if let Some(Stmt::VarDecl { name, value }) = parse_stmt(inner) {
                             program.globals.push(GlobalVar {
