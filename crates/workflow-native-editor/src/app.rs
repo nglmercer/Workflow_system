@@ -11,14 +11,16 @@
 use eframe::egui::{
     self,
     text::{CCursor, CCursorRange},
-    FontId, Pos2, Rect, RichText, ScrollArea, TextEdit, Ui, Vec2,
+    Align2, Color32, FontId, Pos2, Rect, RichText, ScrollArea, TextEdit, Ui, Vec2,
 };
+use std::collections::BTreeSet;
 use std::sync::Arc;
-use workflow_lsp::features::Completion;
+use workflow_lsp::features::{Completion, Diagnostic};
 use workflow_lsp::ServerState;
 
+use super::folding::{self, FoldRegion};
 use super::keybindings::{self, KeyAction};
-use super::layouter::{layout_flow, FONT_SIZE};
+use super::layouter::{layout_flow, FONT_SIZE, LINE_HEIGHT};
 use super::popup;
 use super::snippet::{self, PendingSnippet};
 
@@ -58,6 +60,12 @@ pub struct EditorApp {
     frame_start: Option<Snapshot>,
     /// Screen position of the cursor, used to position the completion popup.
     cursor_screen_pos: Option<Pos2>,
+    /// Diagnostics (errors, warnings) for the current document.
+    diagnostics: Vec<Diagnostic>,
+    /// Start-line of every collapsed fold region. Stable across edits
+    /// as long as the relative position of the block's opening line
+    /// doesn't change.
+    collapsed: BTreeSet<usize>,
 }
 
 const EXAMPLE_PROGRAM: &str = r#"workflow "Native Example" {
@@ -102,6 +110,8 @@ impl Default for EditorApp {
             edit_clock_ms: 0,
             frame_start: None,
             cursor_screen_pos: None,
+            diagnostics: Vec::new(),
+            collapsed: BTreeSet::new(),
         }
     }
 }
@@ -133,6 +143,38 @@ impl eframe::App for EditorApp {
             self.render_editor(ui);
         });
 
+        // Show diagnostics panel at the bottom if there are any
+        if !self.diagnostics.is_empty() {
+            egui::TopBottomPanel::bottom("diagnostics").show(ctx, |ui| {
+                ui.label(RichText::new("Problems").strong());
+                ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
+                    for diag in &self.diagnostics {
+                        let (color, icon) = match diag.severity {
+                            workflow_lsp::features::DiagnosticSeverity::Error => {
+                                (Color32::from_rgb(255, 80, 80), "✗")
+                            }
+                            workflow_lsp::features::DiagnosticSeverity::Warning => {
+                                (Color32::from_rgb(255, 200, 50), "⚠")
+                            }
+                            _ => (Color32::GRAY, "ℹ"),
+                        };
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(icon).color(color));
+                            ui.label(
+                                RichText::new(format!(
+                                    "Ln {}, Col {}: {}",
+                                    diag.start_line + 1,
+                                    diag.start_col + 1,
+                                    diag.message
+                                ))
+                                .color(color),
+                            );
+                        });
+                    }
+                });
+            });
+        }
+
         if self.completion_visible && !self.completions.is_empty() {
             if let Some(idx) = popup::show_completion(
                 ctx,
@@ -157,94 +199,200 @@ impl EditorApp {
         if self.frame_start.is_none() {
             self.frame_start = Some(self.snapshot());
         }
+        // Detect current fold regions in the source. Prune any
+        // collapsed-fold id that no longer refers to a real region
+        // (e.g. the user deleted the header).
+        let regions = folding::detect_folds(&self.text);
+        let live_ids: BTreeSet<usize> = regions.iter().map(|r| r.start_line).collect();
+        self.collapsed.retain(|id| live_ids.contains(id));
+        let regions_for_gutter = regions.clone();
+
+        // Build the text that the TextEdit will actually display:
+        // collapsed folds have their body replaced with a placeholder.
+        let mut display_text = folding::apply_folds(&self.text, &self.collapsed);
+        let pre_display = display_text.clone();
+
         ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                let mut text = std::mem::take(&mut self.text);
-                let output = TextEdit::multiline(&mut text)
-                    .font(FontId::monospace(FONT_SIZE))
-                    .desired_width(f32::INFINITY)
-                    .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width))
-                    .show(ui);
-                self.text = text;
+                ui.horizontal(|ui| {
+                    // Gutter: line numbers + fold chevrons. Sized to fit
+                    // the larger of (digit count for line numbers,
+                    // 2-char chevron).
+                    let line_count = display_text.lines().count().max(1);
+                    let digits = ((line_count as f64).log10().floor() as usize + 1).max(2);
+                    let gutter_width = (digits as f32) * 9.0 + 24.0; // digits * px + chevron area
 
-                // Capture the *previous* state for the undo history before
-                // the TextEdit mutates it. We take a snapshot of the
-                // pre-edit text and cursor at the start of each frame.
-                let pre_edit = self.frame_start.take();
-                let post_edit = self.snapshot();
+                    let (gutter_rect, _gutter_response) = ui.allocate_exact_size(
+                        Vec2::new(gutter_width, ui.available_height()),
+                        egui::Sense::hover(),
+                    );
+                    self.paint_gutter(ui, gutter_rect, &regions_for_gutter, &display_text);
 
-                // Apply the snippet cursor before we move any fields out of
-                // `output` — the apply function needs a borrow of the whole
-                // struct.
-                self.apply_snippet_cursor(&output);
+                    // Editor
+                    let output = TextEdit::multiline(&mut display_text)
+                        .font(FontId::monospace(FONT_SIZE))
+                        .desired_width(f32::INFINITY)
+                        .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width))
+                        .show(ui);
 
-                let response = output.response;
-                let galley = output.galley;
+                    // Capture the *previous* state for the undo history
+                    // before the TextEdit mutates it.
+                    let pre_edit = self.frame_start.take();
+                    let post_edit = self.snapshot();
 
-                if response.changed() {
-                    // Commit the pre-edit state to the undo stack. The
-                    // history module coalesces this with previous edits if
-                    // it falls within the typing window.
-                    if let Some(prev) = pre_edit {
-                        let mut snap = prev;
-                        snap.last_edit_at_ms = self.now_ms();
-                        self.history.snapshot(snap).commit_typing();
-                    }
-                    self.lsp.update_document(&self.uri, &self.text);
-                    // The user typed something: the snippet's selection is
-                    // no longer meaningful, so drop it.
-                    self.pending_snippet = None;
-                }
+                    // Apply the snippet cursor before we move any fields
+                    // out of `output`.
+                    self.apply_snippet_cursor(&output);
 
-                if let Some(range) = &output.cursor_range {
-                    let primary = range.primary;
-                    let line = primary.rcursor.row + 1;
-                    let col = primary.rcursor.column + 1;
-                    if line != self.cursor.line || col != self.cursor.col {
-                        self.cursor = CursorPosition { line, col };
-                    }
-                    // Calculate cursor screen position for popup positioning
-                    let row_idx = primary.rcursor.row;
-                    if row_idx < galley.rows.len() {
-                        let row = &galley.rows[row_idx];
-                        let row_min_x = row.rect.min.x;
-                        let mut cursor_x = row_min_x;
-                        let mut glyph_count = 0;
-                        for glyph in &row.glyphs {
-                            if glyph_count >= primary.rcursor.column {
-                                break;
-                            }
-                            cursor_x = glyph.pos.x + glyph.size.x;
-                            glyph_count += 1;
-                        }
-                        let cursor_y = row.rect.min.y;
-                        self.cursor_screen_pos = Some(
-                            response.rect.min
-                                + Vec2::new(
-                                    cursor_x - response.rect.min.x,
-                                    cursor_y - response.rect.min.y,
-                                ),
+                    let response = output.response;
+                    let galley = output.galley;
+
+                    if response.changed() {
+                        // Splice the visible edits back into the source.
+                        let new_source = folding::sync_edits(
+                            &self.text,
+                            &pre_display,
+                            &display_text,
+                            &self.collapsed,
                         );
+                        self.text = new_source;
+
+                        if let Some(prev) = pre_edit {
+                            let mut snap = prev;
+                            snap.last_edit_at_ms = self.now_ms();
+                            self.history.snapshot(snap).commit_typing();
+                        }
+                        self.lsp.update_document(&self.uri, &self.text);
+                        self.diagnostics =
+                            workflow_lsp::features::diagnostics_at(&self.lsp, &self.uri);
+                        // The user typed something: the snippet's
+                        // selection is no longer meaningful, so drop it.
+                        self.pending_snippet = None;
+                    }
+
+                    if let Some(range) = &output.cursor_range {
+                        let primary = range.primary;
+                        let line = primary.rcursor.row + 1;
+                        let col = primary.rcursor.column + 1;
+                        if line != self.cursor.line || col != self.cursor.col {
+                            self.cursor = CursorPosition { line, col };
+                        }
+                        let row_idx = primary.rcursor.row;
+                        if row_idx < galley.rows.len() {
+                            let row = &galley.rows[row_idx];
+                            let row_min_x = row.rect.min.x;
+                            let mut cursor_x = row_min_x;
+                            let mut glyph_count = 0;
+                            for glyph in &row.glyphs {
+                                if glyph_count >= primary.rcursor.column {
+                                    break;
+                                }
+                                cursor_x = glyph.pos.x + glyph.size.x;
+                                glyph_count += 1;
+                            }
+                            let cursor_y = row.rect.min.y;
+                            self.cursor_screen_pos = Some(
+                                response.rect.min
+                                    + Vec2::new(
+                                        cursor_x - response.rect.min.x,
+                                        cursor_y - response.rect.min.y,
+                                    ),
+                            );
+                        }
+                    }
+
+                    if response.changed()
+                        && keybindings::should_request_completion(ui, &self.text, self.cursor)
+                    {
+                        self.request_completion();
+                    } else if response.changed() {
+                        self.completion_visible = false;
+                    }
+
+                    self.update_hover(response.rect, &galley, response.hover_pos());
+
+                    if !response.changed() {
+                        self.frame_start = Some(post_edit);
+                    }
+                });
+            });
+    }
+
+    /// Draw line numbers and fold chevrons in the gutter. Clicking a
+    /// chevron toggles the corresponding fold. The TextEdit and the
+    /// gutter scroll together because they're in the same `ScrollArea`.
+    fn paint_gutter(
+        &mut self,
+        ui: &mut Ui,
+        rect: Rect,
+        regions: &[FoldRegion],
+        display_text: &str,
+    ) {
+        let painter = ui.painter_at(rect);
+        // Subtle separator between gutter and editor.
+        painter.line_segment(
+            [rect.right_top(), rect.right_bottom()],
+            (1.0, Color32::from_gray(60)),
+        );
+
+        let font = FontId::monospace(FONT_SIZE);
+        let line_count = display_text.lines().count().max(1);
+        let text_color = Color32::from_gray(140);
+
+        for line_idx in 0..line_count {
+            // Compute the y for this line. We don't have access to the
+            // galley here, so we use a simple stack: each line is
+            // `LINE_HEIGHT` tall, starting at `rect.min.y`. The
+            // TextEdit lays out with the same `LINE_HEIGHT` minimum row
+            // height, so the rows align.
+            let y = rect.min.y + (line_idx as f32) * LINE_HEIGHT;
+            if y > rect.max.y {
+                break;
+            }
+            let num = format!("{}", line_idx + 1);
+            // Right-align the number within the chevron area + digit
+            // area. We place it at `rect.max.x - 6.0`.
+            let anchor = Pos2::new(rect.max.x - 6.0, y);
+            painter.text(anchor, Align2::RIGHT_TOP, num, font.clone(), text_color);
+
+            // If this line is the start of a foldable region, draw a
+            // clickable chevron. We allocate a click region the size
+            // of `LINE_HEIGHT` square at the left edge of the gutter.
+            if let Some(region) = regions.iter().find(|r| r.start_line == line_idx) {
+                let chevron_rect = Rect::from_min_size(
+                    Pos2::new(rect.min.x + 2.0, y),
+                    Vec2::new(16.0, LINE_HEIGHT),
+                );
+                let id = ui.id().with(("fold", region.start_line));
+                let response = ui.interact(chevron_rect, id, egui::Sense::click());
+                let collapsed = self.collapsed.contains(&region.start_line);
+                let glyph = if collapsed { "▶" } else { "▼" };
+                let base_color = match region.kind {
+                    folding::FoldKind::Function => Color32::from_rgb(120, 180, 255),
+                    folding::FoldKind::Workflow => Color32::from_rgb(255, 180, 120),
+                };
+                let color = if response.hovered() {
+                    Color32::from_gray(240)
+                } else {
+                    base_color
+                };
+                if response.clicked() {
+                    if collapsed {
+                        self.collapsed.remove(&region.start_line);
+                    } else {
+                        self.collapsed.insert(region.start_line);
                     }
                 }
-
-                if response.changed()
-                    && keybindings::should_request_completion(ui, &self.text, self.cursor)
-                {
-                    self.request_completion();
-                } else if response.changed() {
-                    self.completion_visible = false;
-                }
-
-                self.update_hover(response.rect, &galley, response.hover_pos());
-
-                // If nothing changed this frame, the post-edit snapshot is
-                // the new "frame start" for the next frame.
-                if !response.changed() {
-                    self.frame_start = Some(post_edit);
-                }
-            });
+                painter.text(
+                    chevron_rect.center(),
+                    Align2::CENTER_CENTER,
+                    glyph,
+                    font.clone(),
+                    color,
+                );
+            }
+        }
     }
 
     /// Run the global key handlers, then apply the result to editor state.

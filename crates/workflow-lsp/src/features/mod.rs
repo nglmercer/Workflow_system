@@ -1,0 +1,290 @@
+//! In-process API for the Flow LSP, designed to be called directly from a
+//! host editor without going through the JSON-RPC wire protocol.
+//!
+//! The standalone `flow-lsp` binary still speaks LSP over stdio via
+//! `main.rs`, but the editor can import this module and call
+//! [`completions_at`] / [`hover_at`] / [`diagnostics_at`] synchronously
+//! for zero-overhead integration.
+//!
+//! Internally, this is split across focused submodules:
+//!
+//! - [`completion`] — scope-aware and member-access completions, plus
+//!   the built-in keyword/function list.
+//! - [`typecheck`] — argument-type-mismatch diagnostics.
+
+use lsp_types::Position;
+
+use crate::inference;
+use crate::state::ServerState;
+
+mod completion;
+mod typecheck;
+
+// ---------------------------------------------------------------------------
+// Public types
+// ---------------------------------------------------------------------------
+
+/// A single completion entry, decoupled from `lsp_types::CompletionItem`
+/// so the host editor can render it however it wants.
+#[derive(Debug, Clone)]
+pub struct Completion {
+    pub label: String,
+    pub detail: Option<String>,
+    /// What to actually insert. If `None`, the label is used.
+    pub insert_text: Option<String>,
+    /// What kind of symbol this is.
+    pub kind: CompletionKind,
+    /// The text edit range and new text, if provided by the LSP.
+    pub text_edit: Option<CompletionTextEdit>,
+}
+
+/// A text edit operation for completion.
+#[derive(Debug, Clone)]
+pub struct CompletionTextEdit {
+    /// The range of text to replace (start line, start col, end line, end col).
+    pub range: (u32, u32, u32, u32),
+    /// The new text to insert.
+    pub new_text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompletionKind {
+    Keyword,
+    Function,
+    Variable,
+    Value,
+    Property,
+}
+
+/// Severity level for diagnostics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+    Info,
+    Hint,
+}
+
+/// A diagnostic message (error, warning, etc.) for a range of text.
+#[derive(Debug, Clone)]
+pub struct Diagnostic {
+    /// Start line (0-indexed)
+    pub start_line: u32,
+    /// Start column (0-indexed)
+    pub start_col: u32,
+    /// End line (0-indexed)
+    pub end_line: u32,
+    /// End column (0-indexed)
+    pub end_col: u32,
+    /// The diagnostic message
+    pub message: String,
+    /// Severity level
+    pub severity: DiagnosticSeverity,
+    /// Optional source (e.g., "type-checker")
+    pub source: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Public entry points
+// ---------------------------------------------------------------------------
+
+/// Compute diagnostics for the entire document.
+pub fn diagnostics_at(state: &ServerState, uri: &str) -> Vec<Diagnostic> {
+    let Some(source) = state.get_document(uri) else {
+        return Vec::new();
+    };
+    let Some(analysis) = state.get_analysis(uri) else {
+        return Vec::new();
+    };
+    let inference = state.get_inference(uri);
+
+    let mut diagnostics = Vec::new();
+
+    // Check for parse errors
+    if let Some(parse_error) = &analysis.parse_error {
+        diagnostics.push(Diagnostic {
+            start_line: 0,
+            start_col: 0,
+            end_line: 0,
+            end_col: 0,
+            message: parse_error.clone(),
+            severity: DiagnosticSeverity::Error,
+            source: Some("parser".to_string()),
+        });
+    }
+
+    // Type checking diagnostics
+    if let Some(inference) = inference {
+        diagnostics.extend(typecheck::check_type_mismatches(source, inference));
+    }
+
+    diagnostics
+}
+
+/// Compute completions for the given cursor position.
+pub fn completions_at(
+    state: &ServerState,
+    uri: &str,
+    line: usize,
+    character: usize,
+) -> Vec<Completion> {
+    let Some(source) = state.get_document(uri) else {
+        return Vec::new();
+    };
+    let Some(analysis) = state.get_analysis(uri) else {
+        return Vec::new();
+    };
+    let position = Position {
+        line: line as u32,
+        character: character as u32,
+    };
+    let inference = state.get_inference(uri);
+    completion::build_completions(analysis, source, position)
+        .into_iter()
+        .map(|item| {
+            completion::into_completion_with_type(item, inference, source, position, format_value)
+        })
+        .collect()
+}
+
+/// Compute hover documentation for the given cursor position.
+pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -> Option<String> {
+    let source = state.get_document(uri)?;
+    let analysis = state.get_analysis(uri)?;
+    let inference = state.get_inference(uri);
+    let position = Position {
+        line: line as u32,
+        character: character as u32,
+    };
+    let symbol = analysis.lookup(source, position)?;
+
+    // Combine the existing scope/symbol docs with the type/value inference
+    // result so the user sees both "what kind of thing is this?" and
+    // "what's its type and current value?".
+    let mut body = String::new();
+    if let Some(detail) = &symbol.detail {
+        body.push_str(detail);
+        body.push_str("\n\n");
+    }
+
+    if let Some(inference) = inference {
+        // Check if this is a function and show its signature
+        if let Some(sig) = inference.functions.get(&symbol.name) {
+            let ret_label = sig.ret.label();
+            if sig.annotated {
+                body.push_str(&format!("`//@{}`\n\n", ret_label));
+            } else {
+                body.push_str(&format!("**returns:** `{}`\n\n", ret_label));
+            }
+            // Show parameter types if available
+            if !sig.param_types.is_empty() {
+                let params: Vec<String> = sig
+                    .params
+                    .iter()
+                    .zip(sig.param_types.iter())
+                    .map(|(name, ty)| format!("{}: {}", name, ty.label()))
+                    .collect();
+                body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
+            }
+        } else if let Some(binding) = inference.lookup(source, position) {
+            if binding.annotated {
+                body.push_str(&format!("`//@{}`\n\n", binding.ty.label()));
+            } else {
+                body.push_str(&format!("**type:** `{}`\n\n", binding.ty.label()));
+            }
+            if let Some(value) = &binding.value {
+                body.push_str(&format!("**value:** `{}`\n\n", format_value(value)));
+            }
+        }
+    }
+
+    if let Some(docs) = &symbol.documentation {
+        body.push_str(docs);
+    }
+    if body.is_empty() {
+        body = symbol.name.clone();
+    }
+    Some(body)
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+fn format_value(v: &inference::Value) -> String {
+    match v {
+        inference::Value::String(s) => format!("\"{}\"", s),
+        inference::Value::Number(n) => {
+            if n.fract() == 0.0 {
+                format!("{}", *n as i64)
+            } else {
+                format!("{}", n)
+            }
+        }
+        inference::Value::Bool(b) => format!("{}", b),
+        inference::Value::Null => "null".to_string(),
+        inference::Value::Array(items) => {
+            let parts: Vec<String> = items.iter().map(format_value).collect();
+            format!("[{}]", parts.join(", "))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::ServerState;
+
+    #[test]
+    fn diagnostics_detect_type_mismatch() {
+        let source = r#"fn double(x) {
+  return x * 2
+}
+
+var message = "hello"
+var result = double(message)"#;
+
+        let mut state = ServerState::new();
+        let uri = "file:///test.flow";
+        state.update_document(uri, source);
+
+        let diagnostics = diagnostics_at(&state, uri);
+
+        // Should have a type mismatch warning for double(message)
+        assert!(
+            !diagnostics.is_empty(),
+            "Expected at least one diagnostic, got: {:?}",
+            diagnostics
+        );
+        assert!(
+            diagnostics
+                .iter()
+                .any(|d| d.message.contains("Type mismatch")
+                    && d.message.contains("number")
+                    && d.message.contains("string")),
+            "Expected type mismatch diagnostic, got: {:?}",
+            diagnostics
+        );
+    }
+
+    #[test]
+    fn diagnostics_no_error_for_correct_types() {
+        let source = r#"fn double(x) {
+  return x * 2
+}
+
+var num = 42
+var result = double(num)"#;
+
+        let mut state = ServerState::new();
+        let uri = "file:///test.flow";
+        state.update_document(uri, source);
+
+        let diagnostics = diagnostics_at(&state, uri);
+
+        // Should have no type mismatch warnings
+        assert!(diagnostics
+            .iter()
+            .all(|d| !d.message.contains("Type mismatch")));
+    }
+}

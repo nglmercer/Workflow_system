@@ -1,4 +1,5 @@
 mod app;
+mod folding;
 mod highlight;
 mod history;
 mod keybindings;
