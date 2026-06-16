@@ -9,6 +9,7 @@ mod history;
 mod keybindings;
 mod layouter;
 mod popup;
+mod shortcuts_window;
 mod snippet;
 
 use app::EditorApp;

@@ -35,6 +35,7 @@ use super::history::{History, Snapshot};
 use super::keybindings::{self, Command, Keymap};
 use super::layouter::{layout_flow, FONT_SIZE, LINE_HEIGHT};
 use super::popup;
+use super::shortcuts_window;
 use super::snippet::PendingSnippet;
 
 pub struct EditorApp {
@@ -70,6 +71,10 @@ pub struct EditorApp {
     collapsed: BTreeSet<usize>,
     /// Key bindings: maps chord sequences to commands.
     keymap: Keymap,
+    /// Whether the keyboard-shortcuts help window is visible. The
+    /// `F1` key (mapped to `Command::ShowShortcuts`) and the toolbar
+    /// button flip this; `Esc` closes it.
+    shortcuts_open: bool,
 }
 
 const EXAMPLE_PROGRAM: &str = r#"workflow "Native Example" {
@@ -114,6 +119,7 @@ impl Default for EditorApp {
             diagnostics: Vec::new(),
             collapsed: BTreeSet::new(),
             keymap: Keymap::new(),
+            shortcuts_open: false,
         }
     }
 }
@@ -137,6 +143,9 @@ impl eframe::App for EditorApp {
                         self.text.clear();
                         self.lsp.update_document(&self.uri, &self.text);
                         self.frame_start = Some(self.snapshot(ctx));
+                    }
+                    if ui.button("Shortcuts (F1)").clicked() {
+                        self.shortcuts_open = !self.shortcuts_open;
                     }
                 });
             });
@@ -162,6 +171,8 @@ impl eframe::App for EditorApp {
         if let (Some(text), Some(pos)) = (self.hover_text.clone(), self.hover_pos) {
             popup::show_hover(ctx, pos, &text);
         }
+
+        shortcuts_window::show(ctx, &mut self.shortcuts_open, &self.keymap);
     }
 }
 
@@ -186,7 +197,10 @@ impl EditorApp {
         ScrollArea::vertical()
             .auto_shrink([false; 2])
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
+                // Top-align the gutter and the text edit so their first
+                // text rows share the same y coordinate and line numbers
+                // stay perfectly aligned with the code.
+                ui.horizontal_top(|ui| {
                     let line_count = display_text.split('\n').count().max(1);
                     let gutter_width = gutter::width_for_line_count(line_count);
                     let content_height = line_count as f32 * LINE_HEIGHT;
@@ -202,13 +216,17 @@ impl EditorApp {
                         .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width))
                         .show(ui);
 
+                    // The TextEdit content starts below its inner margin;
+                    // offset gutter numbers by the same amount so they stay
+                    // on the same baseline as the text rows.
+                    let text_top_offset = output.response.rect.min.y - gutter_rect.min.y;
                     let galley = output.galley.clone();
                     gutter::paint(
                         ui,
                         gutter_rect,
                         &output.galley,
                         &regions_for_gutter,
-                        &display_text,
+                        text_top_offset,
                         &mut self.collapsed,
                     );
 
@@ -289,6 +307,17 @@ impl EditorApp {
     /// Run the global key handlers, then apply the result to editor
     /// state.
     fn handle_global_keys(&mut self, ctx: &egui::Context) {
+        // When the shortcuts window is open, swallow `Esc` so it
+        // closes the window instead of cancelling a snippet or
+        // dismissing the completion popup.
+        if self.shortcuts_open && shortcuts_window::esc_pressed(ctx) {
+            self.shortcuts_open = false;
+            // Drain the Esc event so the keymap below doesn't see it.
+            ctx.input_mut(|i| {
+                let _ = i.count_and_consume_key(egui::Modifiers::default(), egui::Key::Escape);
+            });
+            return;
+        }
         let popup_open = self.completion.visible && !self.completion.items.is_empty();
         let snippet_active = self.pending_snippet.is_some();
         let command = self.keymap.take_command(ctx, popup_open, snippet_active);
@@ -341,6 +370,9 @@ impl EditorApp {
             }
             Command::GotoLine => {
                 self.status = "Go to line: not implemented yet (Ctrl+G)".to_string();
+            }
+            Command::ShowShortcuts => {
+                self.shortcuts_open = !self.shortcuts_open;
             }
             Command::ToggleComment => self.toggle_comment_at_cursor(ctx),
             Command::DuplicateLine => self.duplicate_line(ctx),
@@ -655,7 +687,7 @@ impl EditorApp {
         self.apply_text_edit(ctx, new_text);
         // Move the cursor to the new line number. The column stays
         // the same.
-        self.cursor = CursorPosition::new((b + 1) as usize, self.cursor.col);
+        self.cursor = CursorPosition::new(b + 1, self.cursor.col);
     }
 
     /// Indent or outdent the cursor's line. A positive `delta` adds

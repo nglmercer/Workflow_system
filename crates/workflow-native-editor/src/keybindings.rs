@@ -47,8 +47,41 @@ pub enum Command {
     // Navigation (stubs: just update `self.status` for now)
     Find,
     GotoLine,
+    /// Toggle the keyboard-shortcuts help window.
+    ShowShortcuts,
     /// No command was triggered.
     None,
+}
+
+impl Command {
+    /// A short human-readable description of what the command does.
+    /// Used by the shortcuts help window.
+    pub fn description(self) -> &'static str {
+        match self {
+            Command::PopupUp => "Completion popup: previous item",
+            Command::PopupDown => "Completion popup: next item",
+            Command::PopupAccept => "Completion popup: accept item",
+            Command::PopupDismiss => "Completion popup: dismiss",
+            Command::SnippetAdvance => "Snippet: next tab stop",
+            Command::SnippetCancel => "Snippet: cancel",
+            Command::Undo => "Undo",
+            Command::Redo => "Redo",
+            Command::Save => "Save",
+            Command::ToggleComment => "Toggle line comment",
+            Command::DuplicateLine => "Duplicate line",
+            Command::DeleteLine => "Delete line",
+            Command::MoveLineUp => "Move line up",
+            Command::MoveLineDown => "Move line down",
+            Command::Indent => "Indent line",
+            Command::Outdent => "Outdent line",
+            Command::ToggleFoldAtCursor => "Toggle fold at cursor",
+            Command::UnfoldAll => "Unfold all",
+            Command::Find => "Find",
+            Command::GotoLine => "Go to line",
+            Command::ShowShortcuts => "Show keyboard shortcuts",
+            Command::None => "(no command)",
+        }
+    }
 }
 
 /// A keyboard chord: a single key with a set of modifiers. The
@@ -167,6 +200,29 @@ pub enum ChordMatcher {
 }
 
 impl Keymap {
+    /// Iterate the keymap as `(binding_label, command)` pairs,
+    /// suitable for rendering in a help window. Entries that share
+    /// a chord prefix (e.g. `Ctrl+K Ctrl+L` and `Ctrl+K Ctrl+J`)
+    /// are flattened into a single `Ctrl+K Ctrl+L`-style label. The
+    /// order matches the keymap's insertion order.
+    pub fn bindings(&self) -> Vec<(String, Command)> {
+        let mut out: Vec<(String, Command)> = Vec::new();
+        for (matcher, cmd) in &self.entries {
+            if matches!(cmd, Command::None) {
+                continue;
+            }
+            let label = match matcher {
+                ChordMatcher::Exact(c) => chord_label(*c),
+                ChordMatcher::Prefix(c) => chord_label(*c),
+                ChordMatcher::Chord { prefix, suffix } => {
+                    format!("{} {}", chord_label(*prefix), chord_label(*suffix))
+                }
+            };
+            out.push((label, *cmd));
+        }
+        out
+    }
+
     /// Build the default keymap. New bindings are added here and
     /// nowhere else.
     pub fn new() -> Self {
@@ -263,6 +319,11 @@ impl Keymap {
             // --- Navigation stubs ---
             (ChordMatcher::Exact(Chord::ctrl(Key::F)), Command::Find),
             (ChordMatcher::Exact(Chord::ctrl(Key::G)), Command::GotoLine),
+            // --- Help ---
+            (
+                ChordMatcher::Exact(Chord::key(Key::F1)),
+                Command::ShowShortcuts,
+            ),
         ];
         Self {
             entries,
@@ -430,6 +491,23 @@ fn consume(ctx: &egui::Context, key: Key, mods: Modifiers) {
     });
 }
 
+/// Render a chord as a short human-readable label, e.g. "Ctrl+Shift+Z".
+/// Used by the shortcuts help window.
+pub fn chord_label(c: Chord) -> String {
+    let mut s = String::new();
+    if c.ctrl_or_cmd {
+        s.push_str("Ctrl+");
+    }
+    if c.alt {
+        s.push_str("Alt+");
+    }
+    if c.shift {
+        s.push_str("Shift+");
+    }
+    s.push_str(&format!("{:?}", c.key));
+    s
+}
+
 /// Decide whether a freshly-typed character should trigger a completion
 /// request. We trigger on word characters, on `.` for member access, and
 /// on Ctrl/Cmd+Space for an explicit request.
@@ -552,4 +630,56 @@ mod tests {
     // integration with the editor is covered by manual testing and
     // the egui harness.
     fn _ctx_compiles(_: &Context) {}
+
+    #[test]
+    fn chord_label_basic() {
+        assert_eq!(chord_label(Chord::ctrl(Key::S)), "Ctrl+S");
+    }
+
+    #[test]
+    fn chord_label_with_shift_and_alt() {
+        assert_eq!(chord_label(Chord::alt_shift(Key::Z)), "Alt+Shift+Z");
+    }
+
+    #[test]
+    fn chord_label_plain_key() {
+        assert_eq!(chord_label(Chord::key(Key::F1)), "F1");
+    }
+
+    #[test]
+    fn bindings_includes_chord_expansion() {
+        let km = Keymap::new();
+        let labels: Vec<String> = km.bindings().into_iter().map(|(l, _)| l).collect();
+        // The Ctrl+K Ctrl+L fold toggle must surface as a single
+        // combined label, not as a bare `Ctrl+K` prefix entry.
+        assert!(
+            labels.iter().any(|l| l == "Ctrl+K Ctrl+L"),
+            "expected 'Ctrl+K Ctrl+L' in bindings, got {:?}",
+            labels
+        );
+    }
+
+    #[test]
+    fn bindings_includes_f1() {
+        let km = Keymap::new();
+        assert!(
+            km.bindings()
+                .iter()
+                .any(|(l, c)| l == "F1" && *c == Command::ShowShortcuts),
+            "F1 should map to ShowShortcuts"
+        );
+    }
+
+    #[test]
+    fn bindings_have_descriptions() {
+        let km = Keymap::new();
+        for (label, cmd) in km.bindings() {
+            assert!(!label.is_empty(), "empty label for {:?}", cmd);
+            assert!(
+                !cmd.description().is_empty(),
+                "empty description for {}",
+                label
+            );
+        }
+    }
 }

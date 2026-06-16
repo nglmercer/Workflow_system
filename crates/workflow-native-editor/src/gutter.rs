@@ -15,8 +15,12 @@ use super::layouter::LINE_HEIGHT;
 /// Paint line numbers and fold chevrons into the given `rect`.
 ///
 /// `galley` is the laid-out text from the `TextEdit`; its row
-/// positions already account for the widget's inner margin, so the
-/// line numbers stay perfectly aligned with the code.
+/// positions are the source of truth for where each line is rendered.
+///
+/// `text_top_offset` is the y-coordinate inside `rect` where the first
+/// line of the `TextEdit` content actually starts (after its inner
+/// margin). Adding it to the galley row positions keeps numbers aligned
+/// with the text.
 ///
 /// `collapsed` is mutated in place when the user clicks a chevron.
 pub fn paint(
@@ -24,7 +28,7 @@ pub fn paint(
     rect: Rect,
     galley: &egui::Galley,
     regions: &[FoldRegion],
-    display_text: &str,
+    text_top_offset: f32,
     collapsed: &mut BTreeSet<usize>,
 ) {
     let painter = ui.painter_at(rect);
@@ -34,22 +38,21 @@ pub fn paint(
     );
 
     let font = FontId::monospace(super::layouter::FONT_SIZE);
-    let line_count = display_text.split('\n').count().max(1);
+    // The galley is the source of truth for rendered rows. It always has
+    // at least one row (even for an empty buffer), and its row count
+    // matches the logical line count including a final empty line caused
+    // by a trailing newline.
+    let line_count = galley.rows.len().max(1);
     let text_color = Color32::from_gray(140);
 
     for line_idx in 0..line_count {
-        let y = if line_idx < galley.rows.len() {
-            galley.rows[line_idx].rect.min.y
-        } else {
-            galley
-                .rows
-                .last()
-                .map_or(rect.min.y, |r| r.rect.min.y + LINE_HEIGHT)
-        };
+        let y = row_y(galley, line_idx, text_top_offset);
         if y > rect.max.y {
             break;
         }
         let num = format!("{}", line_idx + 1);
+        // Keep the numbers inside the numeric part of the gutter, flush
+        // against the vertical separator, with a small right margin.
         let anchor = Pos2::new(rect.max.x - 6.0, y);
         painter.text(anchor, Align2::RIGHT_TOP, num, font.clone(), text_color);
 
@@ -57,6 +60,22 @@ pub fn paint(
             draw_chevron(ui, &painter, rect, y, region, font.clone(), collapsed);
         }
     }
+}
+
+/// Vertical position of the `line_idx`-th logical line, relative to the
+/// gutter rect. Uses the galley row position when available, otherwise
+/// falls back to a fixed line height so empty trailing lines still get a
+/// number painted at the correct offset. `text_top_offset` shifts the
+/// whole column down so it lines up with the `TextEdit` content.
+fn row_y(galley: &egui::Galley, line_idx: usize, text_top_offset: f32) -> f32 {
+    let base = if line_idx < galley.rows.len() {
+        galley.rows[line_idx].rect.min.y
+    } else if let Some(last) = galley.rows.last() {
+        last.rect.min.y + LINE_HEIGHT
+    } else {
+        0.0
+    };
+    base + text_top_offset
 }
 
 /// Compute the gutter width that fits both the line-number digits and

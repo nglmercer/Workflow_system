@@ -113,20 +113,18 @@ fn collect_refs(expr: &Expr, refs: &mut HashSet<String>) {
 fn scan_locals(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>, refs: &HashSet<String>) {
     for s in stmts {
         match s {
-            Stmt::VarDecl { name, value } => {
-                if !refs.contains(name) {
-                    if let Some((line, col)) = var_decl_position(cx, name, value) {
-                        if cx.disabled.is_disabled("unused-binding", line) {
-                            continue;
-                        }
-                        out.push(cx.diag(
-                            "unused-binding",
-                            line,
-                            col,
-                            format!("Unused local variable `{}`", name),
-                            DiagnosticSeverity::Hint,
-                        ));
+            Stmt::VarDecl { name, value } if !refs.contains(name) => {
+                if let Some((line, col)) = var_decl_position(cx, name, value) {
+                    if cx.disabled.is_disabled("unused-binding", line) {
+                        continue;
                     }
+                    out.push(cx.diag(
+                        "unused-binding",
+                        line,
+                        col,
+                        format!("Unused local variable `{}`", name),
+                        DiagnosticSeverity::Hint,
+                    ));
                 }
             }
             Stmt::Foreach { item_var, body, .. } => {

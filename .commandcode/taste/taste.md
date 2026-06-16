@@ -9,6 +9,7 @@
 
 # CLI
 - After refactor work, run `cargo check --workspace` plus the relevant crate's test suite (e.g. `cargo test -p <crate> --lib`) to confirm no regressions, and smoke-test the editor binary with a short `timeout` to catch runtime panics on startup. Confidence: 0.75
+- Run `cargo clippy` after changes and fix all warnings it surfaces (e.g. `clippy::collapsible_match`, `clippy::unnecessary_cast`) — the user expects zero clippy warnings on the workspace. Confidence: 0.80
 
 # Code Style
 - Modularize code: split large source files (e.g. 600+ line `app.rs`) into focused modules (e.g. `snippet.rs`, `keys.rs`, `completion.rs`) when multiple distinct concerns accumulate. Prefer one file per cohesive responsibility over keeping everything in one module. Confidence: 0.70
