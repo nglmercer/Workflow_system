@@ -383,6 +383,7 @@ impl EditorApp {
                         &regions_for_gutter,
                         text_top_offset,
                         &mut self.collapsed,
+                        &self.text,
                     );
 
                     // Capture the *previous* state for the undo history

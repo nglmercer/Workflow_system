@@ -5,7 +5,7 @@
 //! It owns the digit-counting (for width sizing), the per-line
 //! chevron hit-testing, and the click → toggle dispatch.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Vec2};
 
@@ -30,6 +30,7 @@ pub fn paint(
     regions: &[FoldRegion],
     text_top_offset: f32,
     collapsed: &mut BTreeSet<usize>,
+    source: &str,
 ) {
     let painter = ui.painter_at(rect);
     painter.line_segment(
@@ -38,30 +39,46 @@ pub fn paint(
     );
 
     let font = FontId::monospace(super::layouter::FONT_SIZE);
-    // The galley is the source of truth for rendered rows. It always has
-    // at least one row (even for an empty buffer), and its row count
-    // matches the logical line count including a final empty line caused
-    // by a trailing newline.
     let line_count = galley.rows.len().max(1);
     let text_color = Color32::from_gray(140);
 
+    // Build a mapping from source line indices to display row indices so
+    // chevrons are drawn at the correct vertical position even when
+    // folds shift the coordinate system.
+    let display_map = folding::source_to_display_map(source, collapsed);
+
+    // Collect which display rows have a fold chevron, so we can draw
+    // them after the line numbers without a second region scan per row.
+    let mut chevron_at: BTreeMap<usize, &FoldRegion> = BTreeMap::new();
+    for region in regions {
+        let dr = display_map.get(region.start_line).copied().unwrap_or(0);
+        chevron_at.entry(dr).or_insert(region);
+    }
+
     for line_idx in 0..line_count {
-        // `row_y` returns a y offset relative to the top of the gutter
-        // rect; convert to absolute (parent-space) coordinates before
-        // painting and clip-testing.
         let y_local = row_y(galley, line_idx, text_top_offset);
         let y = rect.min.y + y_local;
         if y > rect.max.y {
             break;
         }
         let num = format!("{}", line_idx + 1);
-        // Keep the numbers inside the numeric part of the gutter, flush
-        // against the vertical separator, with a small right margin.
         let anchor = Pos2::new(rect.max.x - 6.0, y);
         painter.text(anchor, Align2::RIGHT_TOP, num, font.clone(), text_color);
 
-        if let Some(region) = regions.iter().find(|r| r.start_line == line_idx) {
-            draw_chevron(ui, &painter, rect, y, region, font.clone(), collapsed);
+        if let Some(region) = chevron_at.get(&line_idx) {
+            let row_height = galley
+                .rows
+                .get(line_idx)
+                .map(|r| r.rect.height())
+                .unwrap_or(LINE_HEIGHT);
+            let mut ctx = ChevronContext {
+                ui,
+                painter: &painter,
+                gutter_rect: rect,
+                font: font.clone(),
+                collapsed,
+            };
+            draw_chevron(&mut ctx, y, row_height, region);
         }
     }
 }
@@ -90,22 +107,22 @@ pub fn width_for_line_count(line_count: usize) -> f32 {
     (digits as f32) * 9.0 + 24.0
 }
 
-fn draw_chevron(
-    ui: &mut egui::Ui,
-    painter: &egui::Painter,
+struct ChevronContext<'a> {
+    ui: &'a mut egui::Ui,
+    painter: &'a egui::Painter,
     gutter_rect: Rect,
-    y: f32,
-    region: &FoldRegion,
     font: FontId,
-    collapsed: &mut BTreeSet<usize>,
-) {
+    collapsed: &'a mut BTreeSet<usize>,
+}
+
+fn draw_chevron(ctx: &mut ChevronContext<'_>, y: f32, row_height: f32, region: &FoldRegion) {
     let chevron_rect = Rect::from_min_size(
-        Pos2::new(gutter_rect.min.x + 2.0, y),
-        Vec2::new(16.0, LINE_HEIGHT),
+        Pos2::new(ctx.gutter_rect.min.x + 2.0, y),
+        Vec2::new(16.0, row_height),
     );
-    let id = ui.id().with(("fold", region.start_line));
-    let response = ui.interact(chevron_rect, id, egui::Sense::click());
-    let is_collapsed = collapsed.contains(&region.start_line);
+    let id = ctx.ui.id().with(("fold", region.start_line));
+    let response = ctx.ui.interact(chevron_rect, id, egui::Sense::click());
+    let is_collapsed = ctx.collapsed.contains(&region.start_line);
     let glyph = if is_collapsed { "▶" } else { "▼" };
     let base_color = match region.kind {
         FoldKind::Function => Color32::from_rgb(120, 180, 255),
@@ -117,13 +134,13 @@ fn draw_chevron(
         base_color
     };
     if response.clicked() {
-        toggle_collapse(collapsed, region, is_collapsed);
+        toggle_collapse(ctx.collapsed, region, is_collapsed);
     }
-    painter.text(
+    ctx.painter.text(
         chevron_rect.center(),
         Align2::CENTER_CENTER,
         glyph,
-        font,
+        ctx.font.clone(),
         color,
     );
 }

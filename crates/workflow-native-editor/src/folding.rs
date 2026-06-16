@@ -239,6 +239,52 @@ pub fn sync_edits(source: &str, pre: &str, post: &str, collapsed: &BTreeSet<usiz
     out
 }
 
+/// Build a mapping from source line index to display row index.
+///
+/// When folds are active, collapsed body lines and closing braces are
+/// hidden in the display, so source line N maps to display row M where
+/// M ≤ N. Hidden lines map to the same row as their parent
+/// placeholder. This mapping is needed so the gutter can draw fold
+/// chevrons at the correct vertical position.
+pub fn source_to_display_map(source: &str, collapsed: &BTreeSet<usize>) -> Vec<usize> {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut map = vec![0usize; lines.len()];
+    if collapsed.is_empty() {
+        for (i, _) in lines.iter().enumerate() {
+            map[i] = i;
+        }
+        return map;
+    }
+    let regions = detect_folds(source);
+    let active: Vec<&FoldRegion> = regions
+        .iter()
+        .filter(|r| collapsed.contains(&r.id()))
+        .collect();
+    let mut display_idx = 0usize;
+    let mut src_idx = 0usize;
+    while src_idx < lines.len() {
+        if let Some(region) = active.iter().find(|r| r.start_line == src_idx) {
+            // Header line: visible, maps to current display row.
+            map[src_idx] = display_idx;
+            src_idx += 1;
+            display_idx += 1;
+            // Placeholder row: all hidden lines (body + closing brace)
+            // map to this display row.
+            let placeholder_row = display_idx;
+            display_idx += 1;
+            while src_idx <= region.end_line && src_idx < lines.len() {
+                map[src_idx] = placeholder_row;
+                src_idx += 1;
+            }
+        } else {
+            map[src_idx] = display_idx;
+            src_idx += 1;
+            display_idx += 1;
+        }
+    }
+    map
+}
+
 fn pick_line(pre: &[&str], post: &[&str], idx: usize, fallback: &str) -> String {
     let pre_line = pre.get(idx).copied();
     let post_line = post.get(idx).copied();
@@ -316,5 +362,52 @@ mod tests {
         assert!(new_src.contains("return a + b"));
         // The edit to `sub` is applied.
         assert!(new_src.contains("return a - b * 2"));
+    }
+
+    #[test]
+    fn source_to_display_map_no_folds() {
+        let src = "line0\nline1\nline2\n";
+        let collapsed = BTreeSet::new();
+        let map = source_to_display_map(src, &collapsed);
+        // Without folds, source line i maps to display row i.
+        assert_eq!(map, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn source_to_display_map_one_fold() {
+        // Source:
+        //   0: fn add() {     <- fold start_line=0, end_line=2
+        //   1:   body
+        //   2: }
+        //   3: fn sub() {     <- fold start_line=3, end_line=5
+        //   4:   body
+        //   5: }
+        let src = "fn add() {\n  body\n}\nfn sub() {\n  body\n}\n";
+        let mut collapsed = BTreeSet::new();
+        collapsed.insert(0);
+        let map = source_to_display_map(src, &collapsed);
+        // src 0 (fn add)  -> display 0
+        // src 1 (body)    -> display 1 (hidden, maps to placeholder)
+        // src 2 (})       -> display 1 (hidden, maps to placeholder)
+        // src 3 (fn sub)  -> display 2
+        // src 4 (body)    -> display 3
+        // src 5 (})       -> display 4
+        assert_eq!(map, vec![0, 1, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn source_to_display_map_two_folds() {
+        let src = "fn a() {\n  x\n}\nfn b() {\n  y\n}\n";
+        let mut collapsed = BTreeSet::new();
+        collapsed.insert(0);
+        collapsed.insert(3);
+        let map = source_to_display_map(src, &collapsed);
+        // src 0 (fn a) -> display 0
+        // src 1 (x)    -> display 1 (hidden)
+        // src 2 (})    -> display 1 (hidden)
+        // src 3 (fn b) -> display 2
+        // src 4 (y)    -> display 3 (hidden)
+        // src 5 (})    -> display 3 (hidden)
+        assert_eq!(map, vec![0, 1, 1, 2, 3, 3]);
     }
 }
