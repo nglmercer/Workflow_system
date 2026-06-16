@@ -1,5 +1,9 @@
 mod app;
 mod highlight;
+mod keybindings;
+mod layouter;
+mod popup;
+mod snippet;
 
 use app::EditorApp;
 use eframe::egui;
