@@ -199,8 +199,6 @@ impl eframe::App for EditorApp {
 
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Flow Native Editor").font(FontId::proportional(16.0)));
-                ui.separator();
                 let title = self.title_label();
                 ui.label(RichText::new(title).strong());
                 ui.separator();
@@ -208,7 +206,7 @@ impl eframe::App for EditorApp {
                 ui.separator();
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                    if ui.button("Clear").clicked() {
+                    if ui.button(RichText::new("Clear").small()).clicked() {
                         self.history
                             .snapshot(self.snapshot(ctx))
                             .commit_structural();
@@ -217,18 +215,18 @@ impl eframe::App for EditorApp {
                         self.dirty = true;
                         self.frame_start = Some(self.snapshot(ctx));
                     }
-                    if ui.button("Shortcuts (F1)").clicked() {
+                    if ui.button(RichText::new("Shortcuts (F1)").small()).clicked() {
                         self.shortcuts_open = !self.shortcuts_open;
                     }
-                    if ui.button("Save (Ctrl+S)").clicked() {
+                    if ui.button(RichText::new("Save (Ctrl+S)").small()).clicked() {
                         self.save_current();
                     }
-                    if ui.button("Open… (Ctrl+O)").clicked() {
+                    if ui.button(RichText::new("Open… (Ctrl+O)").small()).clicked() {
                         // Defer the dialog so it runs at the top of
                         // the next frame, outside the egui borrow.
                         self.pending_open_dialog = true;
                     }
-                    if ui.button("Close Project").clicked() {
+                    if ui.button(RichText::new("Close Project").small()).clicked() {
                         self.close_project(ctx);
                     }
                 });

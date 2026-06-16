@@ -27,26 +27,49 @@ pub fn show(
     on_cancel: impl FnOnce(),
 ) -> Option<String> {
     let mut status: Option<String> = None;
-    egui::TopBottomPanel::bottom("test_panel").show(ctx, |ui| {
+    egui::TopBottomPanel::bottom("test_panel")
+        .resizable(true)
+        .default_height(140.0)
+        .show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Tests").strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                 if running {
-                    if ui.button("Cancel").clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new("Cancel").small())
+                                .rounding(4.0),
+                        )
+                        .clicked()
+                    {
                         on_cancel();
                     }
-                } else if ui.button("Run").clicked() {
+                } else if ui
+                    .add(
+                        egui::Button::new(RichText::new("Run").small())
+                            .rounding(4.0),
+                    )
+                    .clicked()
+                {
                     on_run();
                 }
                 if let Some(r) = report {
-                    if !running && !r.tests.is_empty() && ui.button("Copy").clicked() {
-                        let text = format_report(r);
-                        ctx.output_mut(|o| o.copied_text = text.clone());
-                        status = Some(format!(
-                            "Copied {} test result{} to clipboard",
-                            r.tests.len(),
-                            if r.tests.len() == 1 { "" } else { "s" }
-                        ));
+                    if !running && !r.tests.is_empty() {
+                        if ui
+                            .add(
+                                egui::Button::new(RichText::new("Copy").small())
+                                    .rounding(4.0),
+                            )
+                            .clicked()
+                        {
+                            let text = format_report(r);
+                            ctx.output_mut(|o| o.copied_text = text.clone());
+                            status = Some(format!(
+                                "Copied {} test result{} to clipboard",
+                                r.tests.len(),
+                                if r.tests.len() == 1 { "" } else { "s" }
+                            ));
+                        }
                     }
                 }
             });

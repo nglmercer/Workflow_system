@@ -41,8 +41,6 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(80.0);
-                ui.heading(RichText::new("Flow Native Editor").size(28.0));
-                ui.add_space(4.0);
                 ui.label(
                     RichText::new("Open a workflow file to start editing")
                         .italics()
@@ -50,11 +48,23 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
                 );
                 ui.add_space(24.0);
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new("Open File…").size(16.0)).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new("Open File…").size(14.0))
+                                .rounding(4.0),
+                        )
+                        .clicked()
+                    {
                         action = Some(HomeAction::OpenDialog);
                     }
                     ui.add_space(8.0);
-                    if ui.button(RichText::new("New File").size(16.0)).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(RichText::new("New File").size(14.0))
+                                .rounding(4.0),
+                        )
+                        .clicked()
+                    {
                         action = Some(HomeAction::NewFile);
                     }
                 });
@@ -73,7 +83,8 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
                                 let response = ui.add_sized(
                                     [360.0, 22.0],
                                     egui::Button::new(RichText::new(display).monospace().small())
-                                        .frame(false),
+                                        .frame(false)
+                                        .rounding(2.0),
                                 );
                                 if response.clicked() {
                                     action = Some(HomeAction::OpenPath(path.clone()));

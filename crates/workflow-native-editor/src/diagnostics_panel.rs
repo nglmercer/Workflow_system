@@ -24,11 +24,20 @@ pub fn show(ctx: &egui::Context, diagnostics: &[Diagnostic]) -> Option<String> {
         return None;
     }
     let mut status: Option<String> = None;
-    egui::TopBottomPanel::bottom("diagnostics").show(ctx, |ui| {
+    egui::TopBottomPanel::bottom("diagnostics")
+        .resizable(true)
+        .default_height(100.0)
+        .show(ctx, |ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Problems").strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                if ui.button("Copy").clicked() {
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new("Copy").small())
+                            .rounding(4.0),
+                    )
+                    .clicked()
+                {
                     let text = format_diagnostics(diagnostics);
                     ctx.output_mut(|o| o.copied_text = text.clone());
                     status = Some(format!(
