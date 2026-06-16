@@ -490,10 +490,8 @@ impl FlowEvaluator {
                 Value::Null
             }
             "emit" => {
-                if let Some(val) = args.first() {
-                    if let Value::String(event) = val {
-                        self.emitted.push(event.clone());
-                    }
+                if let Some(Value::String(event)) = args.first() {
+                    self.emitted.push(event.clone());
                 }
                 Value::Null
             }

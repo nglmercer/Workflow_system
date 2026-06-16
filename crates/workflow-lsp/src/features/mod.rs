@@ -258,13 +258,17 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
 
                 // Show parameters
                 if !entry.params.is_empty() {
-                    let params: Vec<String> = entry.params.iter().map(|p| {
-                        if p.optional {
-                            format!("{}?: {}", p.name, p.ty.label())
-                        } else {
-                            format!("{}: {}", p.name, p.ty.label())
-                        }
-                    }).collect();
+                    let params: Vec<String> = entry
+                        .params
+                        .iter()
+                        .map(|p| {
+                            if p.optional {
+                                format!("{}?: {}", p.name, p.ty.label())
+                            } else {
+                                format!("{}: {}", p.name, p.ty.label())
+                            }
+                        })
+                        .collect();
                     body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
                 }
 

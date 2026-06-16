@@ -367,9 +367,12 @@ impl EditorApp {
                     );
 
                     // Get known function names from the LSP inference for syntax highlighting
-                    let known_functions: HashSet<String> = self.lsp.get_inference(&self.uri)
+                    let known_functions: HashSet<String> = self
+                        .lsp
+                        .get_inference(&self.uri)
                         .map(|inf| {
-                            let mut names: HashSet<String> = inf.registry.function_names().into_iter().collect();
+                            let mut names: HashSet<String> =
+                                inf.registry.function_names().into_iter().collect();
                             // Also include locally-defined functions
                             for name in inf.functions.keys() {
                                 names.insert(name.clone());
@@ -381,7 +384,9 @@ impl EditorApp {
                     let output = TextEdit::multiline(&mut display_text)
                         .font(FontId::monospace(FONT_SIZE))
                         .desired_width(f32::INFINITY)
-                        .layouter(&mut |ui, t, wrap_width| layout_flow(ui, t, wrap_width, &known_functions))
+                        .layouter(&mut |ui, t, wrap_width| {
+                            layout_flow(ui, t, wrap_width, &known_functions)
+                        })
                         .show(ui);
 
                     // The TextEdit content starts below its inner margin;
@@ -1010,7 +1015,8 @@ impl EditorApp {
                     // Check if the path is a .flow file
                     if path.ends_with(".flow") {
                         // Resolve the path relative to the current file
-                        if let Some(current_dir) = self.file_path.as_ref().and_then(|p| p.parent()) {
+                        if let Some(current_dir) = self.file_path.as_ref().and_then(|p| p.parent())
+                        {
                             let full_path = current_dir.join(path);
                             if full_path.exists() {
                                 return Some(full_path.to_string_lossy().into_owned());

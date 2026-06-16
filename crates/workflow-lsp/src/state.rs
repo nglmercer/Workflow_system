@@ -40,7 +40,8 @@ impl ServerState {
         let inference = match workflow_parser::FlowParser::parse_flow_program(content) {
             Ok(program) => {
                 // Resolve cross-file imports to get functions from external .flow files
-                let imported_functions = self.resolve_flow_imports(&program, document_path.as_deref());
+                let imported_functions =
+                    self.resolve_flow_imports(&program, document_path.as_deref());
                 Inference::analyze_with_path_and_imports(
                     &program,
                     content,
@@ -112,11 +113,8 @@ impl ServerState {
                 match workflow_parser::FlowParser::parse_flow_program(&content) {
                     Ok(program) => {
                         let document_path = path.to_str();
-                        let inference = Inference::analyze_with_path(
-                            &program,
-                            &content,
-                            document_path,
-                        );
+                        let inference =
+                            Inference::analyze_with_path(&program, &content, document_path);
                         // Extract function signatures from the inference
                         inference.functions.clone()
                     }
@@ -125,7 +123,8 @@ impl ServerState {
             }
             Err(_) => HashMap::new(),
         };
-        self.external_flow_cache.insert(path.to_path_buf(), functions);
+        self.external_flow_cache
+            .insert(path.to_path_buf(), functions);
     }
 
     /// Normalize a path by resolving `..` and `.` components.

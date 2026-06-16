@@ -333,7 +333,10 @@ impl Keymap {
             (ChordMatcher::Exact(Chord::ctrl(Key::F)), Command::Find),
             (ChordMatcher::Exact(Chord::ctrl(Key::G)), Command::GotoLine),
             // --- Go to definition (F12 or Ctrl+Click) ---
-            (ChordMatcher::Exact(Chord::key(Key::F12)), Command::GotoDefinition),
+            (
+                ChordMatcher::Exact(Chord::key(Key::F12)),
+                Command::GotoDefinition,
+            ),
             // --- Help ---
             (
                 ChordMatcher::Exact(Chord::key(Key::F1)),

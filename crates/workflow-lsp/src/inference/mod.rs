@@ -45,7 +45,7 @@ pub mod schema;
 pub mod ty;
 pub mod value;
 
-pub use registry::{FunctionEntry, FunctionCategory, FunctionRegistry, ParamDescriptor};
+pub use registry::{FunctionCategory, FunctionEntry, FunctionRegistry, ParamDescriptor};
 pub use ty::Type;
 pub use value::{FunctionSig, InferredBinding, Value};
 

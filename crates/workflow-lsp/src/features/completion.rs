@@ -106,7 +106,12 @@ pub fn build_completions(
 
     // Add functions from the dynamic registry (built-in + user-defined + imported)
     if let Some(inf) = inference {
-        for entry in inf.registry.builtin_functions().iter().chain(inf.registry.user_functions().iter()) {
+        for entry in inf
+            .registry
+            .builtin_functions()
+            .iter()
+            .chain(inf.registry.user_functions().iter())
+        {
             // Skip keywords we already added
             if keyword_items().iter().any(|k| k.label == entry.name) {
                 continue;
@@ -121,22 +126,27 @@ pub fn build_completions(
                 let detail = if entry.params.is_empty() {
                     format!("(): {}", entry.return_type.label())
                 } else {
-                    let params: Vec<String> = entry.params.iter().map(|p| {
-                        if p.optional {
-                            format!("{}?: {}", p.name, p.ty.label())
-                        } else {
-                            format!("{}: {}", p.name, p.ty.label())
-                        }
-                    }).collect();
+                    let params: Vec<String> = entry
+                        .params
+                        .iter()
+                        .map(|p| {
+                            if p.optional {
+                                format!("{}?: {}", p.name, p.ty.label())
+                            } else {
+                                format!("{}: {}", p.name, p.ty.label())
+                            }
+                        })
+                        .collect();
                     format!("({}): {}", params.join(", "), entry.return_type.label())
                 };
                 items.push(lsp_types::CompletionItem {
                     label: entry.name.clone(),
                     kind: Some(lsp_types::CompletionItemKind::FUNCTION),
                     detail: Some(detail),
-                    documentation: entry.description.as_ref().map(|d| {
-                        lsp_types::Documentation::String(d.clone())
-                    }),
+                    documentation: entry
+                        .description
+                        .as_ref()
+                        .map(|d| lsp_types::Documentation::String(d.clone())),
                     insert_text: Some(insert_text.clone()),
                     text_edit: Some(LspCompletionTextEdit::Edit(TextEdit {
                         range: replace_range,
@@ -883,7 +893,11 @@ mod tests {
         );
         // The only `u*` items allowed are built-in functions like `upper`.
         // User variables like `users` must not appear.
-        let u_items: Vec<&str> = l.iter().filter(|s| s.starts_with("u") && **s != "u").copied().collect();
+        let u_items: Vec<&str> = l
+            .iter()
+            .filter(|s| s.starts_with("u") && **s != "u")
+            .copied()
+            .collect();
         let allowed_u_builtins = ["upper"];
         for item in &u_items {
             assert!(
