@@ -107,18 +107,17 @@ fn style_for(severity: DiagnosticSeverity) -> (Color32, &'static str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use workflow_lsp::features::Range;
 
     fn diag(severity: DiagnosticSeverity, line: u32, col: u32, msg: &str) -> Diagnostic {
         Diagnostic {
-            range: Range {
-                start_line: line,
-                start_col: col,
-                end_line: line,
-                end_col: col,
-            },
+            start_line: line,
+            start_col: col,
+            end_line: line,
+            end_col: col,
             severity,
             message: msg.to_string(),
+            source: None,
+            range: None,
         }
     }
 
@@ -142,6 +141,9 @@ mod tests {
             diag(DiagnosticSeverity::Warning, 1, 4, "be careful"),
         ];
         let text = format_diagnostics(&d);
-        assert_eq!(text, "error Ln 1, Col 1: boom\nwarning Ln 2, Col 5: be careful");
+        assert_eq!(
+            text,
+            "error Ln 1, Col 1: boom\nwarning Ln 2, Col 5: be careful"
+        );
     }
 }

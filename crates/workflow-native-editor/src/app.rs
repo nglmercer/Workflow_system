@@ -30,13 +30,16 @@ use workflow_lsp::ServerState;
 use super::completion::{self, CompletionState};
 use super::cursor::{self, column_at_x, cursor_screen_pos, row_at_y, CursorPosition};
 use super::diagnostics_panel;
+use super::file_browser;
 use super::file_io;
 use super::folding;
 use super::gutter;
 use super::history::{History, Snapshot};
+use super::home::{self, HomeAction};
 use super::keybindings::{self, Command, Keymap};
 use super::layouter::{layout_flow, FONT_SIZE, LINE_HEIGHT};
 use super::popup;
+use super::recent::RecentList;
 use super::shortcuts_window;
 use super::snippet::PendingSnippet;
 
@@ -94,6 +97,15 @@ pub struct EditorApp {
     /// main loop polls this flag and runs the dialog at a safe
     /// point.
     pending_open_dialog: bool,
+    /// Recent-files list, loaded from disk at startup and updated
+    /// on every successful file open. The home screen renders this
+    /// when no project is open.
+    recents: RecentList,
+    /// True when the editor should render the home screen instead
+    /// of the code editor. Toggled by a "Close Project" toolbar
+    /// button: closing the last file takes the user back to the
+    /// home screen so they can pick a recent or open a new one.
+    home_open: bool,
 }
 
 const EXAMPLE_PROGRAM: &str = r#"workflow "Native Example" {
@@ -142,6 +154,8 @@ impl Default for EditorApp {
             file_path: None,
             dirty: false,
             pending_open_dialog: false,
+            recents: RecentList::load(),
+            home_open: true,
         }
     }
 }
@@ -190,34 +204,63 @@ impl eframe::App for EditorApp {
                         // the next frame, outside the egui borrow.
                         self.pending_open_dialog = true;
                     }
+                    if ui.button("Close Project").clicked() {
+                        self.close_project(ctx);
+                    }
                 });
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            self.render_editor(ctx, ui);
-            // Drag-and-drop a file from the OS onto the editor
-            // window to open it. egui exposes the dropped files as
-            // `ctx.input(|i| i.raw.dropped_files)`, with the OS
-            // path under `.path`. The actual loading happens in
-            // `load_path_into_editor`, which is shared with the
-            // toolbar Open button.
-            let dropped: Vec<PathBuf> = ctx.input(|i| {
-                i.raw
-                    .dropped_files
-                    .iter()
-                    .filter_map(|f| f.path.clone())
-                    .collect()
+        if self.home_open {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                if let Some(action) = home::show(ui, &self.recents) {
+                    self.handle_home_action(ctx, action);
+                }
+                // Drag-and-drop also works from the home screen:
+                // dropping a file jumps straight into the editor.
+                let dropped: Vec<PathBuf> = ctx.input(|i| {
+                    i.raw
+                        .dropped_files
+                        .iter()
+                        .filter_map(|f| f.path.clone())
+                        .collect()
+                });
+                for path in dropped {
+                    if let Err(e) = self.load_path_into_editor(&path) {
+                        self.status = format!("Open failed: {}", e);
+                    }
+                }
             });
-            for path in dropped {
-                if let Err(e) = self.load_path_into_editor(&path) {
+        } else {
+            // When a file is open, render a left-side file browser
+            // and the editor in the remaining central area. The
+            // browser returns a path if the user clicked a sibling
+            // file in the current directory.
+            if let Some(picked) = file_browser::show(ctx, self.file_path.as_deref()) {
+                if let Err(e) = self.load_path_into_editor(&picked) {
                     self.status = format!("Open failed: {}", e);
                 }
             }
-        });
+            egui::CentralPanel::default().show(ctx, |ui| {
+                self.render_editor(ctx, ui);
+                let dropped: Vec<PathBuf> = ctx.input(|i| {
+                    i.raw
+                        .dropped_files
+                        .iter()
+                        .filter_map(|f| f.path.clone())
+                        .collect()
+                });
+                for path in dropped {
+                    if let Err(e) = self.load_path_into_editor(&path) {
+                        self.status = format!("Open failed: {}", e);
+                    }
+                }
+            });
+        }
 
-        diagnostics_panel::show(ctx, &self.diagnostics)
-            .map(|msg| self.status = msg);
+        if let Some(msg) = diagnostics_panel::show(ctx, &self.diagnostics) {
+            self.status = msg;
+        }
 
         if self.completion.visible && !self.completion.items.is_empty() {
             if let Some(idx) = popup::show_completion(
@@ -831,10 +874,7 @@ impl EditorApp {
     fn run_open_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
             .set_title("Open workflow file")
-            .add_filter(
-                "Workflow files",
-                &["flow", "yaml", "yml", "json", "toml"],
-            )
+            .add_filter("Workflow files", &["flow", "yaml", "yml", "json", "toml"])
             .add_filter("All files", &["*"]);
         match dialog.pick_file() {
             Some(path) => {
@@ -852,12 +892,15 @@ impl EditorApp {
     /// the result. Resets the undo history, the LSP state, and the
     /// dirty flag. Used by both the toolbar Open button and the
     /// drag-and-drop handler.
-    fn load_path_into_editor(&mut self, path: &std::path::Path) -> Result<(), file_io::FileIoError> {
+    fn load_path_into_editor(
+        &mut self,
+        path: &std::path::Path,
+    ) -> Result<(), file_io::FileIoError> {
         let contents = file_io::load_from_path(path)?;
         let path_buf = path.to_path_buf();
         let uri = file_io::path_to_uri(&path_buf);
         self.text = contents;
-        self.file_path = Some(path_buf);
+        self.file_path = Some(path_buf.clone());
         self.uri = uri;
         self.dirty = false;
         // Fresh document — the previous undo history no longer
@@ -870,7 +913,18 @@ impl EditorApp {
         self.lsp.update_document(&self.uri, &self.text);
         self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
         self.cursor = CursorPosition::new(1, 1);
+        self.home_open = false;
         self.status = format!("Opened {}", path.display());
+        // Record this open in the recents list. We do the file
+        // I/O here rather than on every keystroke; the home screen
+        // is the only consumer and the list is capped at 10.
+        self.recents.touch(&path_buf);
+        if let Err(e) = self.recents.save() {
+            // Recents persistence is best-effort: log to status
+            // but don't undo the file open.
+            self.status =
+                format!("Opened {} (recents save failed: {})", path.display(), e);
+        }
         Ok(())
     }
 
@@ -899,10 +953,7 @@ impl EditorApp {
     fn save_as_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
             .set_title("Save workflow file")
-            .add_filter(
-                "Workflow files",
-                &["flow", "yaml", "yml", "json", "toml"],
-            )
+            .add_filter("Workflow files", &["flow", "yaml", "yml", "json", "toml"])
             .set_file_name("untitled.flow");
         let chosen = match dialog.save_file() {
             Some(p) => p,
@@ -922,6 +973,68 @@ impl EditorApp {
                 self.status = format!("Save failed: {}", e);
             }
         }
+    }
+
+    /// Handle a click on the home screen. "New File" resets the
+    /// buffer and switches the editor out of the home view.
+    /// "Open File…" reuses the deferred-dialog mechanism so the
+    /// `rfd` event loop runs outside the egui borrow. "OpenPath"
+    /// loads a recent file directly.
+    fn handle_home_action(&mut self, ctx: &egui::Context, action: HomeAction) {
+        match action {
+            HomeAction::NewFile => {
+                self.new_untitled(ctx);
+            }
+            HomeAction::OpenDialog => {
+                self.pending_open_dialog = true;
+            }
+            HomeAction::OpenPath(path) => {
+                if let Err(e) = self.load_path_into_editor(&path) {
+                    self.status = format!("Open failed: {}", e);
+                }
+            }
+        }
+    }
+
+    /// Reset the editor to an empty untitled buffer, leaving the
+    /// home screen closed so the user starts editing immediately.
+    /// Used by the home screen's "New File" button and by the
+    /// toolbar "Close Project" flow.
+    fn new_untitled(&mut self, ctx: &egui::Context) {
+        self.text.clear();
+        self.file_path = None;
+        self.uri = "file:///untitled".to_string();
+        self.dirty = false;
+        self.history = History::new();
+        self.completion.dismiss();
+        self.pending_snippet = None;
+        self.snippet_anchor = 0;
+        self.collapsed.clear();
+        self.diagnostics.clear();
+        self.lsp.update_document(&self.uri, &self.text);
+        self.cursor = CursorPosition::new(1, 1);
+        self.home_open = false;
+        self.status = "New file".to_string();
+        self.frame_start = Some(self.snapshot(ctx));
+    }
+
+    /// Close the current project and return to the home screen.
+    /// The in-memory buffer is discarded; recent files are kept
+    /// (they're persisted separately on every load).
+    fn close_project(&mut self, ctx: &egui::Context) {
+        self.text.clear();
+        self.file_path = None;
+        self.uri = "file:///untitled".to_string();
+        self.dirty = false;
+        self.history = History::new();
+        self.completion.dismiss();
+        self.pending_snippet = None;
+        self.snippet_anchor = 0;
+        self.collapsed.clear();
+        self.diagnostics.clear();
+        self.home_open = true;
+        self.status = "Closed project".to_string();
+        let _ = ctx;
     }
 }
 
