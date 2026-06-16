@@ -32,6 +32,7 @@ pub enum Command {
     Undo,
     Redo,
     // File
+    Open,
     Save,
     // Edit
     ToggleComment,
@@ -66,6 +67,7 @@ impl Command {
             Command::SnippetCancel => "Snippet: cancel",
             Command::Undo => "Undo",
             Command::Redo => "Redo",
+            Command::Open => "Open file",
             Command::Save => "Save",
             Command::ToggleComment => "Toggle line comment",
             Command::DuplicateLine => "Duplicate line",
@@ -265,6 +267,7 @@ impl Keymap {
             ),
             (ChordMatcher::Exact(Chord::ctrl(Key::Y)), Command::Redo),
             // --- File ---
+            (ChordMatcher::Exact(Chord::ctrl(Key::O)), Command::Open),
             (ChordMatcher::Exact(Chord::ctrl(Key::S)), Command::Save),
             // --- Edit ---
             (
@@ -552,8 +555,10 @@ mod tests {
     #[test]
     fn chord_matches_single_key() {
         let c = Chord::ctrl(Key::Z);
-        let mut mods = Modifiers::default();
-        mods.ctrl = true;
+        let mods = Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
         assert!(c.matches(Key::Z, mods));
         assert!(!c.matches(Key::Y, mods));
     }
@@ -562,20 +567,28 @@ mod tests {
     fn chord_matches_command_modifier() {
         // On macOS, modifiers.command is true instead of ctrl.
         let c = Chord::ctrl(Key::S);
-        let mut mods = Modifiers::default();
-        mods.command = true;
+        let mods = Modifiers {
+            command: true,
+            ..Default::default()
+        };
         assert!(c.matches(Key::S, mods));
     }
 
     #[test]
     fn chord_requires_exact_shift() {
         let c = Chord::ctrl_shift(Key::Z);
-        let mut mods = Modifiers::default();
-        mods.ctrl = true;
+        let ctrl_only = Modifiers {
+            ctrl: true,
+            ..Default::default()
+        };
         // shift is required
-        assert!(!c.matches(Key::Z, mods));
-        mods.shift = true;
-        assert!(c.matches(Key::Z, mods));
+        assert!(!c.matches(Key::Z, ctrl_only));
+        let ctrl_shift = Modifiers {
+            ctrl: true,
+            shift: true,
+            ..Default::default()
+        };
+        assert!(c.matches(Key::Z, ctrl_shift));
     }
 
     #[test]
@@ -585,6 +598,7 @@ mod tests {
         assert!(has(Command::Undo));
         assert!(has(Command::Redo));
         assert!(has(Command::Save));
+        assert!(has(Command::Open));
         assert!(has(Command::ToggleComment));
         assert!(has(Command::MoveLineUp));
         assert!(has(Command::DuplicateLine));

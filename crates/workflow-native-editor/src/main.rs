@@ -2,6 +2,7 @@ mod app;
 mod completion;
 mod cursor;
 mod diagnostics_panel;
+mod file_io;
 mod folding;
 mod gutter;
 mod highlight;

@@ -3,18 +3,42 @@
 //! Renders the LSP `Diagnostic` list as a vertical scroll of
 //! severity-colored rows. Owns the severity → (color, icon) mapping
 //! so the rest of the editor doesn't need to know about it.
+//!
+//! Exposes a "Copy" button that pushes the current problems to the
+//! OS clipboard in a stable plain-text format. The panel returns
+//! an `Option<String>` describing the action (e.g.
+//! `"Copied 3 problems to clipboard"`) so the caller can surface
+//! it in the editor's status bar. Returning `None` means the user
+//! did not interact with the panel this frame.
 
 use eframe::egui::{self, Color32, RichText, ScrollArea};
 use workflow_lsp::features::{Diagnostic, DiagnosticSeverity};
 
 const MAX_HEIGHT: f32 = 100.0;
 
-pub fn show(ctx: &egui::Context, diagnostics: &[Diagnostic]) {
+/// Render the diagnostics panel. Returns a status-bar message
+/// describing the result of any user action this frame (currently
+/// only the Copy button), or `None` if nothing happened.
+pub fn show(ctx: &egui::Context, diagnostics: &[Diagnostic]) -> Option<String> {
     if diagnostics.is_empty() {
-        return;
+        return None;
     }
+    let mut status: Option<String> = None;
     egui::TopBottomPanel::bottom("diagnostics").show(ctx, |ui| {
-        ui.label(RichText::new("Problems").strong());
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Problems").strong());
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
+                if ui.button("Copy").clicked() {
+                    let text = format_diagnostics(diagnostics);
+                    ctx.output_mut(|o| o.copied_text = text.clone());
+                    status = Some(format!(
+                        "Copied {} problem{} to clipboard",
+                        diagnostics.len(),
+                        if diagnostics.len() == 1 { "" } else { "s" }
+                    ));
+                }
+            });
+        });
         ScrollArea::vertical()
             .max_height(MAX_HEIGHT)
             .show(ui, |ui| {
@@ -23,6 +47,37 @@ pub fn show(ctx: &egui::Context, diagnostics: &[Diagnostic]) {
                 }
             });
     });
+    status
+}
+
+/// Serialize the diagnostics list to a stable plain-text form
+/// suitable for pasting into an issue tracker. The format is one
+/// diagnostic per line: `severity Ln N, Col M: message` so a human
+/// can read it without any tooling.
+fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {
+    let mut out = String::new();
+    for (i, diag) in diagnostics.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        out.push_str(severity_label(diag.severity));
+        out.push_str(&format!(
+            " Ln {}, Col {}: {}",
+            diag.start_line + 1,
+            diag.start_col + 1,
+            diag.message
+        ));
+    }
+    out
+}
+
+fn severity_label(severity: DiagnosticSeverity) -> &'static str {
+    match severity {
+        DiagnosticSeverity::Error => "error",
+        DiagnosticSeverity::Warning => "warning",
+        DiagnosticSeverity::Info => "info",
+        DiagnosticSeverity::Hint => "hint",
+    }
 }
 
 fn render_row(ui: &mut egui::Ui, diag: &Diagnostic) {
@@ -46,5 +101,47 @@ fn style_for(severity: DiagnosticSeverity) -> (Color32, &'static str) {
         DiagnosticSeverity::Error => (Color32::from_rgb(255, 80, 80), "✗"),
         DiagnosticSeverity::Warning => (Color32::from_rgb(255, 200, 50), "⚠"),
         DiagnosticSeverity::Info | DiagnosticSeverity::Hint => (Color32::GRAY, "ℹ"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use workflow_lsp::features::Range;
+
+    fn diag(severity: DiagnosticSeverity, line: u32, col: u32, msg: &str) -> Diagnostic {
+        Diagnostic {
+            range: Range {
+                start_line: line,
+                start_col: col,
+                end_line: line,
+                end_col: col,
+            },
+            severity,
+            message: msg.to_string(),
+        }
+    }
+
+    #[test]
+    fn format_empty_list_is_empty_string() {
+        let text = format_diagnostics(&[]);
+        assert_eq!(text, "");
+    }
+
+    #[test]
+    fn format_single_error() {
+        let d = [diag(DiagnosticSeverity::Error, 4, 2, "expected `;`")];
+        let text = format_diagnostics(&d);
+        assert_eq!(text, "error Ln 5, Col 3: expected `;`");
+    }
+
+    #[test]
+    fn format_mixed_severities_newline_separated() {
+        let d = [
+            diag(DiagnosticSeverity::Error, 0, 0, "boom"),
+            diag(DiagnosticSeverity::Warning, 1, 4, "be careful"),
+        ];
+        let text = format_diagnostics(&d);
+        assert_eq!(text, "error Ln 1, Col 1: boom\nwarning Ln 2, Col 5: be careful");
     }
 }

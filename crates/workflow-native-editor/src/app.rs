@@ -22,6 +22,7 @@ use eframe::egui::{
     FontId, Pos2, Rect, RichText, ScrollArea, TextEdit, Ui, Vec2,
 };
 use std::collections::BTreeSet;
+use std::path::PathBuf;
 use std::sync::Arc;
 use workflow_lsp::features::{self, Diagnostic};
 use workflow_lsp::ServerState;
@@ -29,6 +30,7 @@ use workflow_lsp::ServerState;
 use super::completion::{self, CompletionState};
 use super::cursor::{self, column_at_x, cursor_screen_pos, row_at_y, CursorPosition};
 use super::diagnostics_panel;
+use super::file_io;
 use super::folding;
 use super::gutter;
 use super::history::{History, Snapshot};
@@ -75,6 +77,23 @@ pub struct EditorApp {
     /// `F1` key (mapped to `Command::ShowShortcuts`) and the toolbar
     /// button flip this; `Esc` closes it.
     shortcuts_open: bool,
+    /// Path of the file backing the buffer, if any. `None` means the
+    /// document is "untitled" (or a freshly created example). The
+    /// toolbar shows the file name when set; the LSP server is
+    /// keyed on the `file://` URI derived from this path.
+    file_path: Option<PathBuf>,
+    /// True when the in-memory buffer has edits that haven't been
+    /// written back to `file_path`. Rendered as a leading dot in
+    /// the title bar (e.g. `● main.flow`) so the user can tell at a
+    /// glance whether the disk is in sync.
+    dirty: bool,
+    /// Set by the toolbar Open button and the Ctrl+O command. The
+    /// actual `rfd` dialog must run *after* the current `update`
+    /// frame returns, because `rfd` blocks on its own event loop
+    /// and would deadlock the egui context if invoked mid-frame. The
+    /// main loop polls this flag and runs the dialog at a safe
+    /// point.
+    pending_open_dialog: bool,
 }
 
 const EXAMPLE_PROGRAM: &str = r#"workflow "Native Example" {
@@ -120,6 +139,9 @@ impl Default for EditorApp {
             collapsed: BTreeSet::new(),
             keymap: Keymap::new(),
             shortcuts_open: false,
+            file_path: None,
+            dirty: false,
+            pending_open_dialog: false,
         }
     }
 }
@@ -128,9 +150,21 @@ impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_global_keys(ctx);
 
+        // Run any deferred native file dialog now that we're at
+        // the top of the frame, outside the egui scope-stack that
+        // holds mutable borrows. `rfd::FileDialog::pick_file`
+        // spins its own event loop; calling it from inside a
+        // `show()` closure would deadlock.
+        if std::mem::take(&mut self.pending_open_dialog) {
+            self.run_open_dialog();
+        }
+
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Flow Native Editor").font(FontId::proportional(16.0)));
+                ui.separator();
+                let title = self.title_label();
+                ui.label(RichText::new(title).strong());
                 ui.separator();
                 ui.label(format!("Ln {}, Col {}", self.cursor.line, self.cursor.col));
                 ui.separator();
@@ -142,10 +176,19 @@ impl eframe::App for EditorApp {
                             .commit_structural();
                         self.text.clear();
                         self.lsp.update_document(&self.uri, &self.text);
+                        self.dirty = true;
                         self.frame_start = Some(self.snapshot(ctx));
                     }
                     if ui.button("Shortcuts (F1)").clicked() {
                         self.shortcuts_open = !self.shortcuts_open;
+                    }
+                    if ui.button("Save (Ctrl+S)").clicked() {
+                        self.save_current();
+                    }
+                    if ui.button("Open… (Ctrl+O)").clicked() {
+                        // Defer the dialog so it runs at the top of
+                        // the next frame, outside the egui borrow.
+                        self.pending_open_dialog = true;
                     }
                 });
             });
@@ -153,9 +196,28 @@ impl eframe::App for EditorApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.render_editor(ctx, ui);
+            // Drag-and-drop a file from the OS onto the editor
+            // window to open it. egui exposes the dropped files as
+            // `ctx.input(|i| i.raw.dropped_files)`, with the OS
+            // path under `.path`. The actual loading happens in
+            // `load_path_into_editor`, which is shared with the
+            // toolbar Open button.
+            let dropped: Vec<PathBuf> = ctx.input(|i| {
+                i.raw
+                    .dropped_files
+                    .iter()
+                    .filter_map(|f| f.path.clone())
+                    .collect()
+            });
+            for path in dropped {
+                if let Err(e) = self.load_path_into_editor(&path) {
+                    self.status = format!("Open failed: {}", e);
+                }
+            }
         });
 
-        diagnostics_panel::show(ctx, &self.diagnostics);
+        diagnostics_panel::show(ctx, &self.diagnostics)
+            .map(|msg| self.status = msg);
 
         if self.completion.visible && !self.completion.items.is_empty() {
             if let Some(idx) = popup::show_completion(
@@ -251,6 +313,7 @@ impl EditorApp {
                             &self.collapsed,
                         );
                         self.text = new_source;
+                        self.dirty = true;
 
                         if let Some(prev) = pre_edit {
                             let mut snap = prev;
@@ -360,10 +423,12 @@ impl EditorApp {
             Command::Undo => self.undo(ctx),
             Command::Redo => self.redo(ctx),
             Command::Save => {
-                // No file system integration yet; just announce it
-                // in the status bar so the user sees the binding
-                // worked. A future phase can wire this to disk I/O.
-                self.status = "Saved (no file backing yet)".to_string();
+                self.save_current();
+            }
+            Command::Open => {
+                // Defer to next frame so the dialog runs outside
+                // the egui scope-stack that holds `self` mutably.
+                self.pending_open_dialog = true;
             }
             Command::Find => {
                 self.status = "Find: not implemented yet (Ctrl+F)".to_string();
@@ -512,6 +577,7 @@ impl EditorApp {
         self.snippet_anchor = insertion.start;
         self.pending_snippet = insertion.snippet;
         self.completion.dismiss();
+        self.dirty = true;
         self.lsp.update_document(&self.uri, &self.text);
         // Commit *after* the mutation: the snapshot we took is the
         // pre-edit state, which is what we want on the undo stack.
@@ -587,6 +653,7 @@ impl EditorApp {
     fn apply_text_edit(&mut self, ctx: &egui::Context, new_text: String) {
         let pre = self.snapshot(ctx);
         self.text = new_text;
+        self.dirty = true;
         self.lsp.update_document(&self.uri, &self.text);
         self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
         self.history.snapshot(pre).commit_structural();
@@ -735,6 +802,127 @@ impl EditorApp {
             }
         }
     }
+
+    /// Build the title-bar label. Shows the file name (or
+    /// "Untitled") with a leading dot when the buffer has unsaved
+    /// edits. We use a Unicode bullet rather than `*` to match the
+    /// common "modified" indicator in cross-platform editors.
+    fn title_label(&self) -> String {
+        let name = match &self.file_path {
+            Some(p) => p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("(invalid path)")
+                .to_string(),
+            None => "Untitled".to_string(),
+        };
+        if self.dirty {
+            format!("● {}", name)
+        } else {
+            name
+        }
+    }
+
+    /// Run the native "open" file dialog. Called from
+    /// [`Self::update`] when `pending_open_dialog` is set, so it
+    /// runs *outside* the egui scope-stack that holds `self`
+    /// mutably. The dialog itself is modal; we let the user cancel
+    /// without touching the buffer.
+    fn run_open_dialog(&mut self) {
+        let dialog = rfd::FileDialog::new()
+            .set_title("Open workflow file")
+            .add_filter(
+                "Workflow files",
+                &["flow", "yaml", "yml", "json", "toml"],
+            )
+            .add_filter("All files", &["*"]);
+        match dialog.pick_file() {
+            Some(path) => {
+                if let Err(e) = self.load_path_into_editor(&path) {
+                    self.status = format!("Open failed: {}", e);
+                }
+            }
+            None => {
+                self.status = "Open cancelled".to_string();
+            }
+        }
+    }
+
+    /// Read `path` from disk and replace the editor buffer with
+    /// the result. Resets the undo history, the LSP state, and the
+    /// dirty flag. Used by both the toolbar Open button and the
+    /// drag-and-drop handler.
+    fn load_path_into_editor(&mut self, path: &std::path::Path) -> Result<(), file_io::FileIoError> {
+        let contents = file_io::load_from_path(path)?;
+        let path_buf = path.to_path_buf();
+        let uri = file_io::path_to_uri(&path_buf);
+        self.text = contents;
+        self.file_path = Some(path_buf);
+        self.uri = uri;
+        self.dirty = false;
+        // Fresh document — the previous undo history no longer
+        // applies to this file.
+        self.history = History::new();
+        self.completion.dismiss();
+        self.pending_snippet = None;
+        self.snippet_anchor = 0;
+        self.collapsed.clear();
+        self.lsp.update_document(&self.uri, &self.text);
+        self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
+        self.cursor = CursorPosition::new(1, 1);
+        self.status = format!("Opened {}", path.display());
+        Ok(())
+    }
+
+    /// Save the current buffer to `file_path`. If there is no path
+    /// yet (e.g. the editor was started without a file), fall back
+    /// to a Save As dialog so the user can pick a destination.
+    fn save_current(&mut self) {
+        match self.file_path.clone() {
+            Some(path) => match file_io::save_to_path(&path, &self.text) {
+                Ok(saved) => {
+                    self.dirty = false;
+                    self.status = format!("Saved {}", saved.display());
+                }
+                Err(e) => {
+                    self.status = format!("Save failed: {}", e);
+                }
+            },
+            None => self.save_as_dialog(),
+        }
+    }
+
+    /// Show a native "Save As" dialog and persist the buffer to
+    /// the chosen path. We also push the path back into
+    /// [`Self::file_path`] so subsequent Ctrl+S saves overwrite
+    /// the same file.
+    fn save_as_dialog(&mut self) {
+        let dialog = rfd::FileDialog::new()
+            .set_title("Save workflow file")
+            .add_filter(
+                "Workflow files",
+                &["flow", "yaml", "yml", "json", "toml"],
+            )
+            .set_file_name("untitled.flow");
+        let chosen = match dialog.save_file() {
+            Some(p) => p,
+            None => {
+                self.status = "Save cancelled".to_string();
+                return;
+            }
+        };
+        match file_io::save_to_path(&chosen, &self.text) {
+            Ok(saved) => {
+                self.file_path = Some(saved.clone());
+                self.uri = file_io::path_to_uri(&saved);
+                self.dirty = false;
+                self.status = format!("Saved {}", saved.display());
+            }
+            Err(e) => {
+                self.status = format!("Save failed: {}", e);
+            }
+        }
+    }
 }
 
 /// Render a chord as a short human-readable label, e.g. "Ctrl+K"
@@ -758,6 +946,7 @@ fn pending_chord_label(c: super::keybindings::Chord) -> String {
 mod tests {
     use super::super::keybindings::Chord;
     use super::pending_chord_label;
+    use super::EditorApp;
     use eframe::egui::Key;
 
     #[test]
@@ -770,5 +959,45 @@ mod tests {
     fn pending_label_with_shift() {
         let c = Chord::ctrl_shift(Key::Z);
         assert_eq!(pending_chord_label(c), "Ctrl+Shift+Z");
+    }
+
+    #[test]
+    fn title_label_untitled_clean() {
+        let app = EditorApp {
+            file_path: None,
+            dirty: false,
+            ..Default::default()
+        };
+        assert_eq!(app.title_label(), "Untitled");
+    }
+
+    #[test]
+    fn title_label_untitled_dirty() {
+        let app = EditorApp {
+            file_path: None,
+            dirty: true,
+            ..Default::default()
+        };
+        assert!(app.title_label().starts_with("● "));
+    }
+
+    #[test]
+    fn title_label_uses_file_name() {
+        let app = EditorApp {
+            file_path: Some(std::path::PathBuf::from("/tmp/main.flow")),
+            dirty: false,
+            ..Default::default()
+        };
+        assert_eq!(app.title_label(), "main.flow");
+    }
+
+    #[test]
+    fn title_label_dirty_marks_dot() {
+        let app = EditorApp {
+            file_path: Some(std::path::PathBuf::from("/tmp/main.flow")),
+            dirty: true,
+            ..Default::default()
+        };
+        assert_eq!(app.title_label(), "● main.flow");
     }
 }
