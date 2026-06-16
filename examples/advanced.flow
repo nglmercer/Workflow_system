@@ -1,10 +1,11 @@
 // Advanced .flow example with loops and complex logic
 
 // Utility functions
+//@string,@string
 fn formatCurrency(amount, currency) {
   return currency + " " + amount
 }
-
+//@string
 fn validateEmail(email) {
   var length = email.length
   if (length > 5) {
@@ -52,6 +53,7 @@ workflow "Complex Conditions" {
 }
 
 workflow "Nested Loops" {
+  //@external
   on NESTED_DATA ({users, meta})
   //data.users and data.meta
   log("Users: " + users.length + ", Meta: " + meta.length)

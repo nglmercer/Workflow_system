@@ -64,7 +64,27 @@ pub fn parse_annotations(source: &str) -> Annotations {
                     }
                 }
             }
-        } else if let Some(rest) = next_trim.strip_prefix("fn ") {
+        } else if !body.contains('{')
+            && !body.contains('[')
+            && !body.contains("->")
+        {
+            // `//@T1,T2,...` — positional per-parameter shortcut, one
+            // type per parameter of the *next* function declaration.
+            // The shortcut accepts a single type (e.g. `//@string`
+            // for a 1-param function) as well as the multi-type
+            // form. The full `//@{a:T, b:T} -> R` signature is
+            // handled below for richer annotations.
+            //
+            // This is the form recommended for top-level utility
+            // functions — see `examples/advanced.flow`.
+            if let Some(rest) = next_trim.strip_prefix("fn ") {
+                if let Some(sig) = parse_param_shortcut(body, rest) {
+                    ann.functions.insert(sig.name.clone(), sig);
+                    continue;
+                }
+            }
+        }
+        if let Some(rest) = next_trim.strip_prefix("fn ") {
             if let Some(sig) = parse_function_signature(body, rest) {
                 ann.functions.insert(sig.name.clone(), sig);
             }
@@ -87,6 +107,87 @@ pub fn parse_annotations(source: &str) -> Annotations {
         }
     }
     ann
+}
+
+/// Parse a positional per-parameter shortcut: `//@T1,T2,T3` directly
+/// above a `fn name(a, b, c) { ... }` declaration. The number of types
+/// must equal the number of parameters. The return type defaults to
+/// `Any`. The form is intentionally compact — recommended for
+/// top-level utility functions where the user wants to type
+/// `//@string,string` once instead of
+/// `//@{a:string, b:string} -> any`.
+///
+/// Each type token may be `@`-prefixed (treating `@` as a decorator
+/// marker) so both `//@string,string` and `//@string,@string` work.
+///
+/// Example:
+///
+/// ```flow
+/// //@string,string
+/// fn formatCurrency(amount, currency) {
+///   return currency + " " + amount
+/// }
+/// ```
+fn parse_param_shortcut(body: &str, fn_header: &str) -> Option<FunctionSig> {
+    // Parse the function header to discover the param names. This way
+    // we don't have to trust that the annotation's arity matches the
+    // function's arity — a mismatch is a parse error rather than a
+    // silent type confusion.
+    let (name, params) = parse_function_header(fn_header)?;
+    // Parse the comma-separated types. Allow trailing whitespace and
+    // a leading `@` on each token (decorator style).
+    let types: Vec<Type> = body
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.strip_prefix('@').unwrap_or(s).trim())
+        .filter(|s| !s.is_empty())
+        .map(parse_type)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    if types.len() != params.len() {
+        // Mismatch — fall through to inference rather than fail loudly.
+        return None;
+    }
+    Some(FunctionSig {
+        name,
+        params,
+        param_types: types,
+        ret: Type::Any,
+        annotated: true,
+    })
+}
+
+/// Parse the leading `fn name(a, b, c) { ...` header into `(name, params)`.
+/// Returns `None` if the header is malformed.
+fn parse_function_header(fn_header: &str) -> Option<(String, Vec<String>)> {
+    let name_end = fn_header
+        .find(|c: char| c == '(' || c.is_whitespace())
+        .unwrap_or(fn_header.len());
+    let name = fn_header[..name_end].trim().to_string();
+    if name.is_empty() || !is_ident(&name) {
+        return None;
+    }
+    let open = fn_header.find('(')?;
+    let rel_close = fn_header[open..].find(')')?;
+    let close = open + rel_close;
+    let params_str = &fn_header[open + 1..close];
+    let params: Vec<String> = params_str
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToString::to_string)
+        .collect();
+    Some((name, params))
+}
+
+fn is_ident(s: &str) -> bool {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn parse_function_signature(body: &str, fn_header: &str) -> Option<FunctionSig> {

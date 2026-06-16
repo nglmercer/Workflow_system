@@ -2,6 +2,18 @@
 //! clause or whose event is never emitted anywhere. Severity: `Hint`.
 //! Functions and globals are not flagged (they may be called from
 //! outside the file or used as entry points).
+//!
+//! An event is treated as **external** (and therefore not flagged) when
+//! either:
+//!
+//! 1. The workflow has a `//@external` annotation directly above its
+//!    `on` clause. This is the explicit opt-in.
+//! 2. The event name matches the `SCREAMING_SNAKE_CASE` convention
+//!    (e.g. `USER_REGISTERED`, `BATCH_START`). This is the convention
+//!    for events received from outside the file, so the hint would
+//!    otherwise be a constant false positive on every realistic
+//!    workflow. Workflows that *do* use `emit(...)` to dispatch the
+//!    same event still aren't flagged (they're trivially non-external).
 
 use std::collections::HashSet;
 
@@ -19,11 +31,6 @@ impl Lint for UnusedWorkflow {
     fn run(&self, cx: &LintCx) -> Vec<Diagnostic> {
         // Collect every `Expr::Call` name in the program. Treat any
         // call to `emit("FOO")` as evidence that `FOO` is dispatched.
-        // We also treat plain `FOO(...)` (when `FOO` matches a
-        // workflow's event name) as dispatch, but conservatively only
-        // flag workflows whose event is *also* never passed to
-        // `emit`. This avoids false-positives on user-defined
-        // helper functions.
         let mut emitted_events: HashSet<String> = HashSet::new();
         for w in &cx.program.workflows {
             collect_emits(&w.body, &mut emitted_events);
@@ -31,6 +38,8 @@ impl Lint for UnusedWorkflow {
         for f in &cx.program.functions {
             collect_emits(&f.body, &mut emitted_events);
         }
+
+        let external_events = collect_external_events(cx.source);
 
         let mut out = Vec::new();
         for w in &cx.program.workflows {
@@ -46,26 +55,80 @@ impl Lint for UnusedWorkflow {
                 }
                 continue;
             }
-            if !emitted_events.contains(&w.event) {
-                if let Some((line, col)) = workflow_header_position(cx, &w.name) {
-                    if cx.disabled.is_disabled("unused-workflow", line) {
-                        continue;
-                    }
-                    out.push(cx.diag(
-                        "unused-workflow",
-                        line,
-                        col,
-                        format!(
-                            "Workflow \"{}\" listens for `{}` but no `emit(\"{}\")` was found",
-                            w.name, w.event, w.event
-                        ),
-                        DiagnosticSeverity::Hint,
-                    ));
+            // Suppress: emitted in-file, or declared external.
+            if emitted_events.contains(&w.event) {
+                continue;
+            }
+            if external_events.contains(&w.event) {
+                continue;
+            }
+            if is_screaming_snake_case(&w.event) {
+                continue;
+            }
+            if let Some((line, col)) = workflow_header_position(cx, &w.name) {
+                if cx.disabled.is_disabled("unused-workflow", line) {
+                    continue;
                 }
+                out.push(cx.diag(
+                    "unused-workflow",
+                    line,
+                    col,
+                    format!(
+                        "Workflow \"{}\" listens for `{}` but no `emit(\"{}\")` was found",
+                        w.name, w.event, w.event
+                    ),
+                    DiagnosticSeverity::Hint,
+                ));
             }
         }
         out
     }
+}
+
+/// Walk the source and collect the set of events explicitly declared
+/// external via `//@external` above an `on` clause. The annotation
+/// must be on the line directly preceding `on EVENT(...)` (blank
+/// lines and other `//@` annotations between them are allowed).
+fn collect_external_events(source: &str) -> HashSet<String> {
+    let mut out = HashSet::new();
+    let lines: Vec<&str> = source.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim() != "//@external" {
+            continue;
+        }
+        // Find the next non-comment, non-blank line.
+        for next in lines.iter().skip(i + 1) {
+            let t = next.trim();
+            if t.is_empty() || t.starts_with("//") {
+                continue;
+            }
+            if let Some(on_part) = t.strip_prefix("on ") {
+                let event = on_part
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if !event.is_empty() {
+                    out.insert(event);
+                }
+            }
+            break;
+        }
+    }
+    out
+}
+
+/// Returns true if `name` follows the `SCREAMING_SNAKE_CASE` convention
+/// (e.g. `USER_REGISTERED`, `BATCH_START`, `CALCULATE`). These are
+/// treated as external-event names by convention and are exempt from
+/// the `unused-workflow` hint.
+fn is_screaming_snake_case(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_uppercase() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_') && name.len() >= 2
 }
 
 fn collect_emits(stmts: &[Stmt], out: &mut HashSet<String>) {
@@ -171,16 +234,60 @@ mod tests {
 
     #[test]
     fn workflow_with_no_emit_is_hint() {
+        // Use a non-SCREAMING_SNAKE_CASE event so the SCREAMING_SNAKE_CASE
+        // heuristic doesn't suppress the hint. The lint should still fire.
         let source = r#"workflow "W" {
-  on NEVER_EMITTED
+  on lowercase_event
   log("hi")
 }"#;
         let diags = run_lint(source);
         assert!(
-            diags.iter().any(|d| d.message.contains("NEVER_EMITTED")),
+            diags
+                .iter()
+                .any(|d| d.message.contains("lowercase_event")),
             "got: {:?}",
             diags
         );
+    }
+
+    #[test]
+    fn screaming_snake_case_is_external() {
+        // SCREAMING_SNAKE_CASE events are treated as external by
+        // convention and are not flagged.
+        let source = r#"workflow "W" {
+  on USER_REGISTERED
+  log("hi")
+}"#;
+        let diags = run_lint(source);
+        assert!(diags.is_empty(), "got: {:?}", diags);
+    }
+
+    #[test]
+    fn external_annotation_suppresses_hint() {
+        // `//@external` above the `on` clause marks the event as
+        // external and suppresses the hint even for non-SCREAMING
+        // event names.
+        let source = r#"workflow "W" {
+  //@external
+  on my_external_event
+  log("hi")
+}"#;
+        let diags = run_lint(source);
+        assert!(diags.is_empty(), "got: {:?}", diags);
+    }
+
+    #[test]
+    fn external_annotation_with_intervening_comment() {
+        // The annotation may be separated from the `on` clause by
+        // blank lines or other `//@` annotations.
+        let source = r#"workflow "W" {
+  //@external
+
+  on my_external_event
+  log("hi")
+}"#;
+        let diags = run_lint(source);
+        assert!(diags.is_empty(), "got: {:?}", diags);
     }
 
     #[test]

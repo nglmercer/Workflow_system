@@ -78,10 +78,19 @@ impl Analysis {
         // Top-level functions.
         for f in &program.functions {
             self.push_function(f);
+            // Function parameters are visible inside the function
+            // body. We add them to every line so hover/completion
+            // (which use this same scope table) can resolve them.
+            // This mirrors the fix in `inference::program::run_program`
+            // for the unknown-identifier lint.
+            self.push_function_params(f);
         }
 
         // Workflow bodies: scan stmts in order and collect locals.
         for w in &program.workflows {
+            // Workflow destructure params (`on EVENT ({a, b})`) are
+            // visible inside the workflow body.
+            self.push_workflow_params(w);
             self.scan_stmts(&w.body, 0);
         }
 
@@ -122,6 +131,44 @@ impl Analysis {
         };
         for line in self.scope_at.iter_mut() {
             line.push(symbol.clone());
+        }
+    }
+
+    /// Push each function parameter into the per-line scope so hover
+    /// and completion can resolve them. Mirrors the inference fix in
+    /// `inference::program::push_function_params`.
+    fn push_function_params(&mut self, f: &FunctionDef) {
+        for p in &f.params {
+            let sym = ScopedSymbol {
+                name: p.clone(),
+                kind: SymbolKind::Parameter,
+                detail: Some(format!("parameter of `{}`", f.name)),
+                documentation: Some(format!("Parameter of `fn {}(...)`", f.name)),
+                name_range: None,
+            };
+            for line in self.scope_at.iter_mut() {
+                line.push(sym.clone());
+            }
+        }
+    }
+
+    /// Push each workflow destructure parameter into the per-line
+    /// scope. Mirrors `inference::program::push_workflow_params`.
+    fn push_workflow_params(&mut self, w: &workflow_parser::ast::WorkflowDef) {
+        for p in &w.params {
+            let sym = ScopedSymbol {
+                name: p.clone(),
+                kind: SymbolKind::Parameter,
+                detail: Some(format!("parameter of workflow \"{}\"", w.name)),
+                documentation: Some(format!(
+                    "Parameter of workflow `{}` (event `{}`)",
+                    w.name, w.event
+                )),
+                name_range: None,
+            };
+            for line in self.scope_at.iter_mut() {
+                line.push(sym.clone());
+            }
         }
     }
 

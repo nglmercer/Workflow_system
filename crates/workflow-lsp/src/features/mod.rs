@@ -306,4 +306,49 @@ var result = double(num)"#;
             .iter()
             .all(|d| !d.message.contains("Type mismatch")));
     }
+
+    /// End-to-end regression test: `examples/advanced.flow` exercises
+    /// every feature the LSP needs to handle (function params,
+    /// workflow destructure params, nested foreach, the `//@T,T`
+    /// per-parameter shortcut, and SCREAMING_SNAKE_CASE event names
+    /// that should be treated as external). Before the fix, this
+    /// file produced five "Unknown identifier" errors and five
+    /// "listens for X but no emit was found" hints. After the fix,
+    /// the diagnostics list is empty.
+    #[test]
+    fn examples_advanced_flow_lints_clean() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/advanced.flow");
+        let source = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+
+        let mut state = ServerState::new();
+        let uri = "file:///advanced.flow";
+        state.update_document(uri, &source);
+
+        let diagnostics = diagnostics_at(&state, uri);
+        if !diagnostics.is_empty() {
+            let formatted: Vec<String> = diagnostics
+                .iter()
+                .map(|d| {
+                    format!(
+                        "{} Ln {}, Col {}: {}",
+                        match d.severity {
+                            DiagnosticSeverity::Error => "error",
+                            DiagnosticSeverity::Warning => "warning",
+                            DiagnosticSeverity::Info => "info",
+                            DiagnosticSeverity::Hint => "hint",
+                        },
+                        d.start_line + 1,
+                        d.start_col + 1,
+                        d.message
+                    )
+                })
+                .collect();
+            panic!(
+                "expected zero diagnostics on examples/advanced.flow, got:\n{}",
+                formatted.join("\n")
+            );
+        }
+    }
 }

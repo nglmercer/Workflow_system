@@ -1,7 +1,7 @@
 //! Program-level inference: walks a `FlowProgram` and produces the
 //! `Inference` result (per-line scopes + function signatures).
 
-use workflow_parser::ast::{Expr, FlowProgram, FunctionDef, GlobalVar, Stmt};
+use workflow_parser::ast::{Expr, FlowProgram, FunctionDef, GlobalVar, Stmt, WorkflowDef};
 
 use super::annotation::Annotations;
 use super::expr::{infer_expr, infer_expr_with_ctx};
@@ -234,12 +234,62 @@ pub fn run_program(
     }
     for f in &program.functions {
         push_function(inference, f, annotations);
+        // Function parameters are visible inside the function body.
+        // The signature is now in `inference.functions` (populated by
+        // `push_function` above), so we can read the resolved
+        // per-parameter types and use them as the binding's type.
+        push_function_params(inference, f);
     }
     for w in &program.workflows {
+        // Workflow `on EVENT({a, b, c})` destructure params are visible
+        // inside the workflow body. They default to `Type::Any` since
+        // there is no annotation form for them today.
+        push_workflow_params(inference, w);
         scan_body(inference, &w.body, annotations, 0);
     }
     for f in &program.functions {
         scan_body(inference, &f.body, annotations, 0);
+    }
+}
+
+/// Push every function parameter into `scope_at` so the
+/// `unknown-identifier` lint (and hover / completion) see them as
+/// in-scope names. The signature's resolved `param_types` are used when
+/// available; otherwise the binding falls back to `Type::Any`.
+fn push_function_params(inference: &mut super::Inference, f: &FunctionDef) {
+    let param_types: Vec<Type> = inference
+        .functions
+        .get(&f.name)
+        .map(|sig| sig.param_types.clone())
+        .unwrap_or_else(|| vec![Type::Any; f.params.len()]);
+    for (idx, name) in f.params.iter().enumerate() {
+        let binding = InferredBinding {
+            name: name.clone(),
+            ty: param_types.get(idx).cloned().unwrap_or(Type::Any),
+            value: None,
+            annotated: param_types
+                .get(idx)
+                .map(|t| t != &Type::Any)
+                .unwrap_or(false),
+        };
+        push_to_all_lines(inference, &binding);
+    }
+}
+
+/// Push every workflow destructure parameter (from
+/// `on EVENT ({a, b, c})`) into `scope_at`. Params default to
+/// `Type::Any` — there is no annotation form for them yet. If we ever
+/// add `//@<type>` above the `on` clause, this is where the resolution
+/// would plug in.
+fn push_workflow_params(inference: &mut super::Inference, w: &WorkflowDef) {
+    for name in &w.params {
+        let binding = InferredBinding {
+            name: name.clone(),
+            ty: Type::Any,
+            value: None,
+            annotated: false,
+        };
+        push_to_all_lines(inference, &binding);
     }
 }
 

@@ -257,4 +257,100 @@ fn greet(name) {
         let sig = inf.functions.get("greet").expect("greet");
         assert_eq!(sig.param_types, vec![Type::Number]);
     }
+
+    // -- Per-parameter binding population (regression for the
+    //    `unknown-identifier` lint false positives on params) -------
+
+    #[test]
+    fn function_params_in_scope() {
+        // `amount` and `currency` are function parameters — they
+        // should be in the scope table for the lines that reference
+        // them. Before the fix, the unknown-identifier lint reported
+        // both as "Unknown identifier".
+        let source = r#"fn formatCurrency(amount, currency) {
+  return currency + " " + amount
+}
+"#;
+        let inf = infer(source);
+        let sig = inf.functions.get("formatCurrency").expect("formatCurrency");
+        assert_eq!(sig.params, vec!["amount", "currency"]);
+        // The signature picks up the types from the string concat
+        // usage in the body.
+        assert_eq!(sig.param_types, vec![Type::String, Type::String]);
+        assert_eq!(sig.ret, Type::String);
+        // And the names appear in the scope table.
+        let on_line_1 = &inf.scope_at[1];
+        assert!(
+            on_line_1.iter().any(|b| b.name == "amount"),
+            "amount missing from scope_at[1]: {:?}",
+            on_line_1
+        );
+        assert!(
+            on_line_1.iter().any(|b| b.name == "currency"),
+            "currency missing from scope_at[1]: {:?}",
+            on_line_1
+        );
+    }
+
+    #[test]
+    fn function_param_shortcut_annotation() {
+        // The `//@T1,T2,T3` per-parameter shortcut. Each type
+        // positionally maps to the next function parameter.
+        let source = r#"//@string,string
+fn formatCurrency(amount, currency) {
+  return currency + " " + amount
+}
+"#;
+        let inf = infer(source);
+        let sig = inf.functions.get("formatCurrency").expect("formatCurrency");
+        assert_eq!(sig.params, vec!["amount", "currency"]);
+        assert_eq!(sig.param_types, vec![Type::String, Type::String]);
+        assert!(sig.annotated);
+    }
+
+    #[test]
+    fn function_param_shortcut_mismatch_falls_through() {
+        // A 2-arg function with a 3-type annotation shouldn't
+        // silently corrupt inference — it should fall through to
+        // body-based inference rather than fail.
+        let source = r#"//@string,number,bool
+fn add(a, b) {
+  return a + b
+}
+"#;
+        let inf = infer(source);
+        let sig = inf.functions.get("add").expect("add");
+        // The shortcut didn't match (3 != 2), so we fall back to
+        // the existing inference path which sees `a + b` and picks
+        // Number for both.
+        assert_eq!(sig.params, vec!["a", "b"]);
+        assert_eq!(sig.param_types, vec![Type::Number, Type::Number]);
+        assert!(!sig.annotated);
+    }
+
+    #[test]
+    fn workflow_destructure_params_in_scope() {
+        // The destructure `on EVENT ({a, b})` binds `a` and `b` to
+        // names visible in the workflow body. Before the fix, the
+        // unknown-identifier lint reported them as unknown.
+        let source = r#"workflow "Nested" {
+  on NESTED_DATA ({users, meta})
+  log("Users: " + users.length + ", Meta: " + meta.length)
+}
+"#;
+        let inf = infer(source);
+        // The signature for the workflow is implicit (no `FunctionSig`),
+        // but the param names should be in the scope table.
+        let line = &inf.scope_at[2]; // the `log(...)` line
+        assert!(
+            line.iter().any(|b| b.name == "users"),
+            "users missing from scope_at[2]: {:?}",
+            line
+        );
+        assert!(
+            line.iter().any(|b| b.name == "meta"),
+            "meta missing from scope_at[2]: {:?}",
+            line
+        );
+    }
 }
