@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "workflow_lsp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "flow-lsp"
 path = "src/main.rs"

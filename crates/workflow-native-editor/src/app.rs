@@ -1,12 +1,11 @@
 use super::highlight::{token_color, tokenize_line};
-use super::lsp::LspClient;
 use eframe::egui::{
     self, text::LayoutJob, Color32, FontId, Pos2, Rect, RichText, ScrollArea, TextEdit, TextFormat,
     Ui, Vec2,
 };
-use lsp_types::CompletionItem;
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
+use workflow_lsp::features::{Completion, CompletionKind};
+use workflow_lsp::ServerState;
 
 const FONT_SIZE: f32 = 14.0;
 const LINE_HEIGHT: f32 = 20.0;
@@ -14,14 +13,7 @@ const COMPLETION_WIDTH: f32 = 280.0;
 const COMPLETION_MAX_HEIGHT: f32 = 200.0;
 const COMPLETION_ROW_HEIGHT: f32 = 24.0;
 
-#[derive(Clone)]
-pub struct CompletionItemView {
-    pub label: String,
-    pub detail: Option<String>,
-    pub insert_text: String,
-}
-
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Copy)]
 struct CursorPosition {
     line: usize,
     col: usize,
@@ -29,11 +21,9 @@ struct CursorPosition {
 
 pub struct EditorApp {
     text: String,
-    lsp: Option<LspClient>,
-    lsp_rx: Option<Receiver<Result<LspClient, String>>>,
+    lsp: ServerState,
     uri: String,
-    version: i32,
-    completions: Vec<CompletionItemView>,
+    completions: Vec<Completion>,
     completion_visible: bool,
     completion_index: usize,
     status: String,
@@ -63,28 +53,18 @@ fn double(x) {
 }"#
         .to_string();
 
-        let (lsp_tx, lsp_rx) = std::sync::mpsc::channel();
+        let mut lsp = ServerState::new();
         let uri = "file:///example.flow".to_string();
-        let init_text = text.clone();
-
-        std::thread::spawn(move || {
-            let result = LspClient::start().map(|mut lsp| {
-                let _ = lsp.open_document(&uri, &init_text);
-                lsp
-            });
-            let _ = lsp_tx.send(result.map_err(|e| e.to_string()));
-        });
+        lsp.update_document(&uri, &text);
 
         Self {
             text,
-            lsp: None,
-            lsp_rx: Some(lsp_rx),
-            uri: "file:///example.flow".to_string(),
-            version: 1,
+            lsp,
+            uri,
             completions: Vec::new(),
             completion_visible: false,
             completion_index: 0,
-            status: "Starting LSP...".to_string(),
+            status: "Ready".to_string(),
             cursor: CursorPosition { line: 1, col: 1 },
             hover_text: None,
             hover_pos: None,
@@ -94,23 +74,6 @@ fn double(x) {
 
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if let Some(rx) = &self.lsp_rx {
-            if let Ok(result) = rx.try_recv() {
-                match result {
-                    Ok(lsp) => {
-                        self.lsp = Some(lsp);
-                        self.status = "LSP ready".to_string();
-                    }
-                    Err(err) => {
-                        self.status = format!("LSP unavailable: {err}");
-                    }
-                }
-                self.lsp_rx = None;
-            } else {
-                ctx.request_repaint();
-            }
-        }
-
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Flow Native Editor").font(FontId::proportional(16.0)));
@@ -121,7 +84,7 @@ impl eframe::App for EditorApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                     if ui.button("Clear").clicked() {
                         self.text.clear();
-                        self.update_lsp_document();
+                        self.lsp.update_document(&self.uri, &self.text);
                     }
                 });
             });
@@ -158,23 +121,22 @@ impl EditorApp {
                 let galley = output.galley;
 
                 if response.changed() {
-                    self.update_lsp_document();
+                    self.lsp.update_document(&self.uri, &self.text);
                 }
 
                 if let Some(range) = &output.cursor_range {
                     let primary = range.primary;
                     let line = primary.rcursor.row + 1;
                     let col = primary.rcursor.column + 1;
-                    let prev = (self.cursor.line, self.cursor.col);
                     if line != self.cursor.line || col != self.cursor.col {
                         self.cursor = CursorPosition { line, col };
-                        if response.changed() {
-                            self.request_completion();
-                        }
                     }
-                    if response.gained_focus() && prev == (1, 1) {
-                        self.request_completion();
-                    }
+                }
+
+                if response.changed() && should_request_completion(ui, &self.text, self.cursor) {
+                    self.request_completion();
+                } else if response.changed() {
+                    self.completion_visible = false;
                 }
 
                 self.update_hover(response.rect, &galley, response.hover_pos());
@@ -182,15 +144,16 @@ impl EditorApp {
     }
 
     fn request_completion(&mut self) {
-        if let Some(lsp) = &mut self.lsp {
-            if let Ok(items) = lsp.completion(&self.uri, self.cursor.line - 1, self.cursor.col - 1)
-            {
-                self.completions = items.into_iter().map(completion_item_view).collect();
-                self.completion_visible = !self.completions.is_empty();
-                if self.completion_visible && self.completion_index >= self.completions.len() {
-                    self.completion_index = 0;
-                }
-            }
+        let items = workflow_lsp::features::completions_at(
+            &self.lsp,
+            &self.uri,
+            self.cursor.line - 1,
+            self.cursor.col - 1,
+        );
+        self.completions = items;
+        self.completion_visible = !self.completions.is_empty();
+        if self.completion_visible && self.completion_index >= self.completions.len() {
+            self.completion_index = 0;
         }
     }
 
@@ -231,14 +194,14 @@ impl EditorApp {
             .take_while(|g| g.pos.x + g.size.x - row_min_x <= local.x)
             .count();
 
-        if let Some(lsp) = &mut self.lsp {
-            if let Ok(Some(text)) = lsp.hover(&self.uri, line_idx, col) {
-                self.hover_text = Some(text);
-                self.hover_pos = Some(pos);
-            } else {
-                self.hover_text = None;
-                self.hover_pos = None;
-            }
+        if let Some(text) =
+            workflow_lsp::features::hover_at(&self.lsp, &self.uri, line_idx, col)
+        {
+            self.hover_text = Some(text);
+            self.hover_pos = Some(pos);
+        } else {
+            self.hover_text = None;
+            self.hover_pos = None;
         }
     }
 
@@ -249,9 +212,6 @@ impl EditorApp {
         let height =
             (self.completions.len() as f32 * COMPLETION_ROW_HEIGHT).min(COMPLETION_MAX_HEIGHT);
 
-        // We need access to the TextEdit's response to anchor the popup, but
-        // we don't store it across frames to keep things simple. Place popup
-        // near the bottom-left of the central area as a fallback.
         let area = ctx.available_rect();
         let popup_rect = Rect::from_min_size(
             Pos2::new(area.min.x + 16.0, area.max.y - height - 16.0),
@@ -284,12 +244,13 @@ impl EditorApp {
                         if response.hovered() || selected {
                             ui.painter().rect_filled(rect, 2.0, bg);
                         }
+                        let color = color_for_kind(item.kind);
                         ui.painter().text(
                             rect.min + Vec2::new(6.0, 4.0),
                             egui::Align2::LEFT_TOP,
                             &item.label,
                             FontId::monospace(13.0),
-                            Color32::WHITE,
+                            color,
                         );
                         if let Some(detail) = &item.detail {
                             ui.painter().text(
@@ -307,7 +268,6 @@ impl EditorApp {
                 });
             });
 
-        // Keyboard navigation within the popup
         ctx.input(|i| {
             for event in &i.events {
                 match event {
@@ -363,7 +323,9 @@ impl EditorApp {
             return;
         }
         let item = self.completions[idx].clone();
-        let before = &self.text[..self.text.len().min(self.text.len())];
+        let insert_text = item.insert_text.unwrap_or(item.label);
+
+        let before = self.text.clone();
         let lines: Vec<&str> = before.split('\n').collect();
         let line_idx = self.cursor.line.saturating_sub(1);
         let col_idx = self.cursor.col.saturating_sub(1);
@@ -384,24 +346,19 @@ impl EditorApp {
             .map(|(i, _)| i + 1)
             .unwrap_or(0);
         let prefix = &self.text[..word_start];
-        self.text = format!("{}{}{}", prefix, item.insert_text, after);
+        self.text = format!("{}{}{}", prefix, insert_text, after);
         self.completion_visible = false;
-        self.update_lsp_document();
-    }
-
-    fn update_lsp_document(&mut self) {
-        self.version += 1;
-        if let Some(lsp) = &mut self.lsp {
-            let _ = lsp.change_document(&self.uri, self.version, &self.text);
-        }
+        self.lsp.update_document(&self.uri, &self.text);
     }
 }
 
-fn completion_item_view(item: CompletionItem) -> CompletionItemView {
-    CompletionItemView {
-        label: item.label,
-        detail: item.detail,
-        insert_text: item.insert_text.unwrap_or_default(),
+fn color_for_kind(kind: CompletionKind) -> Color32 {
+    match kind {
+        CompletionKind::Keyword => Color32::from_rgb(200, 120, 255),
+        CompletionKind::Function => Color32::from_rgb(100, 200, 255),
+        CompletionKind::Variable => Color32::from_rgb(220, 220, 220),
+        CompletionKind::Value => Color32::from_rgb(180, 220, 120),
+        CompletionKind::Property => Color32::from_rgb(255, 200, 100),
     }
 }
 
@@ -434,4 +391,37 @@ fn layout_flow(ui: &egui::Ui, text: &str, wrap_width: f32) -> std::sync::Arc<egu
     }
 
     ui.fonts(|f| f.layout_job(job))
+}
+
+fn should_request_completion(ui: &Ui, text: &str, cursor: CursorPosition) -> bool {
+    let line = match text.lines().nth(cursor.line - 1) {
+        Some(l) => l,
+        None => return false,
+    };
+    let col = cursor.col.saturating_sub(1).min(line.len());
+    let bytes = line.as_bytes();
+
+    if col > 0 {
+        let prev = bytes[col - 1] as char;
+        if prev.is_ascii_alphanumeric() || prev == '_' {
+            return true;
+        }
+        if prev == '.' {
+            return true;
+        }
+    }
+
+    ui.input(|i| {
+        i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key {
+                    key: egui::Key::Space,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } if modifiers.ctrl || modifiers.command
+            )
+        })
+    })
 }

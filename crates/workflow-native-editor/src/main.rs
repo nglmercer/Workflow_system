@@ -1,6 +1,5 @@
 mod app;
 mod highlight;
-mod lsp;
 
 use app::EditorApp;
 use eframe::egui;

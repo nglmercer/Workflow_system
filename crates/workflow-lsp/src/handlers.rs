@@ -1,10 +1,17 @@
+//! JSON-RPC handlers for the standalone `flow-lsp` server.
+//!
+//! Each handler is a thin adapter that turns an `lsp_server::Request` into
+//! a call on `crate::features` (the in-process API), and packages the
+//! result back into LSP types.
+
 use lsp_server::{Connection, Message};
 use lsp_types::{
-    CompletionItem, CompletionItemKind, CompletionList, Diagnostic, DiagnosticSeverity,
-    GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams, MarkupContent,
-    MarkupKind, Position, PublishDiagnosticsParams, Range,
+    CompletionList, Diagnostic, DiagnosticSeverity, GotoDefinitionParams, GotoDefinitionResponse,
+    Hover, HoverContents, HoverParams, MarkupContent, MarkupKind, Position,
+    PublishDiagnosticsParams, Range,
 };
 
+use crate::features;
 use crate::state::ServerState;
 
 pub fn handle_hover(connection: &Connection, state: &ServerState, req: lsp_server::Request) {
@@ -12,114 +19,62 @@ pub fn handle_hover(connection: &Connection, state: &ServerState, req: lsp_serve
     let uri = params.text_document_position_params.text_document.uri;
     let position = params.text_document_position_params.position;
 
-    let response = if let Some(word) = state.get_word_at_position(uri.as_str(), position) {
-        let hover_text = match word.as_str() {
-            "var" => "Variable declaration\n```flow\nvar name = value\n```",
-            "fn" => "Function definition\n```flow\nfn name(params) { body }\n```",
-            "workflow" => "Workflow definition\n```flow\nworkflow \"Name\" { on EVENT ... }\n```",
-            "on" => "Event trigger\n```flow\non EVENT_NAME\n```",
-            "if" => "Conditional statement\n```flow\nif (condition) { ... } else { ... }\n```",
-            "else" => "Else branch of if statement",
-            "return" => "Return from function",
-            "log" => "Log a message\n```flow\nlog(\"message\")\n```",
-            "true" | "false" => "Boolean literal",
-            "null" => "Null literal",
-            _ => &format!("Unknown: {}", word),
-        };
+    let hover = features::hover_at(
+        state,
+        uri.as_str(),
+        position.line as usize,
+        position.character as usize,
+    )
+    .map(|body| Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: body,
+        }),
+        range: None,
+    });
 
-        Some(Hover {
-            contents: HoverContents::Markup(MarkupContent {
-                kind: MarkupKind::Markdown,
-                value: hover_text.to_string(),
-            }),
-            range: None,
-        })
-    } else {
-        None
-    };
-
-    let resp = lsp_server::Response::new_ok(req.id, serde_json::to_value(response).unwrap());
+    let resp = lsp_server::Response::new_ok(req.id, serde_json::to_value(hover).unwrap());
     connection.sender.send(Message::Response(resp)).unwrap();
 }
 
-pub fn handle_completion(connection: &Connection, _state: &ServerState, req: lsp_server::Request) {
+pub fn handle_completion(connection: &Connection, state: &ServerState, req: lsp_server::Request) {
     let params: lsp_types::CompletionParams = serde_json::from_value(req.params).unwrap();
-    let _uri = params.text_document_position.text_document.uri;
+    let uri = params.text_document_position.text_document.uri;
+    let position = params.text_document_position.position;
 
-    let items = vec![
-        CompletionItem {
-            label: "var".to_string(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some("Variable declaration".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "fn".to_string(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some("Function definition".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "workflow".to_string(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some("Workflow definition".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "on".to_string(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some("Event trigger".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "if".to_string(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some("Conditional statement".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "else".to_string(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some("Else branch".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "return".to_string(),
-            kind: Some(CompletionItemKind::KEYWORD),
-            detail: Some("Return statement".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "log".to_string(),
-            kind: Some(CompletionItemKind::FUNCTION),
-            detail: Some("Log a message".to_string()),
-            insert_text: Some("log(\"${1:message}\")".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "true".to_string(),
-            kind: Some(CompletionItemKind::VALUE),
-            detail: Some("Boolean true".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "false".to_string(),
-            kind: Some(CompletionItemKind::VALUE),
-            detail: Some("Boolean false".to_string()),
-            ..Default::default()
-        },
-        CompletionItem {
-            label: "null".to_string(),
-            kind: Some(CompletionItemKind::VALUE),
-            detail: Some("Null value".to_string()),
-            ..Default::default()
-        },
-    ];
+    let completions = features::completions_at(
+        state,
+        uri.as_str(),
+        position.line as usize,
+        position.character as usize,
+    );
 
-    let response = Some(CompletionList {
+    // The in-process API returns our own `Completion` struct. Convert back
+    // to `lsp_types::CompletionItem` for the wire format.
+    let items: Vec<lsp_types::CompletionItem> = completions
+        .into_iter()
+        .map(|c| {
+            let kind = match c.kind {
+                features::CompletionKind::Keyword => lsp_types::CompletionItemKind::KEYWORD,
+                features::CompletionKind::Function => lsp_types::CompletionItemKind::FUNCTION,
+                features::CompletionKind::Variable => lsp_types::CompletionItemKind::VARIABLE,
+                features::CompletionKind::Value => lsp_types::CompletionItemKind::VALUE,
+                features::CompletionKind::Property => lsp_types::CompletionItemKind::PROPERTY,
+            };
+            lsp_types::CompletionItem {
+                label: c.label,
+                kind: Some(kind),
+                detail: c.detail,
+                documentation: None,
+                ..Default::default()
+            }
+        })
+        .collect();
+
+    let response = CompletionList {
         is_incomplete: false,
         items,
-    });
+    };
 
     let resp = lsp_server::Response::new_ok(req.id, serde_json::to_value(response).unwrap());
     connection.sender.send(Message::Response(resp)).unwrap();

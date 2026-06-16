@@ -1,20 +1,13 @@
-mod capabilities;
-mod handlers;
-mod state;
-
 use lsp_server::{Connection, Message};
 use lsp_types::{InitializeParams, InitializeResult, ServerInfo};
-
-use state::ServerState;
+use workflow_lsp::{capabilities, state::ServerState};
 
 fn main() {
     let (connection, _io_threads) = Connection::stdio();
 
-    let server_capabilities = capabilities::server_capabilities();
-
     let initialize_params: InitializeParams = serde_json::from_value(
         connection
-            .initialize(serde_json::to_value(server_capabilities).unwrap())
+            .initialize(serde_json::to_value(capabilities::server_capabilities()).unwrap())
             .unwrap(),
     )
     .unwrap();
@@ -53,22 +46,13 @@ fn main() {
 }
 
 fn handle_request(connection: &Connection, state: &mut ServerState, req: lsp_server::Request) {
+    use workflow_lsp::handlers;
     match req.method.as_str() {
-        "textDocument/hover" => {
-            handlers::handle_hover(connection, state, req);
-        }
-        "textDocument/completion" => {
-            handlers::handle_completion(connection, state, req);
-        }
-        "textDocument/definition" => {
-            handlers::handle_definition(connection, state, req);
-        }
-        "textDocument/diagnostic" => {
-            handlers::handle_diagnostic(connection, state, req);
-        }
-        _ => {
-            eprintln!("Unhandled request: {}", req.method);
-        }
+        "textDocument/hover" => handlers::handle_hover(connection, state, req),
+        "textDocument/completion" => handlers::handle_completion(connection, state, req),
+        "textDocument/definition" => handlers::handle_definition(connection, state, req),
+        "textDocument/diagnostic" => handlers::handle_diagnostic(connection, state, req),
+        _ => eprintln!("Unhandled request: {}", req.method),
     }
 }
 
@@ -77,15 +61,10 @@ fn handle_notification(
     state: &mut ServerState,
     not: lsp_server::Notification,
 ) {
+    use workflow_lsp::handlers;
     match not.method.as_str() {
-        "textDocument/didOpen" => {
-            handlers::handle_did_open(connection, state, not);
-        }
-        "textDocument/didChange" => {
-            handlers::handle_did_change(connection, state, not);
-        }
-        _ => {
-            eprintln!("Unhandled notification: {}", not.method);
-        }
+        "textDocument/didOpen" => handlers::handle_did_open(connection, state, not),
+        "textDocument/didChange" => handlers::handle_did_change(connection, state, not),
+        _ => eprintln!("Unhandled notification: {}", not.method),
     }
 }
