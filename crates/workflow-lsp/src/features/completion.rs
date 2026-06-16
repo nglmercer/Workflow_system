@@ -7,7 +7,6 @@
 
 use lsp_types::{CompletionTextEdit as LspCompletionTextEdit, Position, Range, TextEdit};
 
-use crate::analysis::Analysis;
 use crate::inference;
 
 use super::{Completion, CompletionKind, CompletionTextEdit};
@@ -23,7 +22,6 @@ use super::{Completion, CompletionKind, CompletionTextEdit};
 /// `array` shows array methods. When absent, the legacy hardcoded
 /// member list is used as a fallback.
 pub fn build_completions(
-    analysis: &Analysis,
     inference: Option<&inference::Inference>,
     source: &str,
     position: Position,
@@ -43,13 +41,7 @@ pub fn build_completions(
             .unwrap_or(0);
         let object_name = &object_text[ident_start..];
         if !object_name.is_empty() {
-            return build_member_completions(
-                inference,
-                source,
-                position,
-                object_name,
-                ident_start,
-            );
+            return build_member_completions(inference, source, position, object_name, ident_start);
         }
     }
 
@@ -67,11 +59,17 @@ pub fn build_completions(
     };
     let mut items = Vec::new();
 
-    for sym in analysis.scope_at_position(position) {
-        if prefix.is_empty() || sym.name.starts_with(&prefix) {
-            items.push(symbol_to_completion(sym, replace_range));
-        }
-    }
+    // Identifier completion only shows built-in language constructs
+    // (keywords, built-in functions, and constant values). We
+    // deliberately do NOT enumerate user-defined variables from
+    // `analysis.scope_at_position` here: variables are shown via
+    // hover and via member access (`foo.|`), but they don't belong
+    // in the top-level completion popup because they would
+    // dominate the list (every `var`, every foreach item, every
+    // destructure binding — e.g. `users` and `meta` from
+    // `on NESTED_DATA ({users, meta})`) and would suggest names
+    // the user has just typed at a moment when they are usually
+    // reaching for a built-in.
 
     for mut item in builtin_items() {
         let label = item.label.clone();
@@ -100,7 +98,10 @@ pub fn build_completions(
 /// (`foo.bar`, where the cursor is on or after the `.`). The result
 /// is type-aware: when we can resolve the type of `object_name` from
 /// the inference scope, we show only the methods and properties that
-/// actually exist on that type.
+/// actually exist on that type. `object_name` is kept for
+/// documentation and for future heuristics; the type-driven path
+/// already does the work.
+#[allow(unused_variables)]
 fn build_member_completions(
     inference: Option<&inference::Inference>,
     source: &str,
@@ -130,10 +131,11 @@ fn build_member_completions(
         inf.lookup(source, lookup_pos).map(|b| b.ty)
     });
 
-    // Fast path: hardcoded `data` completions for the event payload.
-    if object_name == "data" {
-        return vec![make_field("plan", "string"), make_field("items", "array")];
-    }
+    // No more hardcoded `data` fast path: completions for
+    // `data.<x>` come from the inference, which types the `data`
+    // binding from whatever the user imported with
+    // `@import data from ...` (or from `data.<x>` usages in the
+    // body, when no schema is present).
 
     let mut items: Vec<lsp_types::CompletionItem> = Vec::new();
 
@@ -205,35 +207,6 @@ fn trailing_word(before: &str) -> String {
         start -= 1;
     }
     before[start..].to_string()
-}
-
-fn symbol_to_completion(
-    sym: &crate::analysis::ScopedSymbol,
-    replace_range: Range,
-) -> lsp_types::CompletionItem {
-    let kind = match sym.kind {
-        crate::analysis::SymbolKind::Variable => lsp_types::CompletionItemKind::VARIABLE,
-        crate::analysis::SymbolKind::Function => lsp_types::CompletionItemKind::FUNCTION,
-        crate::analysis::SymbolKind::Parameter => lsp_types::CompletionItemKind::VARIABLE,
-        crate::analysis::SymbolKind::Keyword => lsp_types::CompletionItemKind::KEYWORD,
-        crate::analysis::SymbolKind::Value => lsp_types::CompletionItemKind::VALUE,
-        crate::analysis::SymbolKind::Property => lsp_types::CompletionItemKind::PROPERTY,
-    };
-    let mut item = lsp_types::CompletionItem {
-        label: sym.name.clone(),
-        kind: Some(kind),
-        detail: sym.detail.clone(),
-        documentation: sym
-            .documentation
-            .clone()
-            .map(lsp_types::Documentation::String),
-        ..Default::default()
-    };
-    item.text_edit = Some(lsp_types::CompletionTextEdit::Edit(lsp_types::TextEdit {
-        range: replace_range,
-        new_text: sym.name.clone(),
-    }));
-    item
 }
 
 fn make_field(name: &str, ty: &str) -> lsp_types::CompletionItem {
@@ -434,7 +407,6 @@ fn builtin_items() -> Vec<lsp_types::CompletionItem> {
 mod tests {
     use super::*;
     use crate::state::ServerState;
-    use lsp_types::CompletionItemKind;
 
     fn completions_at(source: &str, line: u32, character: u32) -> Vec<Completion> {
         let mut state = ServerState::new();
@@ -470,7 +442,14 @@ mod tests {
         // Property
         assert!(l.contains(&"length"), "missing length: {:?}", l);
         // String methods
-        for m in ["toUpperCase", "toLowerCase", "trim", "contains", "startsWith", "endsWith"] {
+        for m in [
+            "toUpperCase",
+            "toLowerCase",
+            "trim",
+            "contains",
+            "startsWith",
+            "endsWith",
+        ] {
             assert!(l.contains(&m), "missing string method {}: {:?}", m, l);
         }
         // Not array methods, not number methods
@@ -518,5 +497,93 @@ mod tests {
         let l = labels(&items);
         assert!(l.contains(&"length"), "missing length: {:?}", l);
         assert!(l.contains(&"name"), "missing name: {:?}", l);
+    }
+
+    /// User-defined variables (locals, foreach items, and workflow
+    /// destructure params) must never appear in the top-level
+    /// identifier completion popup. The completion should only
+    /// suggest built-in keywords, built-in functions, and constant
+    /// values. This is the regression test for the screenshot
+    /// scenario in `examples/advanced.flow`-style code: pressing
+    /// `u` or `m` inside the body of a workflow that destructured
+    /// `({users, meta})` was offering `users` and `meta` as
+    /// completions, polluting the popup with the user's own
+    /// variables.
+    #[test]
+    fn identifier_completion_never_suggests_user_variables() {
+        // The previous form of this test used `//@external` to mark
+        // `NESTED_DATA` as external. With the new import-based
+        // mechanism, the event is external simply because the
+        // workflow event is in `SCREAMING_SNAKE_CASE`, so the
+        // annotation is no longer needed.
+        let source = "workflow \"Nested Loops\" {\n  on NESTED_DATA ({users, meta})\n  l\n}\n";
+        // Line 3 (0-indexed 2) is `  l`. Cursor right after `l`,
+        // column 3.
+        let items = completions_at(source, 2, 3);
+        let l = labels(&items);
+        // User variables must not appear.
+        assert!(
+            !l.contains(&"meta"),
+            "meta (workflow destructure param) leaked into identifier completion: {:?}",
+            l
+        );
+        assert!(
+            !l.contains(&"users"),
+            "users (workflow destructure param) leaked into identifier completion: {:?}",
+            l
+        );
+        // Builtins that match the prefix `l` should still be present.
+        assert!(l.contains(&"log"), "missing log builtin: {:?}", l);
+        assert!(l.contains(&"len"), "missing len builtin: {:?}", l);
+    }
+
+    /// Same rule, but the prefix is a single character that
+    /// *matches* a user variable. Pressing `u` should not suggest
+    /// `users`; pressing `m` should not suggest `meta`. We type
+    /// `us` so the prefix actually matches a builtin too — the
+    /// completion list must contain `users`-related stuff only
+    /// if the user variable mechanism is broken.
+    #[test]
+    fn single_char_prefix_does_not_match_user_variables() {
+        let source = "workflow \"W\" {\n  on E\n  on NESTED_DATA ({users, meta})\n  u\n}\n";
+        // Line 5 (0-indexed 4) is `  u`. Cursor right after `u`,
+        // column 3.
+        let items = completions_at(source, 4, 3);
+        let l = labels(&items);
+        assert!(
+            !l.contains(&"users"),
+            "users leaked with prefix 'u': {:?}",
+            l
+        );
+        // No builtin in the current list starts with `u`, so the
+        // list is expected to be empty. The key invariant is that
+        // the user variable is not surfaced.
+        assert!(
+            !l.iter().any(|s| s.starts_with("u") && *s != "u"),
+            "unexpected 'u*' user variable in completion: {:?}",
+            l
+        );
+    }
+
+    /// An empty prefix (cursor at the start of an empty token)
+    /// must still show builtins, never variables.
+    #[test]
+    fn empty_prefix_shows_only_builtins() {
+        let source = "workflow \"W\" {\n  on E\n  var total = 1\n  \n}\n";
+        // Line 4 (0-indexed 3) is `  ` (two spaces, empty token).
+        // Cursor at column 3 (after the two spaces).
+        let items = completions_at(source, 3, 3);
+        let l = labels(&items);
+        // `total` is a `var` declared earlier and is in scope — it
+        // must not appear.
+        assert!(
+            !l.contains(&"total"),
+            "user variable 'total' leaked into completion: {:?}",
+            l
+        );
+        // The full builtin set should be present.
+        for builtin in ["var", "if", "foreach", "log", "len", "true", "false"] {
+            assert!(l.contains(&builtin), "missing builtin {}: {:?}", builtin, l);
+        }
     }
 }

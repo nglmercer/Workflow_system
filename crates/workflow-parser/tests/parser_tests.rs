@@ -491,3 +491,48 @@ mod evaluator_tests {
         assert!(matches!(result, Value::Array(_)));
     }
 }
+
+#[cfg(test)]
+mod test_def_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_test_def_simple() {
+        let code = "test \"Premium user gets greeting\" {\n  on USER_REGISTERED with { name: \"Ada\", plan: \"premium\" }\n  expect logs [\"Hello Ada!\"]\n  expect emitted []\n  expect return null\n  expect var greeting == \"Hello Ada!\"\n}\n";
+        let program = FlowParser::parse_flow_program(code).unwrap();
+        assert_eq!(program.tests.len(), 1);
+        let t = &program.tests[0];
+        assert_eq!(t.name, "Premium user gets greeting");
+        assert_eq!(t.on.event, "USER_REGISTERED");
+        assert_eq!(t.on.data["name"], serde_json::json!("Ada"));
+        assert_eq!(t.on.data["plan"], serde_json::json!("premium"));
+        assert_eq!(t.expects.len(), 4);
+        assert!(matches!(&t.expects[0], ExpectClause::Logs(v) if v == &vec!["Hello Ada!".to_string()]));
+        assert!(matches!(&t.expects[1], ExpectClause::Emitted(v) if v.is_empty()));
+        assert!(matches!(&t.expects[2], ExpectClause::Return(serde_json::Value::Null)));
+        assert!(matches!(&t.expects[3], ExpectClause::Var { name, value } if name == "greeting" && *value == serde_json::json!("Hello Ada!")));
+    }
+
+    #[test]
+    fn test_parse_test_def_with_all_assertions() {
+        let code = "test \"Many asserts\" {\n  on CLICK with { count: 3, label: \"ok\" }\n  expect logs [\"a\", \"b\", \"c\"]\n  expect emitted [\"X\", \"Y\"]\n  expect return 42\n  expect var total == 7\n}\n";
+        let program = FlowParser::parse_flow_program(code).unwrap();
+        assert_eq!(program.tests.len(), 1);
+        let t = &program.tests[0];
+        assert_eq!(t.expects.len(), 4);
+        assert!(matches!(&t.expects[0], ExpectClause::Logs(v) if v.len() == 3));
+        assert!(matches!(&t.expects[1], ExpectClause::Emitted(v) if v == &vec!["X".to_string(), "Y".to_string()]));
+        assert!(matches!(&t.expects[2], ExpectClause::Return(v) if v.as_i64() == Some(42)));
+        assert!(matches!(&t.expects[3], ExpectClause::Var { name, value } if name == "total" && value.as_i64() == Some(7)));
+    }
+
+    #[test]
+    fn test_parse_program_mixes_tests_and_workflows() {
+        let code = "workflow \"Greet\" {\n  on USER_REGISTERED\n  log(\"Hello\")\n}\n\ntest \"Logs hello\" {\n  on USER_REGISTERED\n  expect logs [\"Hello\"]\n}\n";
+        let program = FlowParser::parse_flow_program(code).unwrap();
+        assert_eq!(program.workflows.len(), 1);
+        assert_eq!(program.tests.len(), 1);
+        assert_eq!(program.workflows[0].name, "Greet");
+        assert_eq!(program.tests[0].name, "Logs hello");
+    }
+}

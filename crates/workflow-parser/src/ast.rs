@@ -50,6 +50,51 @@ impl<T> Spanned<T> {
     }
 }
 
+/// Test definition. Lives in sidecar `*.test.flow` files and is
+/// consumed by `workflow-test-runner`. The runner synthesises a
+/// `TriggerContext` from `on_clause` and runs every matching
+/// `WorkflowDef` in the host program, then checks each
+/// `expect_clause` against the captured logs / events / return
+/// value / final scope.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TestDef {
+    pub name: String,
+    pub on: OnClause,
+    pub expects: Vec<ExpectClause>,
+}
+
+/// The `on <EVENT> with { ... }` clause of a test. The `data`
+/// payload is a `serde_json::Value`; missing fields become `Null`
+/// at runtime, matching the evaluator's permissive member-access
+/// behaviour.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OnClause {
+    pub event: String,
+    pub data: serde_json::Value,
+}
+
+/// One `expect ...` line. The runner checks each clause in order
+/// and aggregates pass/fail into the test report.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ExpectClause {
+    /// `expect logs [...]` — element-wise equality with the
+    /// captured log strings.
+    Logs(Vec<String>),
+    /// `expect emitted [...]` — element-wise equality with the
+    /// list of events the engine emits. The `.flow` evaluator
+    /// does not yet emit events, so `actual` is `[]` until
+    /// emission is added.
+    Emitted(Vec<String>),
+    /// `expect return <value>` — the workflow's last `return`
+    /// expression result, or `Null` if the workflow fell off the
+    /// end with no return.
+    Return(serde_json::Value),
+    /// `expect var <name> == <value>` — the workflow's final
+    /// scope binding for `name`, or `Null` if unbound (the
+    /// assertion will fail in that case).
+    Var { name: String, value: serde_json::Value },
+}
+
 /// Top-level AST node
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlowProgram {
@@ -57,13 +102,38 @@ pub struct FlowProgram {
     pub globals: Vec<GlobalVar>,
     pub functions: Vec<FunctionDef>,
     pub workflows: Vec<WorkflowDef>,
+    /// Sidecar `test "..." { ... }` blocks. Empty for non-test files.
+    #[serde(default)]
+    pub tests: Vec<TestDef>,
+}
+
+/// Where an imported binding comes from. The parser produces one of
+/// these for every import statement; downstream consumers (the LSP
+/// typechecker, the engine loader) decide how to resolve it.
+///
+/// - `Path` covers both filesystem paths and `http(s)://` URLs — the
+///   resolver distinguishes them by prefix.
+/// - `Inline` holds a JSON value embedded in the program. The most
+///   useful shape is an object whose keys become the fields of the
+///   binding.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum ImportSource {
+    /// A path or URL given as a string literal in the import. The
+    /// resolver is responsible for distinguishing local files from
+    /// `http(s)://` URLs.
+    Path(String),
+    /// An inline JSON value (typically a JSON object literal). The
+    /// parser produces this when the `from` clause is an object
+    /// instead of a string.
+    Inline(serde_json::Value),
 }
 
 /// Import statement
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImportStmt {
     pub name: String,
-    pub path: String,
+    pub source: ImportSource,
 }
 
 /// Global variable declaration

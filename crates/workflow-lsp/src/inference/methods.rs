@@ -45,7 +45,10 @@ pub struct Method {
 /// methods because it doesn't take arguments.
 #[derive(Debug, Clone)]
 pub struct Property {
-    pub name: &'static str,
+    /// The property's name. Owned so we can synthesize properties
+    /// from JSON-schema object keys (which are user strings, not
+    /// `'static`).
+    pub name: String,
     pub ty: Type,
     pub doc: &'static str,
 }
@@ -214,15 +217,27 @@ pub fn methods_for(ty: &Type) -> Vec<Method> {
 pub fn properties_for(ty: &Type) -> Vec<Property> {
     match ty {
         Type::String => vec![Property {
-            name: "length",
+            name: "length".to_string(),
             ty: Type::Number,
             doc: "Number of characters in the string.",
         }],
         Type::Array(_) => vec![Property {
-            name: "length",
+            name: "length".to_string(),
             ty: Type::Number,
             doc: "Number of elements in the array.",
         }],
+        // Object properties come from the schema (i.e. an imported
+        // `@import data from ...` or an inline object literal). The
+        // member access inference resolves them by name, so the
+        // completion list can be built from the same field list.
+        Type::Object(fields) => fields
+            .iter()
+            .map(|(k, v)| Property {
+                name: k.clone(),
+                ty: v.clone(),
+                doc: "",
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }

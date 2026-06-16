@@ -6,14 +6,23 @@
 //! An event is treated as **external** (and therefore not flagged) when
 //! either:
 //!
-//! 1. The workflow has a `//@external` annotation directly above its
-//!    `on` clause. This is the explicit opt-in.
-//! 2. The event name matches the `SCREAMING_SNAKE_CASE` convention
+//! 1. The event name matches the `SCREAMING_SNAKE_CASE` convention
 //!    (e.g. `USER_REGISTERED`, `BATCH_START`). This is the convention
 //!    for events received from outside the file, so the hint would
 //!    otherwise be a constant false positive on every realistic
 //!    workflow. Workflows that *do* use `emit(...)` to dispatch the
 //!    same event still aren't flagged (they're trivially non-external).
+//!
+//! 2. The event matches the binding name of an imported data schema
+//!    (`@import NESTED_DATA from "./nested.json"` and the workflow
+//!    listens for `on NESTED_DATA`). Importing a schema means the
+//!    event is being consumed from an external source — the
+//!    `//@external` annotation we used to accept has been removed in
+//!    favour of the explicit import.
+//!
+//! The previous `//@external` annotation syntax is no longer
+//! recognised. To make an event external, either rename it to
+//! `SCREAMING_SNAKE_CASE` or import its payload schema.
 
 use std::collections::HashSet;
 
@@ -39,7 +48,18 @@ impl Lint for UnusedWorkflow {
             collect_emits(&f.body, &mut emitted_events);
         }
 
-        let external_events = collect_external_events(cx.source);
+        // An event that has a payload schema imported for it is
+        // also external: the user explicitly told us the event
+        // arrives from outside the file by importing its type. The
+        // schema's binding name (e.g. `data` for `@import data from
+        // ...`, or `NESTED_DATA` for `import NESTED_DATA from ...`)
+        // matches the workflow's event name in the typical pattern.
+        let imported_event_names: HashSet<String> = cx
+            .program
+            .imports
+            .iter()
+            .map(|i| i.name.clone())
+            .collect();
 
         let mut out = Vec::new();
         for w in &cx.program.workflows {
@@ -55,11 +75,13 @@ impl Lint for UnusedWorkflow {
                 }
                 continue;
             }
-            // Suppress: emitted in-file, or declared external.
+            // Suppress: emitted in-file, matches an imported schema's
+            // binding name, or follows the SCREAMING_SNAKE_CASE
+            // convention.
             if emitted_events.contains(&w.event) {
                 continue;
             }
-            if external_events.contains(&w.event) {
+            if imported_event_names.contains(&w.event) {
                 continue;
             }
             if is_screaming_snake_case(&w.event) {
@@ -83,39 +105,6 @@ impl Lint for UnusedWorkflow {
         }
         out
     }
-}
-
-/// Walk the source and collect the set of events explicitly declared
-/// external via `//@external` above an `on` clause. The annotation
-/// must be on the line directly preceding `on EVENT(...)` (blank
-/// lines and other `//@` annotations between them are allowed).
-fn collect_external_events(source: &str) -> HashSet<String> {
-    let mut out = HashSet::new();
-    let lines: Vec<&str> = source.lines().collect();
-    for (i, line) in lines.iter().enumerate() {
-        if line.trim() != "//@external" {
-            continue;
-        }
-        // Find the next non-comment, non-blank line.
-        for next in lines.iter().skip(i + 1) {
-            let t = next.trim();
-            if t.is_empty() || t.starts_with("//") {
-                continue;
-            }
-            if let Some(on_part) = t.strip_prefix("on ") {
-                let event = on_part
-                    .split(|c: char| !c.is_alphanumeric() && c != '_')
-                    .next()
-                    .unwrap_or("")
-                    .to_string();
-                if !event.is_empty() {
-                    out.insert(event);
-                }
-            }
-            break;
-        }
-    }
-    out
 }
 
 /// Returns true if `name` follows the `SCREAMING_SNAKE_CASE` convention
@@ -263,12 +252,12 @@ mod tests {
     }
 
     #[test]
-    fn external_annotation_suppresses_hint() {
-        // `//@external` above the `on` clause marks the event as
-        // external and suppresses the hint even for non-SCREAMING
-        // event names.
-        let source = r#"workflow "W" {
-  //@external
+    fn imported_schema_marks_event_external() {
+        // Importing a schema whose binding name matches the
+        // workflow's event marks the event as external — the user
+        // is saying "this event arrives from outside the file".
+        let source = r#"@import my_external_event from { users: [], meta: [] }
+workflow "W" {
   on my_external_event
   log("hi")
 }"#;
@@ -277,17 +266,23 @@ mod tests {
     }
 
     #[test]
-    fn external_annotation_with_intervening_comment() {
-        // The annotation may be separated from the `on` clause by
-        // blank lines or other `//@` annotations.
+    fn legacy_external_annotation_is_no_longer_recognised() {
+        // The old `//@external` annotation syntax has been removed.
+        // Workflows that rely on it need to be migrated to the
+        // `@import data from ...` form (or rename the event to
+        // SCREAMING_SNAKE_CASE). With the annotation gone, the
+        // lint should fire on the lowercase event name.
         let source = r#"workflow "W" {
   //@external
-
   on my_external_event
   log("hi")
 }"#;
         let diags = run_lint(source);
-        assert!(diags.is_empty(), "got: {:?}", diags);
+        assert!(
+            diags.iter().any(|d| d.message.contains("my_external_event")),
+            "expected the lint to flag the event; got: {:?}",
+            diags
+        );
     }
 
     #[test]

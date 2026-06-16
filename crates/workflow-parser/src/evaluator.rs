@@ -90,6 +90,25 @@ impl std::fmt::Display for Value {
     }
 }
 
+/// Result of running a workflow. Returned by
+/// [`FlowEvaluator::execute_workflow_with_result`] and consumed by
+/// the test runner to evaluate `expect` clauses.
+#[derive(Debug, Clone)]
+pub struct WorkflowOutcome {
+    /// The captured log strings, in emission order.
+    pub logs: Vec<String>,
+    /// The value produced by the last `return` statement, or
+    /// `Value::Null` if the workflow fell off the end with no
+    /// `return`.
+    pub return_value: Value,
+    /// The full variable scope at the moment execution stopped.
+    /// Includes the synthetic `data` and (when present) `vars`
+    /// bindings, the destructured event params, and every
+    /// `var` declared anywhere in the body (including inside
+    /// `if`/`foreach` branches that ran).
+    pub scope: HashMap<String, Value>,
+}
+
 /// Evaluator for .flow programs
 pub struct FlowEvaluator {
     globals: HashMap<String, Value>,
@@ -122,6 +141,21 @@ impl FlowEvaluator {
         workflow: &WorkflowDef,
         context: &TriggerContext,
     ) -> WorkflowResult<Vec<String>> {
+        let outcome = self.execute_workflow_with_result(workflow, context)?;
+        Ok(outcome.logs)
+    }
+
+    /// Execute a workflow and return the captured logs, the value
+    /// produced by the last `return` statement (or `Null` if the
+    /// workflow fell off the end), and a snapshot of the final
+    /// variable scope. This is the rich entry point used by the
+    /// test runner; [`execute_workflow`] remains for callers that
+    /// only need the logs.
+    pub fn execute_workflow_with_result(
+        &mut self,
+        workflow: &WorkflowDef,
+        context: &TriggerContext,
+    ) -> WorkflowResult<WorkflowOutcome> {
         self.logs.clear();
 
         let mut vars = HashMap::new();
@@ -140,18 +174,31 @@ impl FlowEvaluator {
             }
         }
 
+        let mut ret: Option<Value> = None;
         for stmt in &workflow.body {
-            self.exec_stmt(stmt, &mut vars)?;
+            if let Some(value) = self.exec_stmt(stmt, &mut vars)? {
+                ret = Some(value);
+                break;
+            }
         }
 
-        Ok(self.logs.clone())
+        Ok(WorkflowOutcome {
+            logs: self.logs.clone(),
+            return_value: ret.unwrap_or(Value::Null),
+            scope: vars,
+        })
     }
 
+    /// Execute a single statement. Returns:
+    /// - `Ok(Some(value))` if the statement was a `return` — the
+    ///   caller should short-circuit the rest of the workflow.
+    /// - `Ok(None)` for any other statement (including non-returning
+    ///   control flow).
     fn exec_stmt(
         &mut self,
         stmt: &Stmt,
         vars: &mut HashMap<String, Value>,
-    ) -> WorkflowResult<bool> {
+    ) -> WorkflowResult<Option<Value>> {
         match stmt {
             Stmt::VarDecl { name, value } => {
                 let val = value
@@ -159,7 +206,7 @@ impl FlowEvaluator {
                     .map(|e| self.eval_expr(e, vars))
                     .unwrap_or(Value::Null);
                 vars.insert(name.clone(), val);
-                Ok(false)
+                Ok(None)
             }
             Stmt::If {
                 condition,
@@ -167,30 +214,33 @@ impl FlowEvaluator {
                 else_body,
             } => {
                 let cond_val = self.eval_expr(condition, vars);
-                if cond_val.is_truthy() {
-                    for stmt in then_body {
-                        if self.exec_stmt(stmt, vars)? {
-                            return Ok(true);
-                        }
-                    }
-                } else if let Some(else_body) = else_body {
-                    for stmt in else_body {
-                        if self.exec_stmt(stmt, vars)? {
-                            return Ok(true);
-                        }
+                let branch = if cond_val.is_truthy() {
+                    then_body
+                } else {
+                    else_body.as_deref().unwrap_or(&[])
+                };
+                for stmt in branch {
+                    if let Some(value) = self.exec_stmt(stmt, vars)? {
+                        return Ok(Some(value));
                     }
                 }
-                Ok(false)
+                Ok(None)
             }
-            Stmt::Return { value: _ } => Ok(false),
+            Stmt::Return { value } => {
+                let val = value
+                    .as_ref()
+                    .map(|e| self.eval_expr(e, vars))
+                    .unwrap_or(Value::Null);
+                Ok(Some(val))
+            }
             Stmt::Expr(expr) => {
                 self.eval_expr(expr, vars);
-                Ok(false)
+                Ok(None)
             }
             Stmt::Log(expr) => {
                 let val = self.eval_expr(expr, vars);
                 self.logs.push(val.to_string());
-                Ok(false)
+                Ok(None)
             }
             Stmt::Foreach {
                 item_var,
@@ -202,17 +252,17 @@ impl FlowEvaluator {
                     for item in items {
                         vars.insert(item_var.clone(), item);
                         for stmt in body {
-                            if self.exec_stmt(stmt, vars)? {
-                                return Ok(true);
+                            if let Some(value) = self.exec_stmt(stmt, vars)? {
+                                return Ok(Some(value));
                             }
                         }
                     }
                 }
-                Ok(false)
+                Ok(None)
             }
             Stmt::On { .. } => {
                 // On is handled at workflow level, skip during body execution
-                Ok(false)
+                Ok(None)
             }
         }
     }
@@ -403,18 +453,13 @@ impl FlowEvaluator {
                     }
                     let mut result = Value::Null;
                     for stmt in &func.body {
-                        match stmt {
-                            Stmt::Return { value } => {
-                                if let Some(expr) = value {
-                                    result = self.eval_expr(expr, &local_vars);
-                                }
+                        match self.exec_stmt(stmt, &mut local_vars) {
+                            Ok(Some(value)) => {
+                                result = value;
                                 break;
                             }
-                            _ => {
-                                if self.exec_stmt(stmt, &mut local_vars).is_err() {
-                                    break;
-                                }
-                            }
+                            Ok(None) => continue,
+                            Err(_) => break,
                         }
                     }
                     result

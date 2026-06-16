@@ -39,6 +39,7 @@ pub mod annotation;
 pub mod builtins;
 pub mod expr;
 pub mod program;
+pub mod schema;
 pub mod ty;
 pub mod value;
 
@@ -59,13 +60,33 @@ pub struct Inference {
 impl Inference {
     /// Run inference over a parsed program and its source text.
     pub fn analyze(program: &FlowProgram, source: &str) -> Self {
+        Self::analyze_with_path(program, source, None)
+    }
+
+    /// Like [`analyze`], but with the document's filesystem path so
+    /// that `@import data from "./schema.json"` can be resolved
+    /// relative to the file. URL imports and unreadable paths are
+    /// tolerated: the resolver records the error and the binding
+    /// falls back to `Type::Any`.
+    pub fn analyze_with_path(
+        program: &FlowProgram,
+        source: &str,
+        document_path: Option<&str>,
+    ) -> Self {
         let line_count = source.lines().count().max(1);
         let mut inference = Inference {
             scope_at: vec![Vec::new(); line_count],
             functions: HashMap::new(),
         };
         let annotations = annotation::parse_annotations(source);
-        program::run_program(&mut inference, program, &annotations);
+        let (_schemas, import_bindings) =
+            schema::resolve_schemas_for_program(&program.imports, document_path);
+        program::run_program_with_imports(
+            &mut inference,
+            program,
+            &annotations,
+            &import_bindings,
+        );
         inference
     }
 
@@ -495,5 +516,40 @@ fn summarize(value, count) {
         let inf = infer(source);
         let sig = inf.functions.get("summarize").expect("summarize");
         assert_eq!(sig.ret, Type::Number);
+    }
+
+    #[test]
+    fn local_var_in_function_body_sees_annotated_param() {
+        // Regression for the "function body type inference uses an
+        // empty scope" bug: `var length = email.length` should pick
+        // up `email`'s annotated `string` type and resolve `.length`
+        // to `number`. Before the fix, `email` was not in scope, so
+        // the inference saw `Expr::Var("email")` as `Any` and
+        // `.length` fell through to `Any` as well.
+        let source = r#"//@string
+fn validateEmail(email) {
+  var length = email.length
+  if (length > 5) {
+    return true
+  }
+  return false
+}
+"#;
+        let inf = infer(source);
+        // The `length` binding should be a `number`, not `any`,
+        // because the inference resolved `email.length` through
+        // the annotated param type.
+        let length_binding = inf
+            .scope_at
+            .iter()
+            .flatten()
+            .find(|b| b.name == "length")
+            .expect("length should be in scope");
+        assert_eq!(
+            length_binding.ty,
+            Type::Number,
+            "expected email.length to be typed as number, got {:?}",
+            length_binding.ty
+        );
     }
 }

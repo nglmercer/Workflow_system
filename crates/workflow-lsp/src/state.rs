@@ -23,8 +23,19 @@ impl ServerState {
     pub fn update_document(&mut self, uri: &str, content: &str) {
         self.documents.insert(uri.to_string(), content.to_string());
         let analysis = Analysis::analyze(content);
+        // The `uri` is typically a `file://...` URL. We pass the
+        // filesystem path (or `None` for synthetic URIs) to the
+        // inference so that `@import data from "./schema.json"`
+        // resolves against the document's directory.
+        let document_path = uri
+            .strip_prefix("file://")
+            .map(str::to_string);
         let inference = match workflow_parser::FlowParser::parse_flow_program(content) {
-            Ok(program) => Inference::analyze(&program, content),
+            Ok(program) => Inference::analyze_with_path(
+                &program,
+                content,
+                document_path.as_deref(),
+            ),
             Err(_) => {
                 let line_count = content.lines().count();
                 Inference::empty(line_count)

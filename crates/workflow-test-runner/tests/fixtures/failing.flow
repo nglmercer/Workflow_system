@@ -1,0 +1,6 @@
+// Host for the intentionally-failing test file.
+
+workflow "Greet" {
+  on HELLO
+  log("Hello, " + data.name + "!")
+}

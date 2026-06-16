@@ -44,19 +44,66 @@ destructure_params = { "({" ~ destructure_list ~ "})" }
 // Function definition
 fn_def = { "fn" ~ IDENT ~ "(" ~ (IDENT ~ ("," ~ IDENT)*)? ~ ")" ~ block }
 
-// Import statement. Two forms, both produce the same ImportStmt:
-//   import <name> from "<path>"   — regular module import
-//   @import data from "<path>"    — data-schema import; the name is
-//                                   fixed to `data` and the file is
-//                                   a JSON schema whose keys become
-//                                   the fields of the synthetic
-//                                   `data` binding.
-import_stmt = { ("@" ~ "import" ~ "data" | "import" ~ IDENT) ~ "from" ~ STRING }
+// Import statement. The grammar accepts three source forms and
+// the parser exposes them through `ImportSource`:
+//   import <name> from "<path>"               — regular module import
+//   @import <name> from "<path>"              — data-schema import.
+//                                              The name is free (the
+//                                              historical `data` form
+//                                              still works as a
+//                                              shorthand). The path
+//                                              can be a relative path
+//                                              or an `http://`/
+//                                              `https://` URL and the
+//                                              file's JSON shape
+//                                              becomes the type of
+//                                              the synthetic
+//                                              `<name>` binding.
+//   @import <name> from { a: 1, b: "x" }       — inline schema. Same
+//                                              effect as loading a JSON
+//                                              file, but the object is
+//                                              embedded in the program.
+//                                              The keys of the object
+//                                              become the fields of
+//                                              the binding for type
+//                                              inference / completion.
+//
+// The chosen name becomes a synthetic binding in scope; multiple
+// `@import` statements are independent and never overwrite each
+// other because each declares a distinct binding.
+import_source = { STRING | value_object }
+import_stmt = { ("@" ~ "import" ~ IDENT | "import" ~ IDENT) ~ "from" ~ import_source }
 
 // Workflow definition
 workflow_def = { "workflow" ~ STRING ~ block }
 
+// Test definition (sidecar *.test.flow files).
+//   test "Premium user gets greeting" {
+//     on USER_REGISTERED with { name: "Ada", plan: "premium" }
+//     expect logs ["Hello Ada!", "Premium user detected!"]
+//   }
+test_def = { "test" ~ STRING ~ test_block }
+test_block = { "{" ~ on_clause ~ expect_clause* ~ "}" }
+
+on_clause = { "on" ~ IDENT ~ ("with" ~ value_literal)? }
+expect_clause = {
+    "expect" ~ "logs" ~ value_array
+  | "expect" ~ "emitted" ~ value_array
+  | "expect" ~ "return" ~ value_literal
+  | "expect" ~ "var" ~ IDENT ~ "==" ~ value_literal
+}
+
+// JSON-shaped value literals for the test runner. Renamed with a
+// `value_` prefix so they don't shadow the existing `array` / `atom`
+// rules in the expression grammar. Keys are bare identifiers; values
+// are `value_literal`. The parser converts these into
+// `serde_json::Value`.
+value_object = { "{" ~ (value_object_entry ~ ("," ~ value_object_entry)*)? ~ ","? ~ "}" }
+value_object_entry = { IDENT ~ ":" ~ value_literal }
+value_array = { "[" ~ (value_literal ~ ("," ~ value_literal)*)? ~ ","? ~ "]" }
+value_literal = { STRING | NUMBER | bool_lit | NULL | value_array | value_object }
+
 // Top level
-program = { (import_stmt | fn_def | workflow_def | stmt | comment)* }
+program = { (import_stmt | fn_def | workflow_def | test_def | stmt | comment)* }
 
 comment = @{ "//" ~ (!"\n" ~ ANY)* }

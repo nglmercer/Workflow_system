@@ -1,0 +1,13 @@
+// Intentionally-failing test. Used by the CLI smoke test to
+// confirm the runner exits non-zero and the report shows the
+// expected mismatch.
+
+test "Wrong log" {
+  on HELLO with { name: "Ada" }
+  expect logs ["Hello, World!"]
+}
+
+test "Unbound var" {
+  on HELLO with { name: "Ada" }
+  expect var nonexistent == "x"
+}

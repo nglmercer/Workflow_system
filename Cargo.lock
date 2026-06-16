@@ -4894,6 +4894,7 @@ dependencies = [
  "workflow-domain",
  "workflow-engine",
  "workflow-serialize",
+ "workflow-test-runner",
 ]
 
 [[package]]
@@ -4951,6 +4952,7 @@ dependencies = [
  "thiserror 2.0.18",
  "workflow-lsp",
  "workflow-parser",
+ "workflow-test-runner",
 ]
 
 [[package]]
@@ -4977,6 +4979,17 @@ dependencies = [
  "tokio",
  "toml",
  "workflow-domain",
+]
+
+[[package]]
+name = "workflow-test-runner"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "workflow-domain",
+ "workflow-parser",
 ]
 
 [[package]]

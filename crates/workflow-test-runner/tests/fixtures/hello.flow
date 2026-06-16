@@ -1,0 +1,14 @@
+// Host file for hello.test.flow. Defines the workflows under
+// test. The test runner pairs this with the sidecar
+// `hello.test.flow` next to it.
+
+workflow "Greet" {
+  on HELLO
+  log("Hello, " + data.name + "!")
+  var greeting = "Hello, " + data.name + "!"
+}
+
+workflow "Double" {
+  on DOUBLE
+  return data.x * 2
+}

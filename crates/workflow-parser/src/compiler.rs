@@ -323,6 +323,7 @@ mod tests {
                 params: vec![],
                 body: vec![Stmt::Log(Expr::string("Hello World"))],
             }],
+            tests: vec![],
         };
 
         let rules = FlowCompiler::compile(&program).unwrap();
@@ -346,6 +347,7 @@ mod tests {
                     Expr::member(Expr::var("users"), "length"),
                 ))],
             }],
+            tests: vec![],
         };
 
         let rules = FlowCompiler::compile(&program).unwrap();
@@ -379,6 +381,7 @@ mod tests {
                     body: vec![Stmt::Log(Expr::var("item"))],
                 }],
             }],
+            tests: vec![],
         };
 
         let rules = FlowCompiler::compile(&program).unwrap();

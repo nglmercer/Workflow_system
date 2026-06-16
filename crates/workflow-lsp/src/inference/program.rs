@@ -250,12 +250,29 @@ pub fn run_program(
     program: &FlowProgram,
     annotations: &Annotations,
 ) {
+    run_program_with_imports(inference, program, annotations, &[])
+}
+
+/// Like [`run_program`], but takes an explicit list of bindings to
+/// push into scope for every line. This is how imported data schemas
+/// (`@import data from ...`) enter the inference: the LSP resolves
+/// the import's path or inline object, converts it to a [`Type`],
+/// and passes the resulting bindings through this entry point.
+pub fn run_program_with_imports(
+    inference: &mut super::Inference,
+    program: &FlowProgram,
+    annotations: &Annotations,
+    import_bindings: &[InferredBinding],
+) {
     // The parser doesn't carry spans, so we walk the source string to
     // figure out which line each declaration starts on. This is the
     // same heuristic the LSP uses for completions and is good enough
     // for inference/hover/lint purposes. Functions and globals are
     // always in scope from line 0; locals and foreach items start at
     // their declaration line.
+    for binding in import_bindings {
+        push_to_all_lines(inference, binding);
+    }
     for g in &program.globals {
         push_global(inference, g, annotations);
     }
@@ -269,9 +286,11 @@ pub fn run_program(
     }
     for w in &program.workflows {
         // Workflow `on EVENT({a, b, c})` destructure params are visible
-        // inside the workflow body. They default to `Type::Any` since
-        // there is no annotation form for them today.
-        push_workflow_params(inference, w);
+        // inside the workflow body. If the user has imported a schema
+        // that matches the workflow's event, the destructure params
+        // pick up their types from the schema (otherwise they
+        // default to `Type::Any`).
+        push_workflow_params(inference, w, import_bindings);
         scan_body(inference, &w.body, annotations, 0);
     }
     for f in &program.functions {
@@ -305,16 +324,35 @@ fn push_function_params(inference: &mut super::Inference, f: &FunctionDef) {
 
 /// Push every workflow destructure parameter (from
 /// `on EVENT ({a, b, c})`) into `scope_at`. Params default to
-/// `Type::Any` — there is no annotation form for them yet. If we ever
-/// add `//@<type>` above the `on` clause, this is where the resolution
-/// would plug in.
-fn push_workflow_params(inference: &mut super::Inference, w: &WorkflowDef) {
+/// `Type::Any` — unless the user has imported a schema whose fields
+/// match the param names, in which case the param's type is taken
+/// from the schema. The match is by name, not by event: any
+/// imported `data` (or other named) schema with a field `users` will
+/// type the workflow's `users` param as that field's type. This is
+/// how `@import data from "./schema.json"` ends up typing the
+/// destructure params of a workflow that destructures that
+/// `data`-shaped event.
+fn push_workflow_params(
+    inference: &mut super::Inference,
+    w: &WorkflowDef,
+    import_bindings: &[InferredBinding],
+) {
     for name in &w.params {
+        let ty = import_bindings
+            .iter()
+            .find_map(|b| match &b.ty {
+                Type::Object(fields) => fields
+                    .iter()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, t)| t.clone()),
+                _ => None,
+            })
+            .unwrap_or(Type::Any);
         let binding = InferredBinding {
             name: name.clone(),
-            ty: Type::Any,
+            ty,
             value: None,
-            annotated: false,
+            annotated: import_bindings.iter().any(|b| matches!(b.ty, Type::Object(_))),
         };
         push_to_all_lines(inference, &binding);
     }
@@ -455,10 +493,24 @@ fn scan_stmt(
     annotations: &Annotations,
     current_line: &mut usize,
 ) {
+    // The scope at `current_line` already contains every binding that
+    // is visible on this line: globals, function names, function
+    // parameters (pushed to all lines by `push_function_params`),
+    // workflow destructure params, and any locals declared earlier in
+    // the same body. Using it as the inference context lets
+    // expressions like `var length = email.length` see `email`'s
+    // annotated type (`string`) and pick up `length: number` from
+    // the primitive property table, instead of falling back to
+    // `Any` because the param wasn't in scope.
+    let scope: Vec<InferredBinding> = inference
+        .scope_at
+        .get(*current_line)
+        .cloned()
+        .unwrap_or_default();
     match stmt {
         Stmt::VarDecl { name, value } => {
             let (ty, val) = match value {
-                Some(v) => infer_expr_with_ctx(v, &[], &inference.functions, &[]),
+                Some(v) => infer_expr_with_ctx(v, &scope, &inference.functions, &[]),
                 None => (Type::Any, None),
             };
             let (ty, annotated) = annotations
@@ -479,13 +531,7 @@ fn scan_stmt(
             iterable,
             body,
         } => {
-            let inner = infer_expr_with_ctx(
-                iterable,
-                &inference.scope_at.first().cloned().unwrap_or_default(),
-                &inference.functions,
-                &[],
-            )
-            .0;
+            let inner = infer_expr_with_ctx(iterable, &scope, &inference.functions, &[]).0;
             let ty = match inner {
                 Type::Array(inner) => *inner,
                 _ => Type::Any,

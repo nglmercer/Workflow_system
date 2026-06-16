@@ -50,6 +50,8 @@ pub enum Command {
     GotoLine,
     /// Toggle the keyboard-shortcuts help window.
     ShowShortcuts,
+    /// Run tests for the current file.
+    RunTests,
     /// No command was triggered.
     None,
 }
@@ -81,6 +83,7 @@ impl Command {
             Command::Find => "Find",
             Command::GotoLine => "Go to line",
             Command::ShowShortcuts => "Show keyboard shortcuts",
+            Command::RunTests => "Run tests",
             Command::None => "(no command)",
         }
     }
@@ -182,14 +185,13 @@ pub struct Keymap {
 }
 
 /// A keymap entry's chord matcher. Most entries are `Exact` (a single
-/// chord maps to a command); `Prefix` entries mark the *first* key of
-/// a multi-key chord and wait for the second key; `Chord` entries
-/// represent a *complete* two-key sequence — used for resolving
-/// chords after the prefix has been set.
+/// chord maps to a command). `Chord` entries represent a *complete*
+/// two-key sequence — when the user types the prefix, the first key
+/// event is consumed and stashed as a pending prefix; the next key
+/// event is then matched against the suffix.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChordMatcher {
     Exact(Chord),
-    Prefix(Chord),
     /// A two-key chord: the prefix has already been matched (and its
     /// event consumed); this matcher is checked against the next key
     /// event. The `prefix` field is for sanity-checking that we're
@@ -215,7 +217,6 @@ impl Keymap {
             }
             let label = match matcher {
                 ChordMatcher::Exact(c) => chord_label(*c),
-                ChordMatcher::Prefix(c) => chord_label(*c),
                 ChordMatcher::Chord { prefix, suffix } => {
                     format!("{} {}", chord_label(*prefix), chord_label(*suffix))
                 }
@@ -230,24 +231,30 @@ impl Keymap {
     pub fn new() -> Self {
         let entries: Vec<(ChordMatcher, Command)> = vec![
             // --- Popup navigation (only active when popup is open) ---
+            // These are single-key commands. They were previously
+            // declared as `Prefix` chords, which caused the keymap
+            // to stash the key as a pending chord prefix and return
+            // `Command::None` — the popup could not be navigated or
+            // dismissed. `Exact` makes them fire immediately while
+            // still being gated by `popup_open` in `gated()`.
             (
-                ChordMatcher::Prefix(Chord::key(Key::ArrowDown)),
+                ChordMatcher::Exact(Chord::key(Key::ArrowDown)),
                 Command::PopupDown,
             ),
             (
-                ChordMatcher::Prefix(Chord::key(Key::ArrowUp)),
+                ChordMatcher::Exact(Chord::key(Key::ArrowUp)),
                 Command::PopupUp,
             ),
             (
-                ChordMatcher::Prefix(Chord::key(Key::Enter)),
+                ChordMatcher::Exact(Chord::key(Key::Enter)),
                 Command::PopupAccept,
             ),
             (
-                ChordMatcher::Prefix(Chord::key(Key::Tab)),
+                ChordMatcher::Exact(Chord::key(Key::Tab)),
                 Command::PopupAccept,
             ),
             (
-                ChordMatcher::Prefix(Chord::key(Key::Escape)),
+                ChordMatcher::Exact(Chord::key(Key::Escape)),
                 Command::PopupDismiss,
             ),
             // --- Undo / redo ---
@@ -327,6 +334,8 @@ impl Keymap {
                 ChordMatcher::Exact(Chord::key(Key::F1)),
                 Command::ShowShortcuts,
             ),
+            // --- Tests ---
+            (ChordMatcher::Exact(Chord::ctrl(Key::T)), Command::RunTests),
         ];
         Self {
             entries,
@@ -442,17 +451,6 @@ impl Keymap {
                         if c.matches(*key, *mods) {
                             consume(ctx, *key, *mods);
                             return *cmd;
-                        }
-                    }
-                    ChordMatcher::Prefix(c) => {
-                        if c.matches(*key, *mods) {
-                            // The first key of a chord: consume the
-                            // event so the TextEdit doesn't see it,
-                            // and stash the prefix.
-                            consume(ctx, *key, *mods);
-                            self.pending = Some(*c);
-                            self.pending_consumed = true;
-                            return Command::None;
                         }
                     }
                     ChordMatcher::Chord { prefix, .. } => {
@@ -644,6 +642,45 @@ mod tests {
     // integration with the editor is covered by manual testing and
     // the egui harness.
     fn _ctx_compiles(_: &Context) {}
+
+    /// Regression test: popup-navigation commands are single-key
+    /// commands and must be declared as `Exact` chords. They were
+    /// previously declared as `Prefix`, which caused the keymap
+    /// to stash the key as a pending chord prefix and return
+    /// `Command::None` — `Esc` did not dismiss the popup, arrow
+    /// keys did not navigate it, and `Enter`/`Tab` did not accept
+    /// it. This test pins the binding shape so the bug does not
+    /// regress.
+    #[test]
+    fn popup_commands_are_exact_chords() {
+        let km = Keymap::new();
+        let popup_keys = [
+            (Key::ArrowDown, Command::PopupDown),
+            (Key::ArrowUp, Command::PopupUp),
+            (Key::Enter, Command::PopupAccept),
+            (Key::Tab, Command::PopupAccept),
+            (Key::Escape, Command::PopupDismiss),
+        ];
+        for (key, cmd) in popup_keys {
+            let entry = km
+                .entries
+                .iter()
+                .find(|(m, c)| *c == cmd && matcher_key(*m) == Some(key));
+            let exact = matches!(entry, Some((ChordMatcher::Exact(_), _)));
+            assert!(
+                exact,
+                "expected {:?} → {:?} to be an Exact chord, got {:?}",
+                key, cmd, entry
+            );
+        }
+    }
+
+    fn matcher_key(m: ChordMatcher) -> Option<Key> {
+        match m {
+            ChordMatcher::Exact(c) => Some(c.key),
+            ChordMatcher::Chord { suffix, .. } => Some(suffix.key),
+        }
+    }
 
     #[test]
     fn chord_label_basic() {

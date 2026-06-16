@@ -32,6 +32,7 @@ impl FlowParser {
             globals: Vec::new(),
             functions: Vec::new(),
             workflows: Vec::new(),
+            tests: Vec::new(),
         };
 
         for pair in pairs {
@@ -45,6 +46,9 @@ impl FlowParser {
                     }
                     Rule::workflow_def => {
                         program.workflows.push(parse_workflow_def(inner));
+                    }
+                    Rule::test_def => {
+                        program.tests.push(parse_test_def(inner));
                     }
                     Rule::comment => {
                         // Top-level comment — ignored.
@@ -214,34 +218,78 @@ fn parse_block(pair: pest::iterators::Pair<Rule>) -> Vec<Stmt> {
 
 fn parse_import(pair: pest::iterators::Pair<Rule>) -> ImportStmt {
     // The grammar produces a single `import_stmt` whose head is
-    // either `"@" ~ "import" ~ "data"` (data-schema import) or
+    // either `"@" ~ "import" ~ IDENT` (data-schema import) or
     // `"import" ~ IDENT` (regular module import), followed by
-    // `"from" ~ STRING`. The data-schema form has no IDENT child;
-    // we detect it by a leading `@` in the source text and fall
-    // back to the literal binding name `"data"`.
-    let is_data_import = pair.as_str().trim_start().starts_with('@');
-
-    let mut name = if is_data_import {
-        "data".to_string()
-    } else {
-        String::new()
-    };
-    let mut path = String::new();
+    // `"from" ~ import_source`.
+    //
+    // The two forms are now structurally identical: the only
+    // difference is whether the source position starts with `@`.
+    // The IDENT child is the binding name; it becomes a synthetic
+    // scope binding once the LSP resolves the source.
+    //
+    // `import_source` is an indirection that holds either a STRING
+    // (path or URL) or a `value_object` (inline JSON schema). We
+    // descend into the first one we see.
+    let mut name = String::new();
+    let mut source: Option<ImportSource> = None;
 
     for inner in pair.into_inner() {
         match inner.as_rule() {
-            Rule::IDENT if !is_data_import => {
+            Rule::IDENT if name.is_empty() => {
                 name = inner.as_str().to_string();
             }
-            Rule::STRING => {
-                let s = inner.as_str();
-                path = s[1..s.len() - 1].to_string();
+            Rule::import_source => {
+                for child in inner.into_inner() {
+                    match child.as_rule() {
+                        Rule::STRING => {
+                            let s = child.as_str();
+                            source = Some(ImportSource::Path(
+                                s[1..s.len() - 1].to_string(),
+                            ));
+                        }
+                        Rule::value_object => {
+                            source =
+                                Some(ImportSource::Inline(value_object_to_json(child)));
+                        }
+                        _ => {}
+                    }
+                }
             }
             _ => {}
         }
     }
 
-    ImportStmt { name, path }
+    ImportStmt {
+        name,
+        source: source.unwrap_or(ImportSource::Path(String::new())),
+    }
+}
+
+/// Convert a `value_object` pest pair into a `serde_json::Value` of
+/// shape `Object`. The grammar guarantees the entries are
+/// `value_object_entry` nodes, each containing an `IDENT` key and a
+/// value that may be a `value_literal`, a `value_array`, or a nested
+/// `value_object`. We dispatch on the value's rule to pick the right
+/// conversion.
+fn value_object_to_json(pair: pest::iterators::Pair<Rule>) -> serde_json::Value {
+    let mut map = serde_json::Map::new();
+    for inner in pair.into_inner() {
+        if inner.as_rule() == Rule::value_object_entry {
+            let mut key = String::new();
+            let mut val = serde_json::Value::Null;
+            for child in inner.into_inner() {
+                match child.as_rule() {
+                    Rule::IDENT => key = child.as_str().to_string(),
+                    Rule::value_literal
+                    | Rule::value_array
+                    | Rule::value_object => val = value_literal_to_json(child),
+                    _ => {}
+                }
+            }
+            map.insert(key, val);
+        }
+    }
+    serde_json::Value::Object(map)
 }
 
 fn parse_fn_def(pair: pest::iterators::Pair<Rule>) -> FunctionDef {
@@ -305,6 +353,197 @@ fn parse_workflow_def(pair: pest::iterators::Pair<Rule>) -> WorkflowDef {
         event,
         params,
         body,
+    }
+}
+
+fn parse_test_def(pair: pest::iterators::Pair<Rule>) -> TestDef {
+    let mut name = String::new();
+    let mut on: Option<OnClause> = None;
+    let mut expects: Vec<ExpectClause> = Vec::new();
+
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::STRING => {
+                let s = inner.as_str();
+                name = s[1..s.len() - 1].to_string();
+            }
+            Rule::test_block => {
+                for child in inner.into_inner() {
+                    match child.as_rule() {
+                        Rule::on_clause => on = Some(parse_on_clause(child)),
+                        Rule::expect_clause => {
+                            if let Some(exp) = parse_expect_clause(child) {
+                                expects.push(exp);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    TestDef {
+        name,
+        on: on.unwrap_or(OnClause {
+            event: String::new(),
+            data: serde_json::Value::Null,
+        }),
+        expects,
+    }
+}
+
+fn parse_on_clause(pair: pest::iterators::Pair<Rule>) -> OnClause {
+    let mut event = String::new();
+    let mut data: Option<serde_json::Value> = None;
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::IDENT if event.is_empty() => {
+                event = inner.as_str().to_string();
+            }
+            Rule::value_literal => {
+                data = Some(value_literal_to_json(inner));
+            }
+            _ => {}
+        }
+    }
+    OnClause {
+        event,
+        data: data.unwrap_or(serde_json::Value::Null),
+    }
+}
+
+fn parse_expect_clause(pair: pest::iterators::Pair<Rule>) -> Option<ExpectClause> {
+    // The discriminator (`"logs"`, `"emitted"`, `"return"`, `"var"`)
+    // is a literal token in the grammar, so it doesn't appear as a
+    // child pair. We sniff the raw source text to figure out which
+    // alternative matched. The pair always starts with the literal
+    // `expect`, so skip past that.
+    let text = pair.as_str();
+    let after_expect = text
+        .trim_start()
+        .strip_prefix("expect")
+        .unwrap_or(text)
+        .trim_start();
+    let kind = if after_expect.starts_with("logs") {
+        "logs"
+    } else if after_expect.starts_with("emitted") {
+        "emitted"
+    } else if after_expect.starts_with("return") {
+        "return"
+    } else if after_expect.starts_with("var") {
+        "var"
+    } else {
+        return None;
+    };
+
+    let mut value: Option<serde_json::Value> = None;
+    let mut var_name: Option<String> = None;
+    for inner in pair.into_inner() {
+        match inner.as_rule() {
+            Rule::IDENT => {
+                if kind == "var" && var_name.is_none() {
+                    var_name = Some(inner.as_str().to_string());
+                }
+            }
+            Rule::value_literal | Rule::value_array | Rule::value_object => {
+                value = Some(value_literal_to_json(inner));
+            }
+            _ => {}
+        }
+    }
+
+    let json = value.unwrap_or(serde_json::Value::Null);
+    match kind {
+        "logs" => Some(ExpectClause::Logs(json_to_string_vec(&json))),
+        "emitted" => Some(ExpectClause::Emitted(json_to_string_vec(&json))),
+        "return" => Some(ExpectClause::Return(json)),
+        "var" => Some(ExpectClause::Var {
+            name: var_name.unwrap_or_default(),
+            value: json,
+        }),
+        _ => None,
+    }
+}
+
+fn json_to_string_vec(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(items) => items
+            .iter()
+            .map(|v| match v {
+                serde_json::Value::String(s) => s.clone(),
+                other => other.to_string(),
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn value_literal_to_json(pair: pest::iterators::Pair<Rule>) -> serde_json::Value {
+    // The grammar has a wrapper rule (`value_literal`) and two
+    // structural alternatives (`value_array`, `value_object`) that
+    // both live in the same alternative position. The wrapper is
+    // always a single child of the alternative; the structural
+    // rules contain their own children. Dispatch on the pair's own
+    // rule first so we don't lose the structure.
+    match pair.as_rule() {
+        Rule::value_literal => {
+            if let Some(inner) = pair.into_inner().next() {
+                value_literal_to_json(inner)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+        Rule::value_array => {
+            let mut items = Vec::new();
+            for inner in pair.into_inner() {
+                if matches!(
+                    inner.as_rule(),
+                    Rule::value_literal | Rule::value_array | Rule::value_object
+                ) {
+                    items.push(value_literal_to_json(inner));
+                }
+            }
+            serde_json::Value::Array(items)
+        }
+        Rule::value_object => {
+            let mut map = serde_json::Map::new();
+            for inner in pair.into_inner() {
+                if inner.as_rule() == Rule::value_object_entry {
+                    let mut key = String::new();
+                    let mut val = serde_json::Value::Null;
+                    for child in inner.into_inner() {
+                        match child.as_rule() {
+                            Rule::IDENT => key = child.as_str().to_string(),
+                            Rule::value_literal
+                            | Rule::value_array
+                            | Rule::value_object => val = value_literal_to_json(child),
+                            _ => {}
+                        }
+                    }
+                    map.insert(key, val);
+                }
+            }
+            serde_json::Value::Object(map)
+        }
+        Rule::STRING => {
+            let s = pair.as_str();
+            serde_json::Value::String(s[1..s.len() - 1].to_string())
+        }
+        Rule::NUMBER => {
+            let raw = pair.as_str();
+            if let Ok(n) = raw.parse::<i64>() {
+                serde_json::Value::from(n)
+            } else if let Ok(n) = raw.parse::<f64>() {
+                serde_json::json!(n)
+            } else {
+                serde_json::Value::Null
+            }
+        }
+        Rule::bool_lit => serde_json::Value::Bool(pair.as_str() == "true"),
+        Rule::NULL => serde_json::Value::Null,
+        _ => serde_json::Value::Null,
     }
 }
 
@@ -974,7 +1213,10 @@ mod tests {
             .unwrap();
         assert_eq!(program.imports.len(), 1);
         assert_eq!(program.imports[0].name, "utils");
-        assert_eq!(program.imports[0].path, "./utils.flow");
+        assert_eq!(
+            program.imports[0].source,
+            ImportSource::Path("./utils.flow".to_string())
+        );
     }
 
     #[test]
@@ -983,7 +1225,10 @@ mod tests {
             .unwrap();
         assert_eq!(program.imports.len(), 1);
         assert_eq!(program.imports[0].name, "data");
-        assert_eq!(program.imports[0].path, "./schema.json");
+        assert_eq!(
+            program.imports[0].source,
+            ImportSource::Path("./schema.json".to_string())
+        );
     }
 
     #[test]
@@ -993,8 +1238,104 @@ mod tests {
         let program = FlowParser::parse_flow_program(code).unwrap();
         assert_eq!(program.imports.len(), 2);
         assert_eq!(program.imports[0].name, "utils");
-        assert_eq!(program.imports[0].path, "./utils.flow");
+        assert_eq!(
+            program.imports[0].source,
+            ImportSource::Path("./utils.flow".to_string())
+        );
         assert_eq!(program.imports[1].name, "data");
-        assert_eq!(program.imports[1].path, "./schema.json");
+        assert_eq!(
+            program.imports[1].source,
+            ImportSource::Path("./schema.json".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_url_import() {
+        let program = FlowParser::parse_flow_program(
+            r#"@import data from "https://api.example.com/schemas/NESTED_DATA.json""#,
+        )
+        .unwrap();
+        assert_eq!(program.imports.len(), 1);
+        assert_eq!(program.imports[0].name, "data");
+        assert_eq!(
+            program.imports[0].source,
+            ImportSource::Path(
+                "https://api.example.com/schemas/NESTED_DATA.json".to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_parse_inline_schema_import() {
+        let program = FlowParser::parse_flow_program(
+            r#"@import data from { users: [], meta: { count: 0, source: "" } }"#,
+        )
+        .unwrap();
+        assert_eq!(program.imports.len(), 1);
+        assert_eq!(program.imports[0].name, "data");
+        match &program.imports[0].source {
+            ImportSource::Inline(value) => {
+                let map = value.as_object().expect("object");
+                assert!(map.contains_key("users"));
+                assert!(map.contains_key("meta"));
+                let users = map.get("users").unwrap();
+                assert!(users.is_array(), "users should be an array, got {:?}", users);
+                let meta = map.get("meta").unwrap().as_object().expect("meta is object");
+                assert!(meta.contains_key("count"));
+                assert!(meta.contains_key("source"));
+            }
+            other => panic!("expected Inline, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_parse_named_module_import_with_inline_object() {
+        // The regular `import <name> from ...` form is allowed to
+        // point at an inline object too — the schema layer treats
+        // both forms uniformly. The name is what binds the schema
+        // to a workflow.
+        let program = FlowParser::parse_flow_program(
+            r#"import NESTED_DATA from { users: [], meta: [] }"#,
+        )
+        .unwrap();
+        assert_eq!(program.imports.len(), 1);
+        assert_eq!(program.imports[0].name, "NESTED_DATA");
+        assert!(matches!(
+            program.imports[0].source,
+            ImportSource::Inline(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_named_data_import() {
+        // `@import <name> from ...` is the same shape as
+        // `import <name> from ...` — the `@` only marks the
+        // import as a data-schema import. The name is no longer
+        // hardcoded to `data`; users can declare one per event.
+        let program = FlowParser::parse_flow_program(
+            r#"@import USER_REGISTERED from { email: "", plan: "" }"#,
+        )
+        .unwrap();
+        assert_eq!(program.imports.len(), 1);
+        assert_eq!(program.imports[0].name, "USER_REGISTERED");
+        assert!(matches!(
+            program.imports[0].source,
+            ImportSource::Inline(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_multiple_named_data_imports() {
+        // The typical pattern: one `@import` per event, each with
+        // its own name. The two names are independent bindings and
+        // neither overwrites the other.
+        let program = FlowParser::parse_flow_program(
+            r#"@import USER_REGISTERED from { email: "", plan: "" }
+@import BATCH_START from { items: [] }"#,
+        )
+        .unwrap();
+        assert_eq!(program.imports.len(), 2);
+        assert_eq!(program.imports[0].name, "USER_REGISTERED");
+        assert_eq!(program.imports[1].name, "BATCH_START");
     }
 }

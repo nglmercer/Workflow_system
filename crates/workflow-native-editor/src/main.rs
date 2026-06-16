@@ -15,6 +15,7 @@ mod popup;
 mod recent;
 mod shortcuts_window;
 mod snippet;
+mod test_panel;
 
 use app::EditorApp;
 use eframe::egui;

@@ -1,0 +1,22 @@
+// Sidecar tests for hello.flow. Each `test` block drives an
+// event and asserts the outcome against the host workflows.
+
+test "Greet logs a hello" {
+  on HELLO with { name: "Ada" }
+  expect logs ["Hello, Ada!"]
+}
+
+test "Greet populates greeting var" {
+  on HELLO with { name: "Ada" }
+  expect var greeting == "Hello, Ada!"
+}
+
+test "Double returns x * 2" {
+  on DOUBLE with { x: 21 }
+  expect return 42
+}
+
+test "Empty emitted list passes" {
+  on HELLO with { name: "x" }
+  expect emitted []
+}

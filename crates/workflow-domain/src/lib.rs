@@ -5,6 +5,7 @@ pub mod error;
 pub mod event;
 pub mod result;
 pub mod rule;
+pub mod schema;
 pub mod settings;
 pub mod validation;
 
@@ -15,5 +16,6 @@ pub use error::*;
 pub use event::*;
 pub use result::*;
 pub use rule::*;
+pub use schema::*;
 pub use settings::*;
 pub use validation::*;

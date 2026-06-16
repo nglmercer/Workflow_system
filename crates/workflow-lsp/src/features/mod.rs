@@ -150,15 +150,16 @@ pub fn completions_at(
     let Some(source) = state.get_document(uri) else {
         return Vec::new();
     };
-    let Some(analysis) = state.get_analysis(uri) else {
-        return Vec::new();
-    };
+    // The completion popup only needs the parsed document and
+    // inference; we no longer look at `analysis.scope_at_position`
+    // (user-defined variables are intentionally excluded from
+    // identifier completion).
     let position = Position {
         line: line as u32,
         character: character as u32,
     };
     let inference = state.get_inference(uri);
-    completion::build_completions(analysis, inference, source, position)
+    completion::build_completions(inference, source, position)
         .into_iter()
         .map(|item| {
             completion::into_completion_with_type(item, inference, source, position, format_value)
@@ -317,16 +318,16 @@ var result = double(num)"#;
     /// the diagnostics list is empty.
     #[test]
     fn examples_advanced_flow_lints_clean() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/advanced.flow");
-        let source = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/advanced.flow");
+        let source =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
 
         let mut state = ServerState::new();
-        let uri = "file:///advanced.flow";
-        state.update_document(uri, &source);
+        let uri = format!("file://{}", path.to_string_lossy());
+        state.update_document(&uri, &source);
 
-        let diagnostics = diagnostics_at(&state, uri);
+        let diagnostics = diagnostics_at(&state, &uri);
         if !diagnostics.is_empty() {
             let formatted: Vec<String> = diagnostics
                 .iter()

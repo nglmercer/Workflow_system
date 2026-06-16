@@ -1,5 +1,17 @@
 // Advanced .flow example with loops and complex logic
 
+// One `@import` per event. Each one declares a synthetic binding
+// whose shape comes from the JSON file next to this one: the keys
+// become fields of the binding, the value types drive hover and
+// member completion. The binding name doesn't have to be the event
+// name, but matching them keeps things readable — and the
+// `unused-workflow` lint recognises an imported event as
+// "external" (alongside the SCREAMING_SNAKE_CASE convention).
+@import USER_REGISTERED from "./user_registered.json"
+@import BATCH_START from "./batch_start.json"
+@import COMPLEX_EVENT from "./complex_event.json"
+@import NESTED_DATA from "./nested_data.json"
+
 // Utility functions
 //@string,@string
 fn formatCurrency(amount, currency) {
@@ -18,13 +30,13 @@ fn validateEmail(email) {
 workflow "User Registration" {
   on USER_REGISTERED
 
-  if (validateEmail(data.email)) {
-    log("Valid email: " + data.email)
+  if (validateEmail(USER_REGISTERED.email)) {
+    log("Valid email: " + USER_REGISTERED.email)
   } else {
-    log("Invalid email: " + data.email)
+    log("Invalid email: " + USER_REGISTERED.email)
   }
 
-  if (data.plan == "premium") {
+  if (USER_REGISTERED.plan == "premium") {
     log("Premium user registration")
   }
 }
@@ -32,7 +44,7 @@ workflow "User Registration" {
 workflow "Batch Processing" {
   on BATCH_START
 
-  foreach (item in data.items) {
+  foreach (item in BATCH_START.items) {
     log("Processing batch item: " + item.id)
     if (item.priority == "high") {
       log("High priority item")
@@ -43,19 +55,21 @@ workflow "Batch Processing" {
 workflow "Complex Conditions" {
   on COMPLEX_EVENT
 
-  if (data.value > 100 && data.type == "important") {
+  if (COMPLEX_EVENT.value > 100 && COMPLEX_EVENT.type == "important") {
     log("Important high value event")
-  } else if (data.value > 50 || data.urgent == true) {
+  } else if (COMPLEX_EVENT.value > 50 || COMPLEX_EVENT.urgent == true) {
     log("Medium priority event")
   } else {
     log("Low priority event")
   }
 }
 
+// `NESTED_DATA` is treated as external because we imported a
+// schema with that name above. The destructure params `users` and
+// `meta` are typed from the schema's fields, so `users.length` and
+// `user.name` are all resolved statically.
 workflow "Nested Loops" {
-  //@external
   on NESTED_DATA ({users, meta})
-  //data.users and data.meta
   log("Users: " + users.length + ", Meta: " + meta.length)
   foreach (user in users) {
     log("User: " + user.name)
