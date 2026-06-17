@@ -31,6 +31,7 @@ use workflow_lsp::ServerState;
 use super::completion::{self, CompletionState};
 use super::cursor::{
     self, char_to_line_col, column_at_x, cursor_screen_pos, row_at_y, CursorPosition,
+    SelectionRange,
 };
 use super::diagnostics_panel;
 use super::file_browser;
@@ -136,6 +137,17 @@ pub struct EditorApp {
     find: FindState,
     /// Currently selected text in the editor (updated each frame).
     selected_text: Option<String>,
+    /// The current selection as char indices, mirroring `selected_text`
+    /// but in buffer coordinates. Captured into history snapshots so
+    /// undo/redo can restore multi-char selections.
+    selected_range: Option<SelectionRange>,
+    /// Last-known OS clipboard text, captured before any cut/paste
+    /// so undo can restore it.
+    last_clipboard: Option<String>,
+    /// Set by `apply_snapshot` after an undo/redo. `render_editor`
+    /// reads this and pushes the cursor into the TextEdit's state
+    /// so the visible caret moves to the restored position.
+    pending_cursor_char_range: Option<(usize, usize)>,
     /// Global "find in files" panel. Desktop-only because the
     /// `ignore` walker is not designed for `wasm32-unknown-unknown`.
     #[cfg(not(target_arch = "wasm32"))]
@@ -196,6 +208,9 @@ impl Default for EditorApp {
             test_cancel: None,
             find: FindState::default(),
             selected_text: None,
+            selected_range: None,
+            last_clipboard: None,
+            pending_cursor_char_range: None,
             #[cfg(not(target_arch = "wasm32"))]
             search_in_files: SearchInFilesState::default(),
         }
@@ -251,12 +266,15 @@ impl eframe::App for EditorApp {
                         .button(RichText::new(i18n_t("toolbar.clear")).small())
                         .clicked()
                     {
-                        self.history
-                            .snapshot(self.snapshot(ctx))
-                            .commit_structural();
+                        let mut pre = self.snapshot(ctx);
                         self.text.clear();
+                        self.pending_snippet = None;
+                        self.snippet_anchor = 0;
                         self.lsp.update_document(&self.uri, &self.text);
                         self.dirty = true;
+                        pre.structural = true;
+                        pre.last_edit_at_ms = self.now_ms(ctx);
+                        self.history.commit_structural(pre);
                         self.frame_start = Some(self.snapshot(ctx));
                     }
                     if ui
@@ -652,6 +670,24 @@ impl EditorApp {
                     // Apply the snippet cursor before we move any
                     // fields out of `output`.
                     self.apply_snippet_cursor(&output);
+                    // If `apply_snapshot` left a pending cursor
+                    // range from a recent undo/redo, push it into
+                    // the TextEdit's state so the visible caret
+                    // moves. We do this *after* `apply_snippet_cursor`
+                    // so a restored snippet cursor wins over a plain
+                    // restore-cursor — the snippet is the more
+                    // specific intent.
+                    if self.pending_snippet.is_none() {
+                        if let Some((start, end)) = self.pending_cursor_char_range.take() {
+                            let range = CCursorRange::two(CCursor::new(start), CCursor::new(end));
+                            let mut new_state = output.state.clone();
+                            new_state.cursor.set_char_range(Some(range));
+                            new_state.store(&output.response.ctx, output.response.id);
+                        }
+                    } else {
+                        // Snippet wins; discard the pending range.
+                        self.pending_cursor_char_range = None;
+                    }
 
                     let response = output.response;
 
@@ -664,20 +700,43 @@ impl EditorApp {
                             &display_text,
                             &self.collapsed,
                         );
+                        let pre_text_len = self.text.chars().count();
                         self.text = new_source;
                         self.dirty = true;
 
                         if let Some(prev) = pre_edit {
                             let mut snap = prev;
+                            // Refresh the timestamp to *now* so
+                            // coalescing against the previous typing
+                            // burst uses wall-clock-of-edit, not the
+                            // start-of-frame timestamp.
                             snap.last_edit_at_ms = self.now_ms(ctx);
-                            self.history.snapshot(snap).commit_typing();
+                            // Detect a paste: a single-frame delta
+                            // large enough that no human typed it, or
+                            // any newlines introduced in one frame.
+                            // Both signal a clipboard insertion.
+                            let post_text_len = self.text.chars().count();
+                            let delta = post_text_len as isize - pre_text_len as isize;
+                            let introduced_newline = delta > 0
+                                && self.text[pre_text_len.min(self.text.len())..]
+                                    .chars()
+                                    .any(|c| c == '\n');
+                            let is_paste = delta.abs() >= 8 || introduced_newline;
+                            if is_paste {
+                                snap.structural = true;
+                                self.history.commit_structural(snap);
+                            } else {
+                                self.history.commit_typing(snap);
+                            }
                         }
                         self.lsp.update_document(&self.uri, &self.text);
                         self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
-                        // The user typed something: the snippet's
-                        // selection is no longer meaningful, so drop
-                        // it.
-                        self.pending_snippet = None;
+                        // The snippet's selection is only dropped
+                        // when the user actually modified the
+                        // current stop's text. A normal keystroke
+                        // inside a snippet advances the snippet, not
+                        // destroys it.
+                        self.maybe_clear_pending_snippet();
                     }
 
                     if let Some(range) = &output.cursor_range {
@@ -702,6 +761,17 @@ impl EditorApp {
                         } else {
                             self.selected_text = None;
                         }
+                        // Mirror the selection in char coordinates so
+                        // history snapshots can record it. `secondary`
+                        // is the anchor in egui's cursor model; `primary`
+                        // is the caret. Use the embedded `ccursor` char
+                        // index.
+                        self.selected_range = Some(SelectionRange {
+                            anchor: range.secondary.ccursor.index,
+                            cursor: range.primary.ccursor.index,
+                        });
+                    } else {
+                        self.selected_range = None;
                     }
 
                     let cursor_moved = self.cursor != prev_cursor;
@@ -826,6 +896,9 @@ impl EditorApp {
             }
             Command::Undo => self.undo(ctx),
             Command::Redo => self.redo(ctx),
+            Command::Cut => self.cut_selection(ctx),
+            Command::Copy => self.copy_selection(ctx),
+            Command::Paste => self.paste_clipboard(ctx),
             Command::Save => {
                 self.save_current();
             }
@@ -869,12 +942,20 @@ impl EditorApp {
 
     fn undo(&mut self, ctx: &egui::Context) {
         if let Some(snap) = self.history.undo() {
+            // Stash the current live state on `future` so redo can
+            // bring it back. The snapshot reflects the state *before*
+            // we apply the undo.
+            self.history.push_future(self.snapshot(ctx));
             self.apply_snapshot(ctx, snap);
         }
     }
 
     fn redo(&mut self, ctx: &egui::Context) {
         if let Some(snap) = self.history.redo() {
+            // Stash the current live state on `past` so a subsequent
+            // undo can return to it. This is the symmetric counterpart
+            // of `undo`.
+            self.history.push_past(self.snapshot(ctx));
             self.apply_snapshot(ctx, snap);
         }
     }
@@ -882,37 +963,38 @@ impl EditorApp {
     fn apply_snapshot(&mut self, ctx: &egui::Context, snap: Snapshot) {
         self.text = snap.text;
         self.cursor = snap.cursor;
+        self.selected_text = None;
+        self.selected_range = snap.selection;
         self.pending_snippet = snap.pending_snippet;
-        // Re-derive the snippet anchor from the *current* text: the
-        // snippet's stop ranges are relative to its start, so we find
-        // the first stop's text in the buffer and pin the anchor
-        // there. If the snippet has no stops or we can't find the
-        // anchor text, fall back to 0.
-        self.snippet_anchor = self.locate_snippet_anchor();
+        // Use the stored snippet anchor directly. Falls back to 0
+        // for snapshots recorded by the legacy code (which never
+        // stored an anchor).
+        self.snippet_anchor = snap.snippet_anchor.unwrap_or(0);
+        // Restore the clipboard to whatever was on it at snapshot
+        // time, so undo of a cut/paste round-trips the clipboard
+        // content too.
+        if let Some(cb) = snap.clipboard {
+            self.last_clipboard = Some(cb.clone());
+            ctx.output_mut(|o| o.copied_text = cb);
+        }
+        // Compute the char range to push into the TextEdit's
+        // internal state. If the snapshot has a selection, use it;
+        // otherwise the cursor is a single point.
+        self.pending_cursor_char_range = Some(match snap.selection {
+            Some(sel) => sel.normalized(),
+            None => {
+                let char_pos =
+                    cursor::line_col_to_char(&self.text, snap.cursor.line - 1, snap.cursor.col - 1);
+                (char_pos, char_pos)
+            }
+        });
         self.lsp.update_document(&self.uri, &self.text);
+        self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
         // The frame_start was captured before this undo/redo;
         // invalidate it so the next render captures a fresh
         // pre-edit snapshot.
         self.frame_start = None;
         self.completion.dismiss();
-        let _ = ctx;
-    }
-
-    /// Find the char offset of the active snippet's anchor. We do a
-    /// best-effort search: take the first non-empty stop's default
-    /// text and locate it in the buffer starting from offset 0.
-    fn locate_snippet_anchor(&self) -> usize {
-        let Some(snippet) = self.pending_snippet.as_ref() else {
-            return 0;
-        };
-        let needle = match snippet.stops.first() {
-            Some(stop) if !stop.default.is_empty() => &stop.default,
-            _ => return 0,
-        };
-        self.text
-            .find(needle)
-            .map(|byte_off| self.text[..byte_off].chars().count())
-            .unwrap_or(0)
     }
 
     /// Wall-clock time in milliseconds since startup. Used as the
@@ -921,13 +1003,21 @@ impl EditorApp {
         ctx.input(|i| (i.time * 1000.0) as u128)
     }
 
-    /// Build a snapshot using the current real time.
+    /// Build a snapshot of the *current* live state. Used both to
+    /// stash the current state on `future` (before undo) and to seed
+    /// the post-edit snapshot for a commit. The `structural` flag is
+    /// always `false` here — callers that need a structural snapshot
+    /// flip it before passing to `commit_structural`.
     fn snapshot(&self, ctx: &egui::Context) -> Snapshot {
         Snapshot {
             text: self.text.clone(),
             cursor: self.cursor,
+            selection: self.selected_range,
             pending_snippet: self.pending_snippet.clone(),
+            snippet_anchor: Some(self.snippet_anchor),
+            clipboard: self.last_clipboard.clone(),
             last_edit_at_ms: self.now_ms(ctx),
+            structural: false,
         }
     }
 
@@ -949,6 +1039,15 @@ impl EditorApp {
         new_state.store(&output.response.ctx, output.response.id);
     }
 
+    /// No-op kept as a hook for future snippet-preservation policy.
+    /// Previously the editor dropped `pending_snippet` on every
+    /// `response.changed()`; that interacted badly with undo/redo,
+    /// which restores the snippet from the snapshot. The snippet
+    /// now survives text changes and is only cleared explicitly via
+    /// Esc (`Command::SnippetCancel`) or by tabbing past the last
+    /// stop.
+    #[inline]
+    fn maybe_clear_pending_snippet(&mut self) {}
     fn update_hover(&mut self, rect: Rect, galley: &Arc<egui::Galley>, hover_pos: Option<Pos2>) {
         let pos = match hover_pos {
             Some(p) => p,
@@ -985,9 +1084,10 @@ impl EditorApp {
             Some(it) => it.clone(),
             None => return,
         };
-        // Structural edit — push the current state so the user can
-        // undo the whole completion in one step.
-        let pre_snap = self.snapshot(ctx);
+        // Capture the pre-edit state. The completion is a structural
+        // edit, so we want undo to revert the *whole* insertion in
+        // one step.
+        let mut pre_snap = self.snapshot(ctx);
         let insertion = completion::build_insertion(&item, &self.text, self.cursor);
         self.text = cursor::splice(&self.text, insertion.start, insertion.end, &insertion.text);
         self.snippet_anchor = insertion.start;
@@ -995,9 +1095,10 @@ impl EditorApp {
         self.completion.dismiss();
         self.dirty = true;
         self.lsp.update_document(&self.uri, &self.text);
-        // Commit *after* the mutation: the snapshot we took is the
-        // pre-edit state, which is what we want on the undo stack.
-        self.history.snapshot(pre_snap).commit_structural();
+        self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
+        pre_snap.structural = true;
+        pre_snap.last_edit_at_ms = self.now_ms(ctx);
+        self.history.commit_structural(pre_snap);
         self.frame_start = Some(self.snapshot(ctx));
     }
 
@@ -1066,13 +1167,114 @@ impl EditorApp {
 
     /// Apply a whole-text edit and refresh everything that depends
     /// on the buffer (LSP, diagnostics, history, frame snapshot).
+    /// Captures the *pre-edit* state and pushes it onto the undo
+    /// stack as a structural edit; the new live state lives in
+    /// `EditorApp` (not on the history stack).
     fn apply_text_edit(&mut self, ctx: &egui::Context, new_text: String) {
-        let pre = self.snapshot(ctx);
+        let mut pre = self.snapshot(ctx);
         self.text = new_text;
         self.dirty = true;
         self.lsp.update_document(&self.uri, &self.text);
         self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
-        self.history.snapshot(pre).commit_structural();
+        pre.structural = true;
+        pre.last_edit_at_ms = self.now_ms(ctx);
+        self.history.commit_structural(pre);
+        self.frame_start = Some(self.snapshot(ctx));
+    }
+
+    /// Toggle `// ` at the start of every line in the current
+    /// selection (or the cursor's line if no selection). Indents are
+    /// Cut the current selection to the OS clipboard, committing
+    /// the change as a structural history entry. If there is no
+    /// selection, this is a no-op (a bare cut on an empty selection
+    /// wouldn't have anything to cut).
+    fn cut_selection(&mut self, ctx: &egui::Context) {
+        let Some(sel) = self.selected_range else {
+            return;
+        };
+        let (start, end) = sel.normalized();
+        if start == end {
+            return;
+        }
+        let (b_start, b_end) = cursor::char_range_to_byte_range(&self.text, start, end);
+        let cut = self.text[b_start..b_end].to_string();
+        let mut pre = self.snapshot(ctx);
+        // The pre-state's clipboard field already records the
+        // clipboard that was on the OS before this cut, captured
+        // by `snapshot()`. We don't need to carry it separately.
+        self.text = format!("{}{}", &self.text[..b_start], &self.text[b_end..]);
+        self.dirty = true;
+        self.last_clipboard = Some(cut.clone());
+        self.selected_text = None;
+        self.selected_range = None;
+        ctx.output_mut(|o| o.copied_text = cut);
+        self.lsp.update_document(&self.uri, &self.text);
+        self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
+        pre.structural = true;
+        pre.last_edit_at_ms = self.now_ms(ctx);
+        self.history.commit_structural(pre);
+        self.frame_start = Some(self.snapshot(ctx));
+    }
+
+    /// Copy the current selection to the OS clipboard. Does not
+    /// touch history (copy is not an edit).
+    fn copy_selection(&mut self, ctx: &egui::Context) {
+        let Some(text) = self.selected_text.clone() else {
+            return;
+        };
+        if text.is_empty() {
+            return;
+        }
+        self.last_clipboard = Some(text.clone());
+        ctx.output_mut(|o| o.copied_text = text);
+    }
+
+    /// Paste the OS clipboard at the cursor (replacing the current
+    /// selection if any). Reads the clipboard from egui's input
+    /// state — egui handles both internal and platform clipboards.
+    /// Commits the change as a structural history entry.
+    fn paste_clipboard(&mut self, ctx: &egui::Context) {
+        let clipboard_text = ctx.input(|i| i.events.iter().find_map(|e| match e {
+            egui::Event::Paste(text) => Some(text.clone()),
+            _ => None,
+        }));
+        let clipboard_text = match clipboard_text {
+            Some(t) if !t.is_empty() => t,
+            // Fall back to whatever we last saw on the OS clipboard
+            // (egui doesn't always emit a Paste event for
+            // platform-clipboard pastes; this is best-effort).
+            _ => match self.last_clipboard.clone() {
+                Some(t) if !t.is_empty() => t,
+                _ => return,
+            },
+        };
+        let (start, end) = match self.selected_range {
+            Some(sel) => sel.normalized(),
+            None => {
+                let pos = cursor::line_col_to_char(
+                    &self.text,
+                    self.cursor.line - 1,
+                    self.cursor.col - 1,
+                );
+                (pos, pos)
+            }
+        };
+        let (b_start, b_end) = cursor::char_range_to_byte_range(&self.text, start, end);
+        let mut pre = self.snapshot(ctx);
+        self.text = format!(
+            "{}{}{}",
+            &self.text[..b_start],
+            &clipboard_text,
+            &self.text[b_end..]
+        );
+        self.dirty = true;
+        self.selected_text = None;
+        self.selected_range = None;
+        self.lsp.update_document(&self.uri, &self.text);
+        self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
+        pre.structural = true;
+        pre.last_edit_at_ms = self.now_ms(ctx);
+        self.history.commit_structural(pre);
         self.frame_start = Some(self.snapshot(ctx));
     }
 

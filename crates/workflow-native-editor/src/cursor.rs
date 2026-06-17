@@ -28,6 +28,42 @@ impl CursorPosition {
     }
 }
 
+/// A selection range expressed as char indices into the buffer.
+///
+/// `cursor` is the active end (where new typing would land);
+/// `anchor` is the fixed end. When `anchor == cursor` the selection
+/// is empty. Storing both ends lets undo/redo restore a multi-char
+/// selection, not just the caret position.
+#[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
+pub struct SelectionRange {
+    pub anchor: usize,
+    pub cursor: usize,
+}
+
+impl SelectionRange {
+    #[allow(dead_code)]
+    pub fn point(at: usize) -> Self {
+        Self {
+            anchor: at,
+            cursor: at,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn is_empty(self) -> bool {
+        self.anchor == self.cursor
+    }
+
+    /// Normalize so `start <= end`.
+    pub fn normalized(self) -> (usize, usize) {
+        if self.anchor <= self.cursor {
+            (self.anchor, self.cursor)
+        } else {
+            (self.cursor, self.anchor)
+        }
+    }
+}
+
 /// Convert a 0-based `(line, col)` to a 0-based char offset. If
 /// `line` is past the end of the document, returns the total char
 /// count. `col` is clamped to the line's char count.
@@ -240,5 +276,26 @@ mod tests {
         // Replace "world" (chars 6..11) with "Rust" → "hello Rust".
         let out = splice(text, 6, 11, "Rust");
         assert_eq!(out, "hello Rust");
+    }
+
+    #[test]
+    fn selection_range_point_is_empty() {
+        let s = SelectionRange::point(5);
+        assert!(s.is_empty());
+        assert_eq!(s.normalized(), (5, 5));
+    }
+
+    #[test]
+    fn selection_range_normalized_orders_endpoints() {
+        let s = SelectionRange {
+            anchor: 10,
+            cursor: 4,
+        };
+        assert_eq!(s.normalized(), (4, 10));
+        let s = SelectionRange {
+            anchor: 2,
+            cursor: 8,
+        };
+        assert_eq!(s.normalized(), (2, 8));
     }
 }

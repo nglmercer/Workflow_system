@@ -32,6 +32,12 @@ pub enum Command {
     // History
     Undo,
     Redo,
+    /// Cut the current selection to the clipboard.
+    Cut,
+    /// Copy the current selection to the clipboard.
+    Copy,
+    /// Paste the clipboard at the cursor (replacing the selection).
+    Paste,
     // File
     Open,
     Save,
@@ -91,6 +97,9 @@ impl Command {
             Command::ShowShortcuts => i18n_t("shortcuts.command_show_shortcuts"),
             Command::RunTests => i18n_t("shortcuts.command_run_tests"),
             Command::SearchInFiles => i18n_t("shortcuts.command_search_in_files"),
+            Command::Cut => i18n_t("shortcuts.command_cut"),
+            Command::Copy => i18n_t("shortcuts.command_copy"),
+            Command::Paste => i18n_t("shortcuts.command_paste"),
             Command::None => i18n_t("shortcuts.command_none"),
         }
     }
@@ -126,6 +135,9 @@ impl Command {
             Command::ShowShortcuts => i18n_t("shortcuts.command_show_shortcuts_long"),
             Command::RunTests => i18n_t("shortcuts.command_run_tests_long"),
             Command::SearchInFiles => i18n_t("shortcuts.command_search_in_files_long"),
+            Command::Cut => i18n_t("shortcuts.command_cut_long"),
+            Command::Copy => i18n_t("shortcuts.command_copy_long"),
+            Command::Paste => i18n_t("shortcuts.command_paste_long"),
             Command::None => i18n_t("shortcuts.command_none_long"),
         }
     }
@@ -344,6 +356,15 @@ impl Keymap {
             // --- File ---
             (ChordMatcher::Exact(Chord::ctrl(Key::O)), Command::Open),
             (ChordMatcher::Exact(Chord::ctrl(Key::S)), Command::Save),
+            // --- Clipboard ---
+            // Custom cut/copy/paste so we can track the OS clipboard
+            // in history snapshots and so undo/redo round-trip the
+            // clipboard content. If we let egui's `TextEdit` handle
+            // them, the clipboard escapes our history and undo
+            // doesn't restore it.
+            (ChordMatcher::Exact(Chord::ctrl(Key::X)), Command::Cut),
+            (ChordMatcher::Exact(Chord::ctrl(Key::C)), Command::Copy),
+            (ChordMatcher::Exact(Chord::ctrl(Key::V)), Command::Paste),
             // --- Edit ---
             (
                 ChordMatcher::Exact(Chord::ctrl(Key::Slash)),
@@ -808,6 +829,26 @@ mod tests {
             .iter()
             .any(|(l, cmd, _)| l == "Ctrl+Shift+F" && cmd == &expected);
         assert!(matched, "Ctrl+Shift+F should map to Command::SearchInFiles");
+    }
+
+    #[test]
+    fn default_keymap_has_clipboard_commands() {
+        let km = Keymap::new();
+        let cut = i18n_t("shortcuts.command_cut");
+        let copy = i18n_t("shortcuts.command_copy");
+        let paste = i18n_t("shortcuts.command_paste");
+        let bindings = km.bindings();
+        let labels: Vec<&str> = bindings.iter().map(|(l, _, _)| l.as_str()).collect();
+        assert!(labels.contains(&"Ctrl+X"), "Ctrl+X should be bound");
+        assert!(labels.contains(&"Ctrl+C"), "Ctrl+C should be bound");
+        assert!(labels.contains(&"Ctrl+V"), "Ctrl+V should be bound");
+        let cmds: Vec<&str> = bindings.iter().map(|(_, c, _)| c.as_str()).collect();
+        assert!(cmds.contains(&cut.as_str()), "Cut command should be bound");
+        assert!(cmds.contains(&copy.as_str()), "Copy command should be bound");
+        assert!(
+            cmds.contains(&paste.as_str()),
+            "Paste command should be bound"
+        );
     }
 
     #[test]
