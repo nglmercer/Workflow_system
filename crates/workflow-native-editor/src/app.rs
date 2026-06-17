@@ -132,6 +132,8 @@ pub struct EditorApp {
     test_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     /// Find bar state. Opened by Ctrl+F, closed by Escape.
     find: FindState,
+    /// Currently selected text in the editor (updated each frame).
+    selected_text: Option<String>,
     /// Global "find in files" panel. Desktop-only because the
     /// `ignore` walker is not designed for `wasm32-unknown-unknown`.
     #[cfg(not(target_arch = "wasm32"))]
@@ -191,6 +193,7 @@ impl Default for EditorApp {
             test_receiver: None,
             test_cancel: None,
             find: FindState::default(),
+            selected_text: None,
             #[cfg(not(target_arch = "wasm32"))]
             search_in_files: SearchInFilesState::default(),
         }
@@ -678,6 +681,13 @@ impl EditorApp {
                                 primary.rcursor.column,
                             ));
                         }
+                        // Capture selected text for Find bar pre-fill
+                        if !range.is_empty() {
+                            let char_range = range.as_sorted_char_range();
+                            self.selected_text = Some(display_text[char_range].to_string());
+                        } else {
+                            self.selected_text = None;
+                        }
                     }
 
                     let cursor_moved = self.cursor != prev_cursor;
@@ -797,7 +807,7 @@ impl EditorApp {
                 self.pending_open_dialog = true;
             }
             Command::Find => {
-                self.find.open(None);
+                self.find.open(self.selected_text.as_deref());
                 self.find.update_matches(&self.text);
             }
             Command::GotoLine => {

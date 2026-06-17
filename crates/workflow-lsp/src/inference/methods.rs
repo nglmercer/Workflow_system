@@ -38,7 +38,7 @@ pub struct Method {
     /// The method's return type.
     pub ret: Type,
     /// Short single-line summary, surfaced in completion and hover.
-    pub doc: &'static str,
+    pub doc: String,
 }
 
 /// A read-only property exposed on a primitive type. Distinct from
@@ -50,7 +50,7 @@ pub struct Property {
     /// `'static`).
     pub name: String,
     pub ty: Type,
-    pub doc: &'static str,
+    pub doc: String,
 }
 
 // Method tables can't be `const` because `Type::Array(Box::new(...))`
@@ -65,55 +65,55 @@ fn string_methods() -> Vec<Method> {
             name: "toUpperCase",
             params: &[],
             ret: Type::String,
-            doc: "Returns the string with all characters upper-cased.",
+            doc: "Returns the string with all characters upper-cased.".to_string(),
         },
         Method {
             name: "toLowerCase",
             params: &[],
             ret: Type::String,
-            doc: "Returns the string with all characters lower-cased.",
+            doc: "Returns the string with all characters lower-cased.".to_string(),
         },
         Method {
             name: "trim",
             params: &[],
             ret: Type::String,
-            doc: "Returns the string with leading and trailing whitespace removed.",
+            doc: workflow_i18n::t("lsp.method.trim.doc"),
         },
         Method {
             name: "contains",
             params: &[Type::String],
             ret: Type::Bool,
-            doc: "True if the string contains `needle` as a substring.",
+            doc: workflow_i18n::t("lsp.method.contains.doc"),
         },
         Method {
             name: "startsWith",
             params: &[Type::String],
             ret: Type::Bool,
-            doc: "True if the string starts with `prefix`.",
+            doc: workflow_i18n::t("lsp.method.contains.doc"),
         },
         Method {
             name: "endsWith",
             params: &[Type::String],
             ret: Type::Bool,
-            doc: "True if the string ends with `suffix`.",
+            doc: workflow_i18n::t("lsp.method.contains.doc"),
         },
         Method {
             name: "replace",
             params: &[Type::String, Type::String],
             ret: Type::String,
-            doc: "Returns a new string with the first `from` replaced by `to`.",
+            doc: workflow_i18n::t("lsp.method.replace.doc"),
         },
         Method {
             name: "split",
             params: &[Type::String],
             ret: Type::Array(Box::new(Type::String)),
-            doc: "Splits the string by `sep` and returns an array of substrings.",
+            doc: workflow_i18n::t("lsp.method.split.doc"),
         },
         Method {
             name: "toNumber",
             params: &[],
             ret: Type::Number,
-            doc: "Parses the string as a number. Returns 0 on failure.",
+            doc: workflow_i18n::t("lsp.method.split.doc"),
         },
     ]
 }
@@ -124,13 +124,13 @@ fn number_methods() -> Vec<Method> {
             name: "toString",
             params: &[],
             ret: Type::String,
-            doc: "Returns the number rendered as a string.",
+            doc: workflow_i18n::t("lsp.method.split.doc"),
         },
         Method {
             name: "toFixed",
             params: &[Type::Number],
             ret: Type::String,
-            doc: "Returns the number as a string with `digits` decimal places.",
+            doc: workflow_i18n::t("lsp.method.split.doc"),
         },
     ]
 }
@@ -140,7 +140,7 @@ fn bool_methods() -> Vec<Method> {
         name: "toString",
         params: &[],
         ret: Type::String,
-        doc: "Returns the boolean as `\"true\"` or `\"false\"`.",
+        doc: workflow_i18n::t("lsp.method.to_string.doc"),
     }]
 }
 
@@ -150,31 +150,31 @@ fn array_methods() -> Vec<Method> {
             name: "contains",
             params: &[Type::Any],
             ret: Type::Bool,
-            doc: "True if the array contains `needle` (uses `==` comparison).",
+            doc: workflow_i18n::t("lsp.method.contains.doc"),
         },
         Method {
             name: "first",
             params: &[],
             ret: Type::Any,
-            doc: "Returns the first element, or `null` if the array is empty.",
+            doc: workflow_i18n::t("lsp.method.first.doc"),
         },
         Method {
             name: "last",
             params: &[],
             ret: Type::Any,
-            doc: "Returns the last element, or `null` if the array is empty.",
+            doc: workflow_i18n::t("lsp.method.last.doc"),
         },
         Method {
             name: "reverse",
             params: &[],
             ret: Type::Array(Box::new(Type::Any)),
-            doc: "Returns a new array with the elements in reverse order.",
+            doc: workflow_i18n::t("lsp.method.reverse.doc"),
         },
         Method {
             name: "join",
             params: &[Type::String],
             ret: Type::String,
-            doc: "Joins the elements with `sep` into a single string.",
+            doc: workflow_i18n::t("lsp.method.join.doc"),
         },
     ]
 }
@@ -185,13 +185,13 @@ fn object_methods() -> Vec<Method> {
             name: "keys",
             params: &[],
             ret: Type::Array(Box::new(Type::String)),
-            doc: "Returns an array of the object's keys.",
+            doc: workflow_i18n::t("lsp.method.keys.doc"),
         },
         Method {
             name: "values",
             params: &[],
             ret: Type::Array(Box::new(Type::Any)),
-            doc: "Returns an array of the object's values.",
+            doc: workflow_i18n::t("lsp.method.values.doc"),
         },
     ]
 }
@@ -219,12 +219,12 @@ pub fn properties_for(ty: &Type) -> Vec<Property> {
         Type::String => vec![Property {
             name: "length".to_string(),
             ty: Type::Number,
-            doc: "Number of characters in the string.",
+            doc: workflow_i18n::t("lsp.method.length.doc"),
         }],
         Type::Array(_) => vec![Property {
             name: "length".to_string(),
             ty: Type::Number,
-            doc: "Number of elements in the array.",
+            doc: workflow_i18n::t("lsp.method.length.doc"),
         }],
         // Object properties come from the schema (i.e. an imported
         // `@import data from ...` or an inline object literal). The
@@ -235,7 +235,7 @@ pub fn properties_for(ty: &Type) -> Vec<Property> {
             .map(|(k, v)| Property {
                 name: k.clone(),
                 ty: v.clone(),
-                doc: "",
+                doc: String::new(),
             })
             .collect(),
         _ => Vec::new(),

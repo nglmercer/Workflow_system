@@ -65,18 +65,26 @@ impl TriggerValidator {
         let mut result = ValidationResult::ok();
 
         if rule.metadata.id.is_empty() {
-            result.add_issue("id", "Rule ID cannot be empty", IssueSeverity::Error);
+            result.add_issue(
+                "id",
+                workflow_i18n::t("domain.validation_id_empty"),
+                IssueSeverity::Error,
+            );
         }
 
         if rule.on.is_empty() {
-            result.add_issue("on", "Event name cannot be empty", IssueSeverity::Error);
+            result.add_issue(
+                "on",
+                workflow_i18n::t("domain.validation_event_empty"),
+                IssueSeverity::Error,
+            );
         }
 
         if let Some(cooldown) = rule.metadata.cooldown {
             if cooldown == 0 {
                 result.add_issue(
                     "cooldown",
-                    "Cooldown must be greater than 0",
+                    workflow_i18n::t("domain.validation_cooldown_zero"),
                     IssueSeverity::Warning,
                 );
             }
@@ -86,7 +94,7 @@ impl TriggerValidator {
             if priority < 0 {
                 result.add_issue(
                     "priority",
-                    "Priority should be non-negative",
+                    workflow_i18n::t("domain.validation_priority_negative"),
                     IssueSeverity::Warning,
                 );
             }
@@ -112,7 +120,10 @@ impl TriggerValidator {
             if !seen_ids.insert(&rule.metadata.id) {
                 result.add_issue(
                     format!("rule[{}].id", rule.metadata.id),
-                    format!("Duplicate rule ID: {}", rule.metadata.id),
+                    workflow_i18n::tf(
+                        "domain.validation_duplicate_id",
+                        &[("id", &rule.metadata.id)],
+                    ),
                     IssueSeverity::Error,
                 );
             }
@@ -167,6 +178,7 @@ mod tests {
 
     #[test]
     fn test_validate_valid_rule() {
+        workflow_i18n::init_with("en");
         let rule = make_rule("test-1", "TEST_EVENT");
         let result = TriggerValidator::validate(&rule);
         assert!(result.valid);
@@ -175,6 +187,7 @@ mod tests {
 
     #[test]
     fn test_validate_empty_id() {
+        workflow_i18n::init_with("en");
         let rule = make_rule("", "TEST_EVENT");
         let result = TriggerValidator::validate(&rule);
         assert!(!result.valid);
@@ -183,6 +196,7 @@ mod tests {
 
     #[test]
     fn test_validate_empty_event() {
+        workflow_i18n::init_with("en");
         let rule = make_rule("test-1", "");
         let result = TriggerValidator::validate(&rule);
         assert!(!result.valid);
@@ -191,6 +205,7 @@ mod tests {
 
     #[test]
     fn test_validate_zero_cooldown() {
+        workflow_i18n::init_with("en");
         let rule = TriggerRule {
             metadata: RuleMetadata {
                 id: "test-1".to_string(),
@@ -220,6 +235,7 @@ mod tests {
 
     #[test]
     fn test_validate_all_unique_ids() {
+        workflow_i18n::init_with("en");
         let rules = vec![
             make_rule("rule-1", "EVENT_A"),
             make_rule("rule-2", "EVENT_B"),
@@ -230,6 +246,7 @@ mod tests {
 
     #[test]
     fn test_validate_all_duplicate_ids() {
+        workflow_i18n::init_with("en");
         let rules = vec![
             make_rule("rule-1", "EVENT_A"),
             make_rule("rule-1", "EVENT_B"),

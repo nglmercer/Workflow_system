@@ -124,7 +124,7 @@ fn scan_locals(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>, refs: &Ha
                         "unused-binding",
                         line,
                         col,
-                        format!("Unused local variable `{}`", name),
+                        workflow_i18n::tf("lsp.lint_unused_local", &[("name", &name)]),
                         DiagnosticSeverity::Hint,
                     ));
                 }
@@ -137,7 +137,7 @@ fn scan_locals(cx: &LintCx, stmts: &[Stmt], out: &mut Vec<Diagnostic>, refs: &Ha
                                 "unused-binding",
                                 line,
                                 col,
-                                format!("Unused foreach item `{}`", item_var),
+                                workflow_i18n::tf("lsp.lint_unused_foreach", &[("name", &item_var)]),
                                 DiagnosticSeverity::Hint,
                             ));
                         }

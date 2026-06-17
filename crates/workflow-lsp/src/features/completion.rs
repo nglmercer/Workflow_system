@@ -129,7 +129,7 @@ pub fn build_completions(
                     format!("{}($1)$0", entry.name)
                 };
                 let detail = if entry.params.is_empty() {
-                    format!("(): {}", entry.return_type.label())
+                    workflow_i18n::tf("lsp.completion_function_detail_no_params", &[("ret", &entry.return_type.label())])
                 } else {
                     let params: Vec<String> = entry
                         .params
@@ -142,7 +142,7 @@ pub fn build_completions(
                             }
                         })
                         .collect();
-                    format!("({}): {}", params.join(", "), entry.return_type.label())
+                    workflow_i18n::tf("lsp.completion_function_detail", &[("params", &params.join(", ")), ("ret", &entry.return_type.label())])
                 };
                 items.push(lsp_types::CompletionItem {
                     label: entry.name.clone(),
@@ -520,7 +520,7 @@ fn build_event_completions(
         items.push(lsp_types::CompletionItem {
             label: "USER_REGISTERED".to_string(),
             kind: Some(lsp_types::CompletionItemKind::ENUM),
-            detail: Some("example event".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_example_event")),
             text_edit: Some(LspCompletionTextEdit::Edit(TextEdit {
                 range: replace_range,
                 new_text: "USER_REGISTERED".to_string(),
@@ -532,7 +532,7 @@ fn build_event_completions(
         items.push(lsp_types::CompletionItem {
             label: "PAYMENT_RECEIVED".to_string(),
             kind: Some(lsp_types::CompletionItemKind::ENUM),
-            detail: Some("example event".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_example_event")),
             text_edit: Some(LspCompletionTextEdit::Edit(TextEdit {
                 range: replace_range,
                 new_text: "PAYMENT_RECEIVED".to_string(),
@@ -755,102 +755,102 @@ fn keyword_items() -> Vec<lsp_types::CompletionItem> {
         CompletionItem {
             label: "var".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Variable declaration".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_var")),
             insert_text: Some("var ${1:name} = ${2:value}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "fn".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Function definition".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_fn")),
             insert_text: Some("fn ${1:name}(${2:params}) {\n\t$0\n}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "workflow".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Workflow definition".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_workflow")),
             insert_text: Some("workflow \"${1:Name}\" {\n\ton ${2:EVENT}\n\t$0\n}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "on".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Event trigger".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_on")),
             insert_text: Some("on ${1:EVENT}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "if".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Conditional".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_if")),
             insert_text: Some("if (${1:cond}) {\n\t$0\n}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "else".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Else branch".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_else")),
             insert_text: Some("else {\n\t$0\n}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "foreach".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Loop".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_foreach")),
             insert_text: Some("foreach (${1:item} in ${2:items}) {\n\t$0\n}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "return".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Return statement".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_return")),
             insert_text: Some("return ${1:value}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "import".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Module import".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_import")),
             insert_text: Some("import ${1:name} from \"${2:path}\"".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "@import".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Schema import".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_at_import")),
             insert_text: Some("@import ${1:name} from \"${2:path}\"".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "from".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Import source".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_from")),
             ..Default::default()
         },
         CompletionItem {
             label: "emit".to_string(),
             kind: Some(lsp_types::CompletionItemKind::KEYWORD),
-            detail: Some("Emit an event".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_emit")),
             insert_text: Some("emit ${1:EVENT}".to_string()),
             ..Default::default()
         },
         CompletionItem {
             label: "true".to_string(),
             kind: Some(lsp_types::CompletionItemKind::VALUE),
-            detail: Some("Boolean true".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_true")),
             ..Default::default()
         },
         CompletionItem {
             label: "false".to_string(),
             kind: Some(lsp_types::CompletionItemKind::VALUE),
-            detail: Some("Boolean false".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_false")),
             ..Default::default()
         },
         CompletionItem {
             label: "null".to_string(),
             kind: Some(lsp_types::CompletionItemKind::VALUE),
-            detail: Some("Null value".to_string()),
+            detail: Some(workflow_i18n::t("lsp.completion_detail_null")),
             ..Default::default()
         },
     ]

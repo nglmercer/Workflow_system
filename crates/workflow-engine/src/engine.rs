@@ -138,7 +138,7 @@ impl RuleEngine {
                         context: Some(context.clone()),
                         action_type: None,
                         result: None,
-                        error: Some("Cooldown active".to_string()),
+                        error: Some(workflow_i18n::t("engine.cooldown_active")),
                     });
                     continue;
                 }
@@ -330,7 +330,7 @@ async fn execute_action_with_retry(
     workflow_domain::ExecutedAction {
         action_type: action.action_type.clone(),
         result: None,
-        error: last_error.or_else(|| Some("All retry attempts failed".to_string())),
+        error: last_error.or_else(|| Some(workflow_i18n::t("engine.all_retries_failed"))),
         timestamp: chrono::Utc::now().timestamp_millis(),
         skipped: None,
     }
@@ -404,13 +404,13 @@ async fn execute_single_action(
                     context: Some(context.clone()),
                     action_type: Some(action.action_type.clone()),
                     result: None,
-                    error: Some(format!("Unknown action type: {}", action.action_type)),
+                    error: Some(workflow_i18n::tf("engine.unknown_action", &[("type", &action.action_type)])),
                 });
 
                 workflow_domain::ExecutedAction {
                     action_type: action.action_type.clone(),
                     result: None,
-                    error: Some(format!("Unknown action type: {}", action.action_type)),
+                    error: Some(workflow_i18n::tf("engine.unknown_action", &[("type", &action.action_type)])),
                     timestamp: chrono::Utc::now().timestamp_millis(),
                     skipped: None,
                 }
@@ -432,7 +432,7 @@ async fn execute_single_action(
                     result: None,
                     error: None,
                     timestamp: chrono::Utc::now().timestamp_millis(),
-                    skipped: Some(format!("No handler for: {}", action.action_type)),
+                    skipped: Some(workflow_i18n::tf("engine.skipped_no_handler", &[("type", &action.action_type)])),
                 }
             }
         }
@@ -453,7 +453,7 @@ async fn execute_foreach(
             return workflow_domain::ExecutedAction {
                 action_type: "foreach".to_string(),
                 result: None,
-                error: Some(format!("Field '{}' is not an array", foreach.field)),
+                error: Some(workflow_i18n::tf("engine.foreach_not_array", &[("field", &foreach.field)])),
                 timestamp: chrono::Utc::now().timestamp_millis(),
                 skipped: None,
             };

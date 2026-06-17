@@ -91,7 +91,7 @@ fn scan_expr(cx: &LintCx, expr: &Expr, out: &mut Vec<Diagnostic>) {
                             "redundant-expression",
                             line,
                             col,
-                            "Expression has two literal operands — fold it into a single literal",
+                            workflow_i18n::t("lsp.lint_redundant_expression"),
                             DiagnosticSeverity::Hint,
                         ));
                     }

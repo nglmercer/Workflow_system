@@ -87,7 +87,7 @@ fn check_expr(cx: &LintCx, expr: &Expr, after_byte: usize, out: &mut Vec<Diagnos
                     "unknown-identifier",
                     line,
                     col,
-                    format!("Unknown identifier `{}`", name),
+                    workflow_i18n::tf("lsp.lint_unknown_identifier", &[("name", &name)]),
                     DiagnosticSeverity::Error,
                 ));
             }
@@ -108,7 +108,7 @@ fn check_expr(cx: &LintCx, expr: &Expr, after_byte: usize, out: &mut Vec<Diagnos
                             "unknown-identifier",
                             line,
                             col,
-                            format!("Unknown function `{}`", name),
+                            workflow_i18n::tf("lsp.lint_unknown_function", &[("name", &name)]),
                             DiagnosticSeverity::Error,
                         ));
                     }

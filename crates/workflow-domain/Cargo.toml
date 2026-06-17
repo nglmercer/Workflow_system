@@ -10,3 +10,4 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }
+workflow-i18n = { path = "../workflow-i18n" }

@@ -65,7 +65,7 @@ impl Lint for UnusedWorkflow {
                         "unused-workflow",
                         0,
                         0,
-                        format!("Workflow \"{}\" has no `on` clause", w.name),
+                        workflow_i18n::tf("lsp.lint_workflow_no_on", &[("name", &w.name)]),
                         DiagnosticSeverity::Hint,
                     ));
                 }

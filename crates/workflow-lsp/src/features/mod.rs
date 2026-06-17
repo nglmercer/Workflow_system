@@ -190,9 +190,9 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
             if let Some(sig) = inference.functions.get(&symbol.name) {
                 let ret_label = sig.ret.label();
                 if sig.annotated {
-                    body.push_str(&format!("`//@{}`\n\n", ret_label));
+                    body.push_str(&workflow_i18n::tf("lsp.hover_annotated_type", &[("type", &ret_label)]));
                 } else {
-                    body.push_str(&format!("**returns:** `{}`\n\n", ret_label));
+                    body.push_str(&workflow_i18n::tf("lsp.hover_returns_label", &[("type", &ret_label)]));
                 }
                 // Show parameter types if available
                 if !sig.param_types.is_empty() {
@@ -202,16 +202,16 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
                         .zip(sig.param_types.iter())
                         .map(|(name, ty)| format!("{}: {}", name, ty.label()))
                         .collect();
-                    body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
+                    body.push_str(&workflow_i18n::tf("lsp.hover_params_label", &[("params", &params.join(", "))]));
                 }
             } else if let Some(binding) = inference.lookup(source, position) {
                 if binding.annotated {
-                    body.push_str(&format!("`//@{}`\n\n", binding.ty.label()));
+                    body.push_str(&workflow_i18n::tf("lsp.hover_annotated_binding", &[("type", &binding.ty.label())]));
                 } else {
-                    body.push_str(&format!("**type:** `{}`\n\n", binding.ty.label()));
+                    body.push_str(&workflow_i18n::tf("lsp.hover_type_label", &[("type", &binding.ty.label())]));
                 }
                 if let Some(value) = &binding.value {
-                    body.push_str(&format!("**value:** `{}`\n\n", format_value(value)));
+                    body.push_str(&workflow_i18n::tf("lsp.hover_value_label", &[("value", &format_value(value))]));
                 }
             }
         }
@@ -230,8 +230,8 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
             // Check local functions first
             if let Some(sig) = inference.functions.get(&word) {
                 let ret_label = sig.ret.label();
-                let mut body = format!("**fn** `{}`\n\n", word);
-                body.push_str(&format!("**returns:** `{}`\n\n", ret_label));
+                let mut body = workflow_i18n::tf("lsp.hover_fn_label", &[("name", &word)]);
+                body.push_str(&workflow_i18n::tf("lsp.hover_returns_label", &[("type", &ret_label)]));
                 if !sig.params.is_empty() {
                     let params: Vec<String> = sig
                         .params
@@ -239,20 +239,20 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
                         .zip(sig.param_types.iter())
                         .map(|(name, ty)| format!("{}: {}", name, ty.label()))
                         .collect();
-                    body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
+                    body.push_str(&workflow_i18n::tf("lsp.hover_params_label", &[("params", &params.join(", "))]));
                 }
                 return Some(body);
             }
             // Check registry functions
             if let Some(entry) = inference.registry.get(&word) {
                 let mut body = if entry.is_user_defined {
-                    format!("**fn** `{}` (imported)\n\n", word)
+                    workflow_i18n::tf("lsp.hover_fn_imported", &[("name", &word)])
                 } else {
-                    format!("**fn** `{}` (built-in)\n\n", word)
+                    workflow_i18n::tf("lsp.hover_fn_builtin", &[("name", &word)])
                 };
 
                 // Show category
-                body.push_str(&format!("**category:** {}\n\n", entry.category.label()));
+                body.push_str(&workflow_i18n::tf("lsp.hover_category_label", &[("category", &entry.category.label())]));
 
                 // Show return type
                 body.push_str(&format!("**returns:** `{}`\n\n", entry.return_type.label()));
@@ -270,7 +270,7 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
                             }
                         })
                         .collect();
-                    body.push_str(&format!("**params:** `({})`\n\n", params.join(", ")));
+                    body.push_str(&workflow_i18n::tf("lsp.hover_params_label", &[("params", &params.join(", "))]));
                 }
 
                 // Show description if available
@@ -283,25 +283,25 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
 
             // Check if the word is an event
             if let Some(event_info) = inference.events.get(&word) {
-                let mut body = format!("**event** `{}`\n\n", word);
+                let mut body = workflow_i18n::tf("lsp.hover_event_label", &[("name", &word)]);
 
                 // Show event type
                 if event_info.is_external {
-                    body.push_str("**type:** external (SCREAMING_SNAKE_CASE)\n\n");
+                    body.push_str(&workflow_i18n::t("lsp.hover_event_external"));
                 } else {
-                    body.push_str("**type:** internal\n\n");
+                    body.push_str(&workflow_i18n::t("lsp.hover_event_internal"));
                 }
 
                 // Show usage
                 let usage_desc = match event_info.usage {
-                    EventUsage::On => "Listened to by a workflow",
-                    EventUsage::Emit => "Emitted by code",
-                    EventUsage::Import => "Imported from external schema",
+                    EventUsage::On => workflow_i18n::t("lsp.completion_event_usage_on"),
+                    EventUsage::Emit => workflow_i18n::t("lsp.completion_event_usage_emit"),
+                    EventUsage::Import => workflow_i18n::t("lsp.completion_event_usage_import"),
                 };
                 body.push_str(&format!("**usage:** {}\n\n", usage_desc));
 
                 // Show line number
-                body.push_str(&format!("**defined at:** line {}\n", event_info.line + 1));
+                body.push_str(&workflow_i18n::tf("lsp.hover_defined_at", &[("line", &(event_info.line + 1).to_string())]));
 
                 return Some(body);
             }

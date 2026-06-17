@@ -199,6 +199,7 @@ mod tests {
 
     #[test]
     fn inline_source_resolves_immediately() {
+        workflow_i18n::init_with("en");
         let value = serde_json::json!({ "users": [], "meta": [] });
         let source = SchemaSource::Inline(value.clone());
         let resolved = resolve_source(&source, None).unwrap();
@@ -207,6 +208,7 @@ mod tests {
 
     #[test]
     fn path_source_resolves_relative_to_base_dir() {
+        workflow_i18n::init_with("en");
         let path = write_temp_schema(r#"{ "users": [], "meta": [] }"#);
         let base = path.parent().unwrap();
         let source = SchemaSource::Path("schema.json".to_string());
@@ -216,6 +218,7 @@ mod tests {
 
     #[test]
     fn path_source_missing_file_is_error_not_panic() {
+        workflow_i18n::init_with("en");
         let source = SchemaSource::Path("/this/path/does/not/exist.json".to_string());
         let result = resolve_source(&source, None);
         assert!(result.is_err());
@@ -223,6 +226,7 @@ mod tests {
 
     #[test]
     fn url_source_is_not_sync_resolvable() {
+        workflow_i18n::init_with("en");
         let source = SchemaSource::Url("https://example.com/schema.json".to_string());
         assert!(!source.is_sync_resolvable());
         let result = resolve_source(&source, None);

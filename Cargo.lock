@@ -5098,6 +5098,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "workflow-i18n",
 ]
 
 [[package]]
@@ -5116,6 +5117,7 @@ dependencies = [
  "tokio",
  "workflow-actions",
  "workflow-domain",
+ "workflow-i18n",
  "workflow-serialize",
 ]
 
@@ -5136,6 +5138,7 @@ dependencies = [
  "serde_json",
  "workflow-domain",
  "workflow-engine",
+ "workflow-i18n",
  "workflow-parser",
 ]
 

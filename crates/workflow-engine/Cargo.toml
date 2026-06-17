@@ -13,6 +13,7 @@ workflow-domain = { path = "../workflow-domain" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 regex = { workspace = true }
+workflow-i18n = { path = "../workflow-i18n" }
 chrono = { workspace = true }
 flume = { workspace = true }
 async-trait = { workspace = true }

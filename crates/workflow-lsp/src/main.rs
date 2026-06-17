@@ -14,7 +14,7 @@ fn main() {
 
     let mut state = ServerState::new();
 
-    eprintln!("Starting flow-lsp server...");
+    eprintln!("{}", workflow_i18n::t("lsp.server_starting"));
     eprintln!("Client capabilities: {:?}", initialize_params.capabilities);
 
     let result = InitializeResult {

@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 workflow-parser = { path = "../workflow-parser" }
 workflow-domain = { path = "../workflow-domain" }
+workflow-i18n = { path = "../workflow-i18n" }
 workflow-engine = { path = "../workflow-engine" }
 serde_json = { workspace = true }
 lsp-server = "0.7"
