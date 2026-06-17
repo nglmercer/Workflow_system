@@ -13,6 +13,7 @@
 //! is instead shown conditionally on the caller's flag, and the
 //! caller polls [`esc_pressed`] to close on `Esc`.
 
+use workflow_i18n::t as i18n_t;
 use eframe::egui::{self, Color32, FontId, RichText, ScrollArea, Vec2};
 
 use super::keybindings::Keymap;
@@ -27,19 +28,19 @@ pub fn show(ctx: &egui::Context, open: &mut bool, keymap: &Keymap) {
     if !*open {
         return;
     }
-    egui::Window::new("Keyboard Shortcuts")
+    egui::Window::new(i18n_t("shortcuts.title"))
         .fixed_size(Vec2::new(SHORTCUTS_WIDTH, SHORTCUTS_HEIGHT))
         .resizable(true)
         .collapsible(false)
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Press Esc or click Close to dismiss")
+                    RichText::new(i18n_t("shortcuts.press_esc"))
                         .small()
                         .color(Color32::GRAY),
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                    if ui.button("Close").clicked() {
+                    if ui.button(i18n_t("shortcuts.close")).clicked() {
                         *open = false;
                     }
                 });

@@ -1,3 +1,4 @@
+use workflow_i18n::tf as i18n_tf;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -14,7 +15,7 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
         None => serde_json::json!({}),
     };
 
-    println!("Watching {} for changes...", path);
+    println!("{}", i18n_tf("cli.watching", &[("path", path)]));
     println!("Press Ctrl+C to stop.\n");
 
     let mut last_files: HashSet<std::path::PathBuf> = TriggerLoader::collect_rule_files(path)?
@@ -46,7 +47,7 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
             .collect();
 
         if !modified.is_empty() {
-            println!("Changes detected in {} file(s):", modified.len());
+            println!("{}", i18n_tf("cli.watching_changes", &[("count", &modified.len().to_string())]));
             for file in &modified {
                 println!("  - {}", file.display());
             }
@@ -72,7 +73,7 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
                 .await
             {
                 Ok(results) => {
-                    println!("Processed: {} rule(s) matched", results.len());
+                    println!("{}", i18n_tf("cli.watching_processed", &[("count", &results.len().to_string())]));
                     for result in &results {
                         println!(
                             "  ✓ {}: {} action(s)",
@@ -82,7 +83,7 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error processing event: {}", e);
+                    eprintln!("{}", i18n_tf("cli.error_prefix", &[("error", &e.to_string())]));
                 }
             }
             println!();

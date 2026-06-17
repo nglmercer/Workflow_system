@@ -5,6 +5,7 @@
 //! `--json` for machine-readable output and `--filter` for
 //! substring matching against test names.
 
+use workflow_i18n::tf as i18n_tf;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -41,7 +42,7 @@ pub fn run(path: &str, filter: Option<&str>, json: bool) -> Result<ExitCode, Tes
 }
 
 fn print_human(report: &workflow_test_runner::RunReport) {
-    println!("Tests under {}:", report.root);
+    println!("{}", i18n_tf("cli.tests_under", &[("root", &report.root)]));
     for t in &report.tests {
         let mark = if t.passed { "✓" } else { "✗" };
         println!(
@@ -69,5 +70,5 @@ fn print_human(report: &workflow_test_runner::RunReport) {
             );
         }
     }
-    println!("{} passed, {} failed", report.passed, report.failed);
+    println!("{}", i18n_tf("cli.tests_passed", &[("passed", &report.passed.to_string()), ("failed", &report.failed.to_string())]));
 }

@@ -54,6 +54,8 @@ pub enum Command {
     ShowShortcuts,
     /// Run tests for the current file.
     RunTests,
+    /// Open the global "find in files" panel.
+    SearchInFiles,
     /// No command was triggered.
     None,
 }
@@ -87,6 +89,7 @@ impl Command {
             Command::GotoDefinition => "Go to definition",
             Command::ShowShortcuts => "Show keyboard shortcuts",
             Command::RunTests => "Run tests",
+            Command::SearchInFiles => "Find in files",
             Command::None => "(no command)",
         }
     }
@@ -332,6 +335,7 @@ impl Keymap {
             // --- Navigation stubs ---
             (ChordMatcher::Exact(Chord::ctrl(Key::F)), Command::Find),
             (ChordMatcher::Exact(Chord::ctrl(Key::G)), Command::GotoLine),
+            (ChordMatcher::Exact(Chord::ctrl_shift(Key::F)), Command::SearchInFiles),
             // --- Go to definition (F12 or Ctrl+Click) ---
             (
                 ChordMatcher::Exact(Chord::key(Key::F12)),
@@ -727,6 +731,16 @@ mod tests {
                 .any(|(l, c)| l == "F1" && *c == Command::ShowShortcuts),
             "F1 should map to ShowShortcuts"
         );
+    }
+
+    #[test]
+    fn default_keymap_has_search_in_files() {
+        let km = Keymap::new();
+        let matched = km
+            .bindings()
+            .iter()
+            .any(|(l, c)| l == "Ctrl+Shift+F" && *c == Command::SearchInFiles);
+        assert!(matched, "Ctrl+Shift+F should map to Command::SearchInFiles");
     }
 
     #[test]

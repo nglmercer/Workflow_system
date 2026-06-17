@@ -14,6 +14,7 @@
 //! diagnostics panel: a `Some` payload carries a one-shot
 //! action ("user clicked this path — open it").
 
+use workflow_i18n::t as i18n_t;
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, RichText};
@@ -66,7 +67,7 @@ pub fn show(ctx: &egui::Context, current: Option<&Path>) -> Option<PathBuf> {
             let files = list_workflow_files(parent);
             if files.is_empty() {
                 ui.label(
-                    RichText::new("(no workflow files in this directory)")
+                    RichText::new(i18n_t("file_browser.empty"))
                         .italics()
                         .small()
                         .weak(),

@@ -1,0 +1,105 @@
+# Source-of-truth English catalog. Additional locales are loaded from
+# sibling files (e.g. es.yaml) and fall back to these strings per key.
+
+app:
+  title: "Flow Native Editor"
+  status_ready: "Ready"
+  status_chord_pending: "…{label}"
+  status_opened: "Opened {path}"
+  status_opened_recents_failed: "Opened {path} (recents save failed: {error})"
+  status_saved: "Saved {path}"
+  status_open_failed: "Open failed: {error}"
+  status_save_failed: "Save failed: {error}"
+  status_opening: "Opening: {path}"
+  status_failed_to_open: "Failed to open: {error}"
+  status_file_not_found: "File not found: {path}"
+  status_function_builtin: "Function '{name}' is a built-in"
+  status_function_local: "Local function: {name}"
+  status_no_definition: "No definition found for '{name}'"
+  status_runner_error: "runner error: {error}"
+  status_duplicated_line: "Duplicated line {line}"
+  status_position: "Ln {line}, Col {col}"
+  status_no_fold: "No fold region on this line"
+  status_running_tests: "Running tests…"
+  status_cancel_requested: "Cancel requested (will finish current test)"
+  status_open_cancelled: "Open cancelled"
+  status_save_cancelled: "Save cancelled"
+  status_new_file: "New file"
+  status_closed_project: "Closed project"
+  status_open_again: "Open {path} again? Changes will be lost."
+
+find:
+  not_implemented: "Find: not implemented yet (Ctrl+F)"
+  placeholder: "Find"
+  no_matches: "No matches"
+  match_count: "{current} of {total}"
+  search_hint: "Search..."
+  case_sensitive: "Aa"
+
+goto:
+  not_implemented: "Go to line: not implemented yet (Ctrl+G)"
+  placeholder: "Go to line"
+
+shortcuts:
+  title: "Keyboard Shortcuts"
+  press_esc: "Press Esc to close"
+  close: "Close"
+
+diagnostics:
+  title: "Problems"
+  copy: "Copy"
+  copy_one: "Copied 1 problem to clipboard"
+  copy_many: "Copied {count} problems to clipboard"
+  no_problems: "No problems"
+
+test_panel:
+  title: "Tests"
+  run: "Run"
+  cancel: "Cancel"
+  idle_hint: "Press Run to execute tests"
+  running: "Running…"
+  passed: "passed"
+  failed: "failed"
+
+file_browser:
+  empty: "No workflow files in this directory."
+
+home:
+  open: "Open File…"
+  new_file: "New File"
+  recents: "Recent Files"
+  drop_hint: "Drop a .flow file here"
+  drop: "Drop file to open"
+
+toolbar:
+  clear: "Clear"
+  shortcuts: "Shortcuts (F1)"
+  save: "Save (Ctrl+S)"
+  open: "Open… (Ctrl+O)"
+  close_project: "Close Project"
+
+cli:
+  error_prefix: "Error: {error}"
+  watching: "Watching {path} for changes…"
+  watching_reload: "Reloaded {path}"
+  watching_press_ctrl_c: "Press Ctrl+C to stop."
+  tests_under: "Tests under {root}:"
+  tests_passed: "{passed} passed, {failed} failed"
+  tests_passed_total: "All {total} tests passed"
+  validate_ok: "All rules are valid"
+  validate_loaded: "Loaded {count} rule(s) from {path}"
+  export_loaded: "Loaded {count} rule(s) from {path}"
+  export_wrote: "Exported to {path}"
+  evaluate_processing: "Processing event: {event}"
+  evaluate_matched: "Results ({count} rule(s) matched):"
+  evaluate_no_match: "No rules matched the event."
+
+search_in_files:
+  title: "Find in Files"
+  placeholder: "Search across files"
+  case_sensitive: "Aa"
+  use_regex: ".*"
+  no_results: "No matches"
+  progress: "Searching…"
+  stop: "Stop"
+  result_count: "{count} matches in {files} files"

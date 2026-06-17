@@ -5,7 +5,6 @@
 //! button. The bar is toggled by Ctrl+F and closed by Escape.
 
 use eframe::egui::{self, RichText, TextEdit};
-use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 
 /// State for the find bar.
 pub struct FindState {
@@ -15,6 +14,10 @@ pub struct FindState {
     pub query: String,
     /// Case-sensitive search when `true`.
     pub case_sensitive: bool,
+    /// Regex mode when `true`.
+    pub regex: bool,
+    /// Whole word match when `true`.
+    pub whole_word: bool,
     /// Index of the currently highlighted match (0-based).
     pub current_match: usize,
     /// Total number of matches found.
@@ -29,6 +32,8 @@ impl Default for FindState {
             open: false,
             query: String::new(),
             case_sensitive: false,
+            regex: false,
+            whole_word: false,
             current_match: 0,
             total_matches: 0,
             match_offsets: Vec::new(),
@@ -114,6 +119,18 @@ impl FindState {
         self.update_matches(text);
     }
 
+    /// Toggle regex mode and re-run the match scan.
+    pub fn toggle_regex(&mut self, text: &str) {
+        self.regex = !self.regex;
+        self.update_matches(text);
+    }
+
+    /// Toggle whole-word matching and re-run the match scan.
+    pub fn toggle_whole_word(&mut self, text: &str) {
+        self.whole_word = !self.whole_word;
+        self.update_matches(text);
+    }
+
     /// Get the byte range of the current match, if any.
     pub fn current_range(&self) -> Option<(usize, usize)> {
         self.match_offsets.get(self.current_match).copied()
@@ -128,6 +145,8 @@ pub enum FindAction {
     Previous,
     QueryChanged,
     ToggleCase,
+    ToggleRegex,
+    ToggleWholeWord,
 }
 
 /// Render the find bar. Returns a `FindAction` indicating what
@@ -136,17 +155,12 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
     let mut action = FindAction::None;
 
     ui.horizontal(|ui| {
-        let label = if state.case_sensitive {
-            "Find (Aa)"
-        } else {
-            "Find"
-        };
-        ui.label(RichText::new(label).strong());
+        ui.label(RichText::new("Find").strong());
 
         let response = ui.add(
             TextEdit::singleline(&mut state.query)
                 .desired_width(200.0)
-                .hint_text(i18n_t("find.search_hint"))
+                .hint_text("Search...")
                 .margin(4.0),
         );
 
@@ -154,6 +168,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
             action = FindAction::QueryChanged;
         }
 
+        // Case sensitivity toggle (Aa)
         if ui
             .add(
                 egui::Button::new(RichText::new("Aa").small())
@@ -166,23 +181,46 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
             action = FindAction::ToggleCase;
         }
 
+        // Regex toggle (.*)
+        if ui
+            .add(
+                egui::Button::new(RichText::new(".*").small())
+                    .rounding(4.0)
+                    .min_size(egui::vec2(28.0, 20.0))
+                    .selected(state.regex),
+            )
+            .clicked()
+        {
+            action = FindAction::ToggleRegex;
+        }
+
+        // Whole word toggle (Ab)
+        if ui
+            .add(
+                egui::Button::new(RichText::new("Ab").small())
+                    .rounding(4.0)
+                    .min_size(egui::vec2(28.0, 20.0))
+                    .selected(state.whole_word),
+            )
+            .clicked()
+        {
+            action = FindAction::ToggleWholeWord;
+        }
+
         // Match count
         if !state.query.is_empty() {
             let label = if state.total_matches > 0 {
-                i18n_tf(
-                    "find.match_count",
-                    &[("current", &(state.current_match + 1).to_string()), ("total", &state.total_matches.to_string())],
-                )
+                format!("{}/{}", state.current_match + 1, state.total_matches)
             } else {
-                i18n_t("find.no_matches")
+                "No matches".to_string()
             };
             ui.label(RichText::new(label).small().weak());
         }
 
-        // Navigation buttons
+        // Navigation buttons (up/down arrows)
         if ui
             .add(
-                egui::Button::new(RichText::new("↑").small())
+                egui::Button::new(RichText::new("▴").small())
                     .rounding(4.0)
                     .min_size(egui::vec2(24.0, 20.0)),
             )
@@ -192,7 +230,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
         }
         if ui
             .add(
-                egui::Button::new(RichText::new("↓").small())
+                egui::Button::new(RichText::new("▾").small())
                     .rounding(4.0)
                     .min_size(egui::vec2(24.0, 20.0)),
             )
@@ -201,10 +239,10 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
             action = FindAction::Next;
         }
 
-        // Close button
+        // Close button (× multiplication sign)
         if ui
             .add(
-                egui::Button::new(RichText::new("✕").small())
+                egui::Button::new(RichText::new("×").small())
                     .rounding(4.0)
                     .min_size(egui::vec2(24.0, 20.0)),
             )

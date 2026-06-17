@@ -1,3 +1,4 @@
+use workflow_i18n::tf as i18n_tf;
 use workflow_actions::builtin_handlers;
 use workflow_domain::{GlobalSettings, RuleEngineConfig, WorkflowResult};
 use workflow_engine::RuleEngine;
@@ -44,14 +45,15 @@ pub async fn run(
         engine.register_handler(handler);
     }
 
-    println!("Processing event: {}", event);
+    println!("{}", i18n_tf("cli.evaluate_processing", &[("event", event)]));
     println!("Data: {}", event_data);
 
     let results = engine
         .process_event_simple(event, event_data, event_vars)
         .await?;
 
-    println!("\nResults ({} rule(s) matched):", results.len());
+    println!("
+{}", i18n_tf("cli.evaluate_matched", &[("count", &results.len().to_string())]));
     for result in &results {
         let status = if result.success { "✓" } else { "✗" };
         println!(

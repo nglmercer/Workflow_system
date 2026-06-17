@@ -1,3 +1,4 @@
+use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 use workflow_domain::{TriggerValidator, WorkflowResult};
 use workflow_serialize::TriggerLoader;
 
@@ -8,12 +9,12 @@ pub fn run(path: &str) -> WorkflowResult<()> {
         TriggerLoader::load_rule(path)?
     };
 
-    println!("Loaded {} rule(s)", rules.len());
+    println!("{}", i18n_tf("cli.validate_loaded", &[("count", &rules.len().to_string()), ("path", path)]));
 
     let result = TriggerValidator::validate_all(&rules);
 
     if result.valid {
-        println!("✓ All rules are valid");
+        println!("{}", i18n_t("cli.validate_ok"));
         Ok(())
     } else {
         for issue in &result.issues {

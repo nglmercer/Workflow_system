@@ -1,0 +1,29 @@
+# Spanish (es) catalog. Partial — missing keys fall back to the English entry.
+# This file exists to prove key-level fallback and to seed future translations.
+
+app:
+  title: "Editor Nativo de Flujo"
+  status_ready: "Listo"
+  status_opened: "Abierto {path}"
+  status_saved: "Guardado {path}"
+  status_open_failed: "Error al abrir: {error}"
+  status_save_failed: "Error al guardar: {error}"
+  status_duplicated_line: "Línea {line} duplicada"
+  status_position: "Lín {line}, Col {col}"
+  status_new_file: "Nuevo archivo"
+  status_closed_project: "Proyecto cerrado"
+
+find:
+  placeholder: "Buscar"
+  no_matches: "Sin coincidencias"
+  match_count: "{current} de {total}"
+  case_sensitive: "Aa"
+
+shortcuts:
+  title: "Atajos de teclado"
+
+toolbar:
+  clear: "Limpiar"
+  save: "Guardar (Ctrl+S)"
+  open: "Abrir… (Ctrl+O)"
+  close_project: "Cerrar proyecto"

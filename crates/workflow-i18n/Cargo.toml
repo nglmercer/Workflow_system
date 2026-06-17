@@ -1,0 +1,13 @@
+[package]
+name = "workflow-i18n"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Translation catalog and locale resolution for the workflow tooling."
+
+[lib]
+name = "workflow_i18n"
+path = "src/lib.rs"
+
+[dependencies]
+rust-i18n = { workspace = true }

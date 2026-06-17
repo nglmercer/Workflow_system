@@ -322,6 +322,14 @@ impl eframe::App for EditorApp {
                         self.find.toggle_case_sensitive(&self.text);
                         self.jump_to_current_match();
                     }
+                    find_bar::FindAction::ToggleRegex => {
+                        self.find.toggle_regex(&self.text);
+                        self.jump_to_current_match();
+                    }
+                    find_bar::FindAction::ToggleWholeWord => {
+                        self.find.toggle_whole_word(&self.text);
+                        self.jump_to_current_match();
+                    }
                     find_bar::FindAction::None => {}
                 }
             });
