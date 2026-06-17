@@ -51,8 +51,9 @@ pub fn layout_flow(
     // for quick lookup during layout.
     let mut highlight_at_byte: Vec<Option<bool>> = vec![None; text.len() + 1];
     for h in highlights {
-        for i in h.start..h.end.min(text.len()) {
-            highlight_at_byte[i] = Some(h.is_current);
+        let end = h.end.min(text.len());
+        for slot in highlight_at_byte[h.start..end].iter_mut() {
+            *slot = Some(h.is_current);
         }
     }
 

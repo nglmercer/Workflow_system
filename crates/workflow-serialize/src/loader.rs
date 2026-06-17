@@ -12,10 +12,7 @@ impl TriggerLoader {
         if !dir.exists() {
             return Err(WorkflowError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                workflow_i18n::tf(
-                    "serialize.directory_not_found",
-                    &[("path", &dir_path.to_string())],
-                ),
+                workflow_i18n::tf("serialize.directory_not_found", &[("path", dir_path)]),
             )));
         }
 
@@ -75,10 +72,7 @@ impl TriggerLoader {
         if !dir.exists() {
             return Err(WorkflowError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                workflow_i18n::tf(
-                    "serialize.directory_not_found",
-                    &[("path", &dir_path.to_string())],
-                ),
+                workflow_i18n::tf("serialize.directory_not_found", &[("path", dir_path)]),
             )));
         }
 

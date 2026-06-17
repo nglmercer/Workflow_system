@@ -33,7 +33,7 @@ pub fn run(path: &str) -> WorkflowResult<()> {
                 i18n_tf(
                     "cli.validate_issue",
                     &[
-                        ("prefix", &prefix),
+                        ("prefix", prefix),
                         ("field", &issue.field),
                         ("message", &issue.message)
                     ]

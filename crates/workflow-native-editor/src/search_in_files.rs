@@ -47,6 +47,7 @@ pub enum SearchMsg {
 }
 
 /// Search panel state, owned by the editor.
+#[derive(Default)]
 pub struct SearchInFilesState {
     pub open: bool,
     pub query: String,
@@ -62,27 +63,6 @@ pub struct SearchInFilesState {
     pub generation: u64,
     pub root: Option<PathBuf>,
     pub last_query: String,
-}
-
-impl Default for SearchInFilesState {
-    fn default() -> Self {
-        Self {
-            open: false,
-            query: String::new(),
-            case_sensitive: false,
-            use_regex: false,
-            results: Vec::new(),
-            total_files: 0,
-            in_flight: false,
-            cancelled: false,
-            worker: None,
-            cancel_flag: None,
-            receiver: None,
-            generation: 0,
-            root: None,
-            last_query: String::new(),
-        }
-    }
 }
 
 impl SearchInFilesState {
@@ -234,13 +214,12 @@ fn run_search(root: PathBuf, pattern: Regex, tx: Sender<SearchMsg>, cancel: Arc<
                     match_end: m.end(),
                 });
                 total_results += 1;
-                if batch.len() >= BATCH_SIZE {
-                    if tx
+                if batch.len() >= BATCH_SIZE
+                    && tx
                         .send(SearchMsg::Progress(std::mem::take(&mut batch)))
                         .is_err()
-                    {
-                        return;
-                    }
+                {
+                    return;
                 }
             }
         }

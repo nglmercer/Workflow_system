@@ -202,7 +202,7 @@ fn field_value_as_f64(val: &serde_json::Value) -> WorkflowResult<f64> {
         serde_json::Value::String(s) => s.parse::<f64>().map_err(|_| {
             WorkflowError::ConditionEvaluation(workflow_i18n::tf(
                 "engine.condition_convert_to_number",
-                &[("value", &s)],
+                &[("value", s)],
             ))
         }),
         serde_json::Value::Bool(true) => Ok(1.0),
@@ -220,7 +220,7 @@ fn field_value_as_i64(val: &serde_json::Value) -> WorkflowResult<i64> {
         serde_json::Value::String(s) => s.parse::<i64>().map_err(|_| {
             WorkflowError::ConditionEvaluation(workflow_i18n::tf(
                 "engine.condition_convert_to_integer",
-                &[("value", &s)],
+                &[("value", s)],
             ))
         }),
         _ => Err(WorkflowError::ConditionEvaluation(

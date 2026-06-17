@@ -506,7 +506,7 @@ impl EditorApp {
                 continue;
             }
             let row = &galley.rows[display_line];
-            let col_start = cursor::column_at_x(galley, display_line, row.rect.min.x).min(0);
+
             // Use the char index in the display row, computed from the
             // source byte offset. We approximate by computing the
             // column via the row's leading whitespace (line's
@@ -535,7 +535,6 @@ impl EditorApp {
                     egui::Vec2::new(rect.width().max(2.0), LINE_HEIGHT),
                 );
             }
-            let _ = col_start;
             let _ = row_start_x;
             let color = if idx == self.find.current_match {
                 egui::Color32::from_rgba_unmultiplied(255, 220, 0, 90)
@@ -1460,12 +1459,12 @@ impl EditorApp {
     /// without touching the buffer.
     fn run_open_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
-            .set_title(&i18n_t("dialog.open_title"))
+            .set_title(i18n_t("dialog.open_title"))
             .add_filter(
-                &i18n_t("dialog.filter_workflow"),
+                i18n_t("dialog.filter_workflow"),
                 &["flow", "yaml", "yml", "json", "toml"],
             )
-            .add_filter(&i18n_t("dialog.filter_all"), &["*"]);
+            .add_filter(i18n_t("dialog.filter_all"), &["*"]);
         match dialog.pick_file() {
             Some(path) => {
                 if let Err(e) = self.load_path_into_editor(&path) {
@@ -1553,12 +1552,12 @@ impl EditorApp {
     /// the same file.
     fn save_as_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
-            .set_title(&i18n_t("dialog.save_title"))
+            .set_title(i18n_t("dialog.save_title"))
             .add_filter(
-                &i18n_t("dialog.filter_workflow"),
+                i18n_t("dialog.filter_workflow"),
                 &["flow", "yaml", "yml", "json", "toml"],
             )
-            .set_file_name(&i18n_t("dialog.default_name"));
+            .set_file_name(i18n_t("dialog.default_name"));
         let chosen = match dialog.save_file() {
             Some(p) => p,
             None => {

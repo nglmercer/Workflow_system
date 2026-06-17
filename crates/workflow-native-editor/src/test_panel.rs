@@ -56,8 +56,9 @@ pub fn show(
                         on_run();
                     }
                     if let Some(r) = report {
-                        if !running && !r.tests.is_empty() {
-                            if ui
+                        if !running
+                            && !r.tests.is_empty()
+                            && ui
                                 .add(
                                     egui::Button::new(
                                         RichText::new(i18n_t("diagnostics.copy")).small(),
@@ -65,15 +66,14 @@ pub fn show(
                                     .rounding(4.0),
                                 )
                                 .clicked()
-                            {
-                                let text = format_report(r);
-                                ctx.output_mut(|o| o.copied_text = text.clone());
-                                status = Some(format!(
-                                    "Copied {} test result{} to clipboard",
-                                    r.tests.len(),
-                                    if r.tests.len() == 1 { "" } else { "s" }
-                                ));
-                            }
+                        {
+                            let text = format_report(r);
+                            ctx.output_mut(|o| o.copied_text = text.clone());
+                            status = Some(format!(
+                                "Copied {} test result{} to clipboard",
+                                r.tests.len(),
+                                if r.tests.len() == 1 { "" } else { "s" }
+                            ));
                         }
                     }
                 });

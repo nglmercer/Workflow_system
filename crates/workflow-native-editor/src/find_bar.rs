@@ -10,6 +10,7 @@
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Stroke, TextEdit, Vec2};
 
 /// State for the find bar.
+#[derive(Default)]
 pub struct FindState {
     /// Whether the find bar is visible.
     pub open: bool,
@@ -27,21 +28,6 @@ pub struct FindState {
     pub total_matches: usize,
     /// Byte offsets of all matches in the text.
     pub match_offsets: Vec<(usize, usize)>,
-}
-
-impl Default for FindState {
-    fn default() -> Self {
-        Self {
-            open: false,
-            query: String::new(),
-            case_sensitive: false,
-            regex: false,
-            whole_word: false,
-            current_match: 0,
-            total_matches: 0,
-            match_offsets: Vec::new(),
-        }
-    }
 }
 
 impl FindState {
@@ -350,8 +336,10 @@ mod tests {
 
     #[test]
     fn update_matches_finds_literal() {
-        let mut s = FindState::default();
-        s.query = "log".to_string();
+        let mut s = FindState {
+            query: "log".to_string(),
+            ..Default::default()
+        };
         s.update_matches("log(message)\nlog(\"other\")");
         assert_eq!(s.total_matches, 2);
         assert_eq!(s.match_offsets, vec![(0, 3), (13, 16)]);
@@ -359,8 +347,10 @@ mod tests {
 
     #[test]
     fn case_sensitive_toggle_changes_match_count() {
-        let mut s = FindState::default();
-        s.query = "Foo".to_string();
+        let mut s = FindState {
+            query: "Foo".to_string(),
+            ..Default::default()
+        };
         s.update_matches("Foo bar foo");
         assert_eq!(s.total_matches, 2); // both Foo and foo match
         s.case_sensitive = true;
@@ -370,8 +360,10 @@ mod tests {
 
     #[test]
     fn next_match_wraps_around() {
-        let mut s = FindState::default();
-        s.query = "a".to_string();
+        let mut s = FindState {
+            query: "a".to_string(),
+            ..Default::default()
+        };
         s.update_matches("aaa");
         assert_eq!(s.total_matches, 3);
         assert_eq!(s.current_match, 0);
@@ -385,8 +377,10 @@ mod tests {
 
     #[test]
     fn prev_match_wraps_around() {
-        let mut s = FindState::default();
-        s.query = "a".to_string();
+        let mut s = FindState {
+            query: "a".to_string(),
+            ..Default::default()
+        };
         s.update_matches("aaa");
         s.current_match = 0;
         s.prev_match();
@@ -395,8 +389,10 @@ mod tests {
 
     #[test]
     fn empty_query_matches_nothing() {
-        let mut s = FindState::default();
-        s.query = String::new();
+        let mut s = FindState {
+            query: String::new(),
+            ..Default::default()
+        };
         s.update_matches("anything");
         assert_eq!(s.total_matches, 0);
         assert_eq!(s.match_offsets.len(), 0);
@@ -404,8 +400,10 @@ mod tests {
 
     #[test]
     fn current_range_returns_match() {
-        let mut s = FindState::default();
-        s.query = "log".to_string();
+        let mut s = FindState {
+            query: "log".to_string(),
+            ..Default::default()
+        };
         s.update_matches("first log then log");
         assert_eq!(s.current_range(), Some((6, 9)));
     }

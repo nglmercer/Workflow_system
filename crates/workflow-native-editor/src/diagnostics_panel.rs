@@ -147,6 +147,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::format_in_format_args)]
     fn format_mixed_severities_newline_separated() {
         let d = [
             diag(DiagnosticSeverity::Error, 0, 0, "boom"),
