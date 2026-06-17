@@ -17,8 +17,8 @@ fn span_of(pair: &pest::iterators::Pair<Rule>) -> Span {
 
 impl FlowParser {
     pub fn parse_program(input: &str) -> Result<Vec<Stmt>, String> {
-        let pairs =
-            FlowParser::parse(Rule::program, input).map_err(|e| workflow_i18n::tf("parser.parse_error", &[("error", &e.to_string())]))?;
+        let pairs = FlowParser::parse(Rule::program, input)
+            .map_err(|e| workflow_i18n::tf("parser.parse_error", &[("error", &e.to_string())]))?;
 
         let mut stmts = Vec::new();
         for pair in pairs {
@@ -32,8 +32,8 @@ impl FlowParser {
     }
 
     pub fn parse_flow_program(input: &str) -> Result<FlowProgram, String> {
-        let pairs =
-            FlowParser::parse(Rule::program, input).map_err(|e| workflow_i18n::tf("parser.parse_error", &[("error", &e.to_string())]))?;
+        let pairs = FlowParser::parse(Rule::program, input)
+            .map_err(|e| workflow_i18n::tf("parser.parse_error", &[("error", &e.to_string())]))?;
         let program_span = pairs
             .clone()
             .next()

@@ -1,6 +1,6 @@
-use workflow_i18n::tf as i18n_tf;
 use std::collections::HashSet;
 use std::time::Duration;
+use workflow_i18n::tf as i18n_tf;
 
 use workflow_actions::builtin_handlers;
 use workflow_domain::{GlobalSettings, RuleEngineConfig, WorkflowResult};
@@ -47,9 +47,21 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
             .collect();
 
         if !modified.is_empty() {
-            println!("{}", i18n_tf("cli.watching_changes", &[("count", &modified.len().to_string())]));
+            println!(
+                "{}",
+                i18n_tf(
+                    "cli.watching_changes",
+                    &[("count", &modified.len().to_string())]
+                )
+            );
             for file in &modified {
-                println!("{}", i18n_tf("cli.watching_file_changed", &[("path", &file.display().to_string())]));
+                println!(
+                    "{}",
+                    i18n_tf(
+                        "cli.watching_file_changed",
+                        &[("path", &file.display().to_string())]
+                    )
+                );
             }
 
             let rules = TriggerLoader::load_rules_from_dir(path)?;
@@ -73,7 +85,13 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
                 .await
             {
                 Ok(results) => {
-                    println!("{}", i18n_tf("cli.watching_processed", &[("count", &results.len().to_string())]));
+                    println!(
+                        "{}",
+                        i18n_tf(
+                            "cli.watching_processed",
+                            &[("count", &results.len().to_string())]
+                        )
+                    );
                     for result in &results {
                         println!(
                             "  ✓ {}: {} action(s)",
@@ -83,7 +101,10 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
                     }
                 }
                 Err(e) => {
-                    eprintln!("{}", i18n_tf("cli.error_prefix", &[("error", &e.to_string())]));
+                    eprintln!(
+                        "{}",
+                        i18n_tf("cli.error_prefix", &[("error", &e.to_string())])
+                    );
                 }
             }
             println!();

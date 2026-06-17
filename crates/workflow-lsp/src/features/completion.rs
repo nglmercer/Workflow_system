@@ -129,7 +129,10 @@ pub fn build_completions(
                     format!("{}($1)$0", entry.name)
                 };
                 let detail = if entry.params.is_empty() {
-                    workflow_i18n::tf("lsp.completion_function_detail_no_params", &[("ret", &entry.return_type.label())])
+                    workflow_i18n::tf(
+                        "lsp.completion_function_detail_no_params",
+                        &[("ret", &entry.return_type.label())],
+                    )
                 } else {
                     let params: Vec<String> = entry
                         .params
@@ -142,7 +145,13 @@ pub fn build_completions(
                             }
                         })
                         .collect();
-                    workflow_i18n::tf("lsp.completion_function_detail", &[("params", &params.join(", ")), ("ret", &entry.return_type.label())])
+                    workflow_i18n::tf(
+                        "lsp.completion_function_detail",
+                        &[
+                            ("params", &params.join(", ")),
+                            ("ret", &entry.return_type.label()),
+                        ],
+                    )
                 };
                 items.push(lsp_types::CompletionItem {
                     label: entry.name.clone(),

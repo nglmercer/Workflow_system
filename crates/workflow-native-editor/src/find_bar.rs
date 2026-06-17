@@ -275,22 +275,23 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
         }
 
         // Case sensitivity toggle
-        if toggle_icon_button(ui, "find_case", state.case_sensitive, |painter, rect, color| {
-            // Draw "Aa" text
-            let font = egui::FontId::monospace(11.0);
-            let center = rect.center();
-            let a1 = painter.layout_no_wrap(
-                "A".to_string(),
-                font.clone(),
-                color,
-            );
-            let a2 = painter.layout_no_wrap("a".to_string(), font, color);
-            let w = a1.size().x + a2.size().x;
-            let x = center.x - w / 2.0;
-            let y = center.y - a1.size().y / 2.0;
-            painter.galley(Pos2::new(x, y), a1, Color32::TRANSPARENT);
-            painter.galley(Pos2::new(x + 8.0, y), a2, Color32::TRANSPARENT);
-        }) {
+        if toggle_icon_button(
+            ui,
+            "find_case",
+            state.case_sensitive,
+            |painter, rect, color| {
+                // Draw "Aa" text
+                let font = egui::FontId::monospace(11.0);
+                let center = rect.center();
+                let a1 = painter.layout_no_wrap("A".to_string(), font.clone(), color);
+                let a2 = painter.layout_no_wrap("a".to_string(), font, color);
+                let w = a1.size().x + a2.size().x;
+                let x = center.x - w / 2.0;
+                let y = center.y - a1.size().y / 2.0;
+                painter.galley(Pos2::new(x, y), a1, Color32::TRANSPARENT);
+                painter.galley(Pos2::new(x + 8.0, y), a2, Color32::TRANSPARENT);
+            },
+        ) {
             action = FindAction::ToggleCase;
         }
 

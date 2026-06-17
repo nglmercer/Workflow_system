@@ -14,8 +14,8 @@
 //! diagnostics panel: a `Some` payload carries a one-shot
 //! action ("user clicked this path — open it").
 
-use workflow_i18n::t as i18n_t;
 use std::path::{Path, PathBuf};
+use workflow_i18n::t as i18n_t;
 
 use eframe::egui::{self, RichText};
 

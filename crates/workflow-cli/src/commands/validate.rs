@@ -1,5 +1,5 @@
-use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 use workflow_domain::{TriggerValidator, WorkflowResult};
+use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 use workflow_serialize::TriggerLoader;
 
 pub fn run(path: &str) -> WorkflowResult<()> {
@@ -9,7 +9,13 @@ pub fn run(path: &str) -> WorkflowResult<()> {
         TriggerLoader::load_rule(path)?
     };
 
-    println!("{}", i18n_tf("cli.validate_loaded", &[("count", &rules.len().to_string()), ("path", path)]));
+    println!(
+        "{}",
+        i18n_tf(
+            "cli.validate_loaded",
+            &[("count", &rules.len().to_string()), ("path", path)]
+        )
+    );
 
     let result = TriggerValidator::validate_all(&rules);
 
@@ -22,7 +28,17 @@ pub fn run(path: &str) -> WorkflowResult<()> {
                 workflow_domain::IssueSeverity::Error => "✗ ERROR",
                 workflow_domain::IssueSeverity::Warning => "⚠ WARN",
             };
-            eprintln!("{}", i18n_tf("cli.validate_issue", &[("prefix", &prefix), ("field", &issue.field), ("message", &issue.message)]));
+            eprintln!(
+                "{}",
+                i18n_tf(
+                    "cli.validate_issue",
+                    &[
+                        ("prefix", &prefix),
+                        ("field", &issue.field),
+                        ("message", &issue.message)
+                    ]
+                )
+            );
         }
         Err(workflow_domain::WorkflowError::Validation(
             "Validation failed".to_string(),

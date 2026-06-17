@@ -42,11 +42,7 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
         .show(ui, |ui| {
             ui.vertical_centered(|ui| {
                 ui.add_space(80.0);
-                ui.label(
-                    RichText::new(i18n_t("home.drop_hint"))
-                        .italics()
-                        .weak(),
-                );
+                ui.label(RichText::new(i18n_t("home.drop_hint")).italics().weak());
                 ui.add_space(24.0);
                 ui.horizontal(|ui| {
                     if ui

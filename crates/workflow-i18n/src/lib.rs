@@ -25,10 +25,7 @@ pub const BUNDLED: &[&str] = &["en", "es"];
 /// environment. Safe to call more than once; subsequent calls are
 /// no-ops for the initial resolution and just return the cached value.
 pub fn init() -> &'static str {
-    let needs_init = RESOLVED
-        .lock()
-        .map(|g| g.is_empty())
-        .unwrap_or(true);
+    let needs_init = RESOLVED.lock().map(|g| g.is_empty()).unwrap_or(true);
     if needs_init {
         let resolved = resolve_locale();
         rust_i18n::set_locale(&resolved);
@@ -189,7 +186,9 @@ mod tests {
         let prev = std::env::var_os("LANG");
         // SAFETY: setting a process env var is safe in a single-threaded
         // test context. Other test threads would be a problem.
-        unsafe { std::env::set_var("LANG", "es_ES.UTF-8"); }
+        unsafe {
+            std::env::set_var("LANG", "es_ES.UTF-8");
+        }
         let resolved = resolve_locale();
         unsafe {
             match prev {

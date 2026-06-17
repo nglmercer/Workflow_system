@@ -31,68 +31,69 @@ pub fn show(
         .default_height(140.0)
         .min_height(60.0)
         .show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(i18n_t("test_panel.title")).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                if running {
-                    if ui
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(i18n_t("test_panel.title")).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
+                    if running {
+                        if ui
+                            .add(
+                                egui::Button::new(
+                                    RichText::new(i18n_t("test_panel.cancel")).small(),
+                                )
+                                .rounding(4.0),
+                            )
+                            .clicked()
+                        {
+                            on_cancel();
+                        }
+                    } else if ui
                         .add(
-                            egui::Button::new(RichText::new(i18n_t("test_panel.cancel")).small())
+                            egui::Button::new(RichText::new(i18n_t("test_panel.run")).small())
                                 .rounding(4.0),
                         )
                         .clicked()
                     {
-                        on_cancel();
+                        on_run();
                     }
-                } else if ui
-                    .add(
-                        egui::Button::new(RichText::new(i18n_t("test_panel.run")).small())
-                            .rounding(4.0),
-                    )
-                    .clicked()
-                {
-                    on_run();
-                }
-                if let Some(r) = report {
-                    if !running && !r.tests.is_empty() {
-                        if ui
-                            .add(
-                                egui::Button::new(RichText::new(i18n_t("diagnostics.copy")).small())
+                    if let Some(r) = report {
+                        if !running && !r.tests.is_empty() {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(i18n_t("diagnostics.copy")).small(),
+                                    )
                                     .rounding(4.0),
-                            )
-                            .clicked()
-                        {
-                            let text = format_report(r);
-                            ctx.output_mut(|o| o.copied_text = text.clone());
-                            status = Some(format!(
-                                "Copied {} test result{} to clipboard",
-                                r.tests.len(),
-                                if r.tests.len() == 1 { "" } else { "s" }
-                            ));
+                                )
+                                .clicked()
+                            {
+                                let text = format_report(r);
+                                ctx.output_mut(|o| o.copied_text = text.clone());
+                                status = Some(format!(
+                                    "Copied {} test result{} to clipboard",
+                                    r.tests.len(),
+                                    if r.tests.len() == 1 { "" } else { "s" }
+                                ));
+                            }
                         }
                     }
-                }
+                });
             });
-        });
 
-        ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            .show(ui, |ui| {
-                if running {
-                    ui.label(RichText::new("Running…").italics());
-                    return;
-                }
-                match report {
-                    None => {
-                        ui.label(
-                            RichText::new(i18n_t("test_panel.idle_hint"))
-                                .weak(),
-                        );
+            ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    if running {
+                        ui.label(RichText::new("Running…").italics());
+                        return;
                     }
-                    Some(r) => render_report(ui, r),
-                }
-            });
-    });
+                    match report {
+                        None => {
+                            ui.label(RichText::new(i18n_t("test_panel.idle_hint")).weak());
+                        }
+                        Some(r) => render_report(ui, r),
+                    }
+                });
+        });
     status
 }
 
@@ -156,7 +157,11 @@ fn format_report(report: &RunReport) -> String {
         if i > 0 {
             out.push('\n');
         }
-        let mark = if t.passed { i18n_t("test_panel.report_pass") } else { i18n_t("test_panel.report_fail") };
+        let mark = if t.passed {
+            i18n_t("test_panel.report_pass")
+        } else {
+            i18n_t("test_panel.report_fail")
+        };
         out.push_str(&format!("{} {} (event {})\n", mark, t.name, t.event));
         for a in &t.asserts {
             let var = if a.var_name.is_empty() {
@@ -164,7 +169,11 @@ fn format_report(report: &RunReport) -> String {
             } else {
                 format!(" {}", a.var_name)
             };
-            let verdict = if a.passed { i18n_t("test_panel.report_verdict_pass") } else { i18n_t("test_panel.report_verdict_fail") };
+            let verdict = if a.passed {
+                i18n_t("test_panel.report_verdict_pass")
+            } else {
+                i18n_t("test_panel.report_verdict_fail")
+            };
             out.push_str(&format!(
                 "    expect {}{} {}  actual={} expected={}\n",
                 a.kind.label(),
@@ -177,7 +186,10 @@ fn format_report(report: &RunReport) -> String {
     }
     out.push_str(&i18n_tf(
         "test_panel.report_summary",
-        &[("passed", &report.passed.to_string()), ("failed", &report.failed.to_string())],
+        &[
+            ("passed", &report.passed.to_string()),
+            ("failed", &report.failed.to_string()),
+        ],
     ));
     out
 }
@@ -234,7 +246,10 @@ mod tests {
         let text = format_report(&r);
         assert!(text.contains(&format!("{} T1", i18n_t("test_panel.report_pass"))));
         assert!(text.contains(&format!("{} T1", i18n_t("test_panel.report_fail"))));
-        assert!(text.contains(&i18n_tf("test_panel.report_summary", &[("passed", "1"), ("failed", "1")])));
+        assert!(text.contains(&i18n_tf(
+            "test_panel.report_summary",
+            &[("passed", "1"), ("failed", "1")]
+        )));
     }
 
     #[test]

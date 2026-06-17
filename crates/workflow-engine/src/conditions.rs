@@ -112,8 +112,12 @@ fn evaluate_single(condition: &Condition, context: &TriggerContext) -> WorkflowR
         ComparisonOperator::Matches => {
             let hay = field_value_as_string(&field_value)?;
             let pattern = condition.value.as_str().unwrap_or("");
-            let re = Regex::new(pattern)
-                .map_err(|e| WorkflowError::ConditionEvaluation(workflow_i18n::tf("engine.condition_invalid_regex", &[("error", &e.to_string())])))?;
+            let re = Regex::new(pattern).map_err(|e| {
+                WorkflowError::ConditionEvaluation(workflow_i18n::tf(
+                    "engine.condition_invalid_regex",
+                    &[("error", &e.to_string())],
+                ))
+            })?;
             Ok(re.is_match(&hay))
         }
         ComparisonOperator::Range => {
@@ -196,7 +200,10 @@ fn field_value_as_f64(val: &serde_json::Value) -> WorkflowResult<f64> {
     match val {
         serde_json::Value::Number(n) => Ok(n.as_f64().unwrap_or(0.0)),
         serde_json::Value::String(s) => s.parse::<f64>().map_err(|_| {
-            WorkflowError::ConditionEvaluation(workflow_i18n::tf("engine.condition_convert_to_number", &[("value", &s)]))
+            WorkflowError::ConditionEvaluation(workflow_i18n::tf(
+                "engine.condition_convert_to_number",
+                &[("value", &s)],
+            ))
         }),
         serde_json::Value::Bool(true) => Ok(1.0),
         serde_json::Value::Bool(false) => Ok(0.0),
@@ -211,7 +218,10 @@ fn field_value_as_i64(val: &serde_json::Value) -> WorkflowResult<i64> {
     match val {
         serde_json::Value::Number(n) => Ok(n.as_i64().unwrap_or(0)),
         serde_json::Value::String(s) => s.parse::<i64>().map_err(|_| {
-            WorkflowError::ConditionEvaluation(workflow_i18n::tf("engine.condition_convert_to_integer", &[("value", &s)]))
+            WorkflowError::ConditionEvaluation(workflow_i18n::tf(
+                "engine.condition_convert_to_integer",
+                &[("value", &s)],
+            ))
         }),
         _ => Err(WorkflowError::ConditionEvaluation(
             "Cannot convert value to integer".to_string(),

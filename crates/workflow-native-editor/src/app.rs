@@ -29,12 +29,12 @@ use workflow_lsp::features::{self, Diagnostic};
 use workflow_lsp::ServerState;
 
 use super::completion::{self, CompletionState};
-use super::cursor::{self, char_to_line_col, column_at_x, cursor_screen_pos, row_at_y, CursorPosition};
+use super::cursor::{
+    self, char_to_line_col, column_at_x, cursor_screen_pos, row_at_y, CursorPosition,
+};
 use super::diagnostics_panel;
 use super::file_browser;
 use super::file_io;
-#[cfg(not(target_arch = "wasm32"))]
-use super::search_in_files::{SearchInFilesEvent, SearchInFilesState};
 use super::find_bar::{self, FindState};
 use super::folding;
 use super::gutter;
@@ -44,6 +44,8 @@ use super::keybindings::{self, Command, Keymap};
 use super::layouter::{layout_flow, MatchHighlight, FONT_SIZE, LINE_HEIGHT};
 use super::popup;
 use super::recent::RecentList;
+#[cfg(not(target_arch = "wasm32"))]
+use super::search_in_files::{SearchInFilesEvent, SearchInFilesState};
 use super::shortcuts_window;
 use super::snippet::PendingSnippet;
 use super::test_panel;
@@ -218,10 +220,13 @@ impl eframe::App for EditorApp {
                 let title = self.title_label();
                 ui.label(RichText::new(title).strong());
                 ui.separator();
-                ui.label(i18n_tf("app.status_position", &[
-                    ("line", &self.cursor.line.to_string()),
-                    ("col", &self.cursor.col.to_string()),
-                ]));
+                ui.label(i18n_tf(
+                    "app.status_position",
+                    &[
+                        ("line", &self.cursor.line.to_string()),
+                        ("col", &self.cursor.col.to_string()),
+                    ],
+                ));
                 ui.separator();
                 // Language selector. Lists every bundled locale
                 // with its localized display name; selecting one
@@ -242,7 +247,10 @@ impl eframe::App for EditorApp {
                 ui.separator();
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                    if ui.button(RichText::new(i18n_t("toolbar.clear")).small()).clicked() {
+                    if ui
+                        .button(RichText::new(i18n_t("toolbar.clear")).small())
+                        .clicked()
+                    {
                         self.history
                             .snapshot(self.snapshot(ctx))
                             .commit_structural();
@@ -251,18 +259,30 @@ impl eframe::App for EditorApp {
                         self.dirty = true;
                         self.frame_start = Some(self.snapshot(ctx));
                     }
-                    if ui.button(RichText::new(i18n_t("toolbar.shortcuts")).small()).clicked() {
+                    if ui
+                        .button(RichText::new(i18n_t("toolbar.shortcuts")).small())
+                        .clicked()
+                    {
                         self.shortcuts_open = !self.shortcuts_open;
                     }
-                    if ui.button(RichText::new(i18n_t("toolbar.save")).small()).clicked() {
+                    if ui
+                        .button(RichText::new(i18n_t("toolbar.save")).small())
+                        .clicked()
+                    {
                         self.save_current();
                     }
-                    if ui.button(RichText::new(i18n_t("toolbar.open")).small()).clicked() {
+                    if ui
+                        .button(RichText::new(i18n_t("toolbar.open")).small())
+                        .clicked()
+                    {
                         // Defer the dialog so it runs at the top of
                         // the next frame, outside the egui borrow.
                         self.pending_open_dialog = true;
                     }
-                    if ui.button(RichText::new(i18n_t("toolbar.close_project")).small()).clicked() {
+                    if ui
+                        .button(RichText::new(i18n_t("toolbar.close_project")).small())
+                        .clicked()
+                    {
                         self.close_project(ctx);
                     }
                 });
@@ -285,7 +305,8 @@ impl eframe::App for EditorApp {
                 });
                 for path in dropped {
                     if let Err(e) = self.load_path_into_editor(&path) {
-                        self.status = i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
+                        self.status =
+                            i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
                     }
                 }
             });
@@ -310,7 +331,8 @@ impl eframe::App for EditorApp {
                 });
                 for path in dropped {
                     if let Err(e) = self.load_path_into_editor(&path) {
-                        self.status = i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
+                        self.status =
+                            i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
                     }
                 }
             });
@@ -442,10 +464,7 @@ impl EditorApp {
             .unwrap_or(false);
         if !already_open {
             if let Err(e) = self.load_path_into_editor(&m.path) {
-                self.status = i18n_tf(
-                    "app.status_open_failed",
-                    &[("error", &e.to_string())],
-                );
+                self.status = i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
                 return;
             }
         }
@@ -503,18 +522,10 @@ impl EditorApp {
             let row_start_x = row.rect.min.x;
             // Use cursor_screen_pos to find the left edge of the row,
             // then step per character.
-            let left_pos = cursor::cursor_screen_pos(
-                galley,
-                editor_rect,
-                display_line,
-                col_in_line_start,
-            );
-            let right_pos = cursor::cursor_screen_pos(
-                galley,
-                editor_rect,
-                display_line,
-                col_in_line_end,
-            );
+            let left_pos =
+                cursor::cursor_screen_pos(galley, editor_rect, display_line, col_in_line_start);
+            let right_pos =
+                cursor::cursor_screen_pos(galley, editor_rect, display_line, col_in_line_end);
             let mut rect = egui::Rect::from_min_max(left_pos, right_pos);
             // Make sure the rect has a sensible height even for empty
             // matches.
@@ -589,17 +600,21 @@ impl EditorApp {
                         .unwrap_or_default();
 
                     // Build search match highlights
-                    let highlights: Vec<MatchHighlight> = if self.find.open && !self.find.query.is_empty() {
-                        self.find.match_offsets.iter().enumerate().map(|(i, &(start, end))| {
-                            MatchHighlight {
-                                start,
-                                end,
-                                is_current: i == self.find.current_match,
-                            }
-                        }).collect()
-                    } else {
-                        Vec::new()
-                    };
+                    let highlights: Vec<MatchHighlight> =
+                        if self.find.open && !self.find.query.is_empty() {
+                            self.find
+                                .match_offsets
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &(start, end))| MatchHighlight {
+                                    start,
+                                    end,
+                                    is_current: i == self.find.current_match,
+                                })
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
 
                     let output = TextEdit::multiline(&mut display_text)
                         .font(FontId::monospace(FONT_SIZE))
@@ -724,7 +739,9 @@ impl EditorApp {
 
                     self.update_hover(response.rect, &galley, response.hover_pos());
 
-                    if let Some(current_rect) = self.paint_find_highlights(ui, &galley, response.rect) {
+                    if let Some(current_rect) =
+                        self.paint_find_highlights(ui, &galley, response.rect)
+                    {
                         ui.scroll_to_rect(current_rect, Some(egui::Align::Center));
                     }
 
@@ -766,7 +783,10 @@ impl EditorApp {
         // Surface the pending chord in the status bar so the user
         // knows the keymap is waiting for a second key.
         if let Some(pending) = self.keymap.pending() {
-            self.status = i18n_tf("app.status_chord_pending", &[("label", &pending_chord_label(pending))]);
+            self.status = i18n_tf(
+                "app.status_chord_pending",
+                &[("label", &pending_chord_label(pending))],
+            );
         } else if matches!(command, Command::None) {
             // Don't clobber an existing status message just because
             // the user hit an unrelated key.
@@ -1095,7 +1115,10 @@ impl EditorApp {
         }
         let current = lines[line_idx];
         self.insert_text(ctx, format!("\n{}", current));
-        self.status = i18n_tf("app.status_duplicated_line", &[("line", &self.cursor.line.to_string())]);
+        self.status = i18n_tf(
+            "app.status_duplicated_line",
+            &[("line", &self.cursor.line.to_string())],
+        );
     }
 
     /// Delete the cursor's line. The line and its trailing newline
@@ -1201,10 +1224,14 @@ impl EditorApp {
                         // Open the source file
                         if let Ok(path) = std::path::Path::new(&source_path).canonicalize() {
                             if let Err(e) = self.load_path_into_editor(&path) {
-                                self.status = i18n_tf("app.status_failed_to_open", &[("error", &e.to_string())]);
+                                self.status = i18n_tf(
+                                    "app.status_failed_to_open",
+                                    &[("error", &e.to_string())],
+                                );
                             }
                         } else {
-                            self.status = i18n_tf("app.status_file_not_found", &[("path", &source_path)]);
+                            self.status =
+                                i18n_tf("app.status_file_not_found", &[("path", &source_path)]);
                         }
                         return;
                     }
@@ -1434,7 +1461,10 @@ impl EditorApp {
     fn run_open_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
             .set_title(&i18n_t("dialog.open_title"))
-            .add_filter(&i18n_t("dialog.filter_workflow"), &["flow", "yaml", "yml", "json", "toml"])
+            .add_filter(
+                &i18n_t("dialog.filter_workflow"),
+                &["flow", "yaml", "yml", "json", "toml"],
+            )
             .add_filter(&i18n_t("dialog.filter_all"), &["*"]);
         match dialog.pick_file() {
             Some(path) => {
@@ -1474,7 +1504,10 @@ impl EditorApp {
         self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
         self.cursor = CursorPosition::new(1, 1);
         self.home_open = false;
-        self.status = i18n_tf("app.status_opened", &[("path", &path.display().to_string())]);
+        self.status = i18n_tf(
+            "app.status_opened",
+            &[("path", &path.display().to_string())],
+        );
         // Record this open in the recents list. We do the file
         // I/O here rather than on every keystroke; the home screen
         // is the only consumer and the list is capped at 10.
@@ -1482,7 +1515,13 @@ impl EditorApp {
         if let Err(e) = self.recents.save() {
             // Recents persistence is best-effort: log to status
             // but don't undo the file open.
-            self.status = i18n_tf("app.status_opened_recents_failed", &[("path", &path.display().to_string()), ("error", &e.to_string())]);
+            self.status = i18n_tf(
+                "app.status_opened_recents_failed",
+                &[
+                    ("path", &path.display().to_string()),
+                    ("error", &e.to_string()),
+                ],
+            );
         }
         Ok(())
     }
@@ -1495,7 +1534,10 @@ impl EditorApp {
             Some(path) => match file_io::save_to_path(&path, &self.text) {
                 Ok(saved) => {
                     self.dirty = false;
-                    self.status = i18n_tf("app.status_saved", &[("path", &saved.display().to_string())]);
+                    self.status = i18n_tf(
+                        "app.status_saved",
+                        &[("path", &saved.display().to_string())],
+                    );
                 }
                 Err(e) => {
                     self.status = i18n_tf("app.status_save_failed", &[("error", &e.to_string())]);
@@ -1512,7 +1554,10 @@ impl EditorApp {
     fn save_as_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
             .set_title(&i18n_t("dialog.save_title"))
-            .add_filter(&i18n_t("dialog.filter_workflow"), &["flow", "yaml", "yml", "json", "toml"])
+            .add_filter(
+                &i18n_t("dialog.filter_workflow"),
+                &["flow", "yaml", "yml", "json", "toml"],
+            )
             .set_file_name(&i18n_t("dialog.default_name"));
         let chosen = match dialog.save_file() {
             Some(p) => p,
@@ -1526,7 +1571,10 @@ impl EditorApp {
                 self.file_path = Some(saved.clone());
                 self.uri = file_io::path_to_uri(&saved);
                 self.dirty = false;
-                self.status = i18n_tf("app.status_saved", &[("path", &saved.display().to_string())]);
+                self.status = i18n_tf(
+                    "app.status_saved",
+                    &[("path", &saved.display().to_string())],
+                );
             }
             Err(e) => {
                 self.status = i18n_tf("app.status_save_failed", &[("error", &e.to_string())]);

@@ -69,9 +69,7 @@ impl WorkflowError {
             }
             WorkflowError::Yaml(inner) => i18n_tf("domain.error_yaml", &[("error", inner)]),
             WorkflowError::Toml(inner) => i18n_tf("domain.error_toml", &[("error", inner)]),
-            WorkflowError::Io(err) => {
-                i18n_tf("domain.error_io", &[("error", &err.to_string())])
-            }
+            WorkflowError::Io(err) => i18n_tf("domain.error_io", &[("error", &err.to_string())]),
             WorkflowError::Regex(err) => {
                 i18n_tf("domain.error_regex", &[("error", &err.to_string())])
             }

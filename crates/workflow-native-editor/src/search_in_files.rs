@@ -199,18 +199,24 @@ fn run_search(root: PathBuf, pattern: Regex, tx: Sender<SearchMsg>, cancel: Arc<
         if cancel.load(Ordering::SeqCst) {
             break;
         }
-        let Some(file_type) = entry.file_type() else { continue };
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
         if !file_type.is_file() {
             continue;
         }
         let path = entry.path();
-        let Ok(bytes) = std::fs::read(path) else { continue };
+        let Ok(bytes) = std::fs::read(path) else {
+            continue;
+        };
         // Skip binary files: any NUL byte in the first 8 KB is a
         // strong signal of binary content.
         if bytes.iter().take(8192).any(|&b| b == 0) {
             continue;
         }
-        let Ok(text) = std::str::from_utf8(&bytes) else { continue };
+        let Ok(text) = std::str::from_utf8(&bytes) else {
+            continue;
+        };
         for (line_idx, line) in text.lines().enumerate() {
             if cancel.load(Ordering::SeqCst) {
                 break;
@@ -229,7 +235,10 @@ fn run_search(root: PathBuf, pattern: Regex, tx: Sender<SearchMsg>, cancel: Arc<
                 });
                 total_results += 1;
                 if batch.len() >= BATCH_SIZE {
-                    if tx.send(SearchMsg::Progress(std::mem::take(&mut batch))).is_err() {
+                    if tx
+                        .send(SearchMsg::Progress(std::mem::take(&mut batch)))
+                        .is_err()
+                    {
                         return;
                     }
                 }
@@ -274,7 +283,10 @@ pub fn show(ctx: &egui::Context, state: &mut SearchInFilesState) -> Option<Searc
             }
             ui.horizontal(|ui| {
                 if ui
-                    .selectable_label(state.case_sensitive, i18n_t("search_in_files.case_sensitive"))
+                    .selectable_label(
+                        state.case_sensitive,
+                        i18n_t("search_in_files.case_sensitive"),
+                    )
                     .clicked()
                 {
                     state.case_sensitive = !state.case_sensitive;

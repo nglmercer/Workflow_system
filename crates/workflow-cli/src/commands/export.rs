@@ -1,5 +1,5 @@
-use workflow_i18n::tf as i18n_tf;
 use workflow_domain::WorkflowResult;
+use workflow_i18n::tf as i18n_tf;
 use workflow_serialize::{RuleExporter, TriggerLoader};
 
 pub fn run(input: &str, output: &str) -> WorkflowResult<()> {
@@ -9,7 +9,13 @@ pub fn run(input: &str, output: &str) -> WorkflowResult<()> {
         TriggerLoader::load_rule(input)?
     };
 
-    println!("{}", i18n_tf("cli.export_loaded", &[("count", &rules.len().to_string()), ("path", input)]));
+    println!(
+        "{}",
+        i18n_tf(
+            "cli.export_loaded",
+            &[("count", &rules.len().to_string()), ("path", input)]
+        )
+    );
 
     RuleExporter::save_to_file(&rules, output)?;
 

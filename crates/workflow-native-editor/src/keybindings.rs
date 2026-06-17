@@ -336,7 +336,10 @@ impl Keymap {
             // --- Navigation stubs ---
             (ChordMatcher::Exact(Chord::ctrl(Key::F)), Command::Find),
             (ChordMatcher::Exact(Chord::ctrl(Key::G)), Command::GotoLine),
-            (ChordMatcher::Exact(Chord::ctrl_shift(Key::F)), Command::SearchInFiles),
+            (
+                ChordMatcher::Exact(Chord::ctrl_shift(Key::F)),
+                Command::SearchInFiles,
+            ),
             // --- Go to definition (F12 or Ctrl+Click) ---
             (
                 ChordMatcher::Exact(Chord::key(Key::F12)),
@@ -737,10 +740,9 @@ mod tests {
     #[test]
     fn default_keymap_has_search_in_files() {
         let km = Keymap::new();
-        let matched = km
-            .bindings()
-            .iter()
-            .any(|(l, c)| l == "Ctrl+Shift+F" && c == i18n_t("shortcuts.command_search_in_files").as_str());
+        let matched = km.bindings().iter().any(|(l, c)| {
+            l == "Ctrl+Shift+F" && c == i18n_t("shortcuts.command_search_in_files").as_str()
+        });
         assert!(matched, "Ctrl+Shift+F should map to Command::SearchInFiles");
     }
 
@@ -749,11 +751,7 @@ mod tests {
         let km = Keymap::new();
         for (label, cmd) in km.bindings() {
             assert!(!label.is_empty(), "empty label for {:?}", cmd);
-            assert!(
-                !cmd.is_empty(),
-                "empty description for {}",
-                label
-            );
+            assert!(!cmd.is_empty(), "empty description for {}", label);
         }
     }
 }

@@ -73,7 +73,8 @@ pub fn layout_flow(
                     if let Some(is_current) = highlight_at_byte[i] {
                         // Find the end of this highlight run within the token
                         let mut run_end = i + 1;
-                        while run_end < token_end && highlight_at_byte[run_end] == Some(is_current) {
+                        while run_end < token_end && highlight_at_byte[run_end] == Some(is_current)
+                        {
                             run_end += 1;
                         }
                         // Append the highlighted segment

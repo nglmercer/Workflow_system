@@ -15,8 +15,12 @@ pub struct WasmRuleEngine {
 impl WasmRuleEngine {
     #[wasm_bindgen(constructor)]
     pub fn new(config_json: &str) -> Result<WasmRuleEngine, JsError> {
-        let config: RuleEngineConfig = serde_json::from_str(config_json)
-            .map_err(|e| JsError::new(&workflow_i18n::tf("wasm.error_invalid_config", &[("error", &e.to_string())])))?;
+        let config: RuleEngineConfig = serde_json::from_str(config_json).map_err(|e| {
+            JsError::new(&workflow_i18n::tf(
+                "wasm.error_invalid_config",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
         let mut engine = RuleEngine::new(config);
 
@@ -34,14 +38,20 @@ impl WasmRuleEngine {
         data_json: &str,
         vars_json: Option<String>,
     ) -> Result<JsValue, JsError> {
-        let data: serde_json::Value = serde_json::from_str(data_json)
-            .map_err(|e| JsError::new(&workflow_i18n::tf("wasm.error_invalid_data", &[("error", &e.to_string())])))?;
+        let data: serde_json::Value = serde_json::from_str(data_json).map_err(|e| {
+            JsError::new(&workflow_i18n::tf(
+                "wasm.error_invalid_data",
+                &[("error", &e.to_string())],
+            ))
+        })?;
 
         let vars: Option<serde_json::Value> = match vars_json {
-            Some(v) => Some(
-                serde_json::from_str(&v)
-                    .map_err(|e| JsError::new(&workflow_i18n::tf("wasm.error_invalid_vars", &[("error", &e.to_string())])))?,
-            ),
+            Some(v) => Some(serde_json::from_str(&v).map_err(|e| {
+                JsError::new(&workflow_i18n::tf(
+                    "wasm.error_invalid_vars",
+                    &[("error", &e.to_string())],
+                ))
+            })?),
             None => None,
         };
 
@@ -51,8 +61,12 @@ impl WasmRuleEngine {
             .await
             .map_err(|e| JsError::new(&e.to_string()))?;
 
-        serde_wasm_bindgen::to_value(&results)
-            .map_err(|e| JsError::new(&workflow_i18n::tf("wasm.error_serialization", &[("error", &e.to_string())])))
+        serde_wasm_bindgen::to_value(&results).map_err(|e| {
+            JsError::new(&workflow_i18n::tf(
+                "wasm.error_serialization",
+                &[("error", &e.to_string())],
+            ))
+        })
     }
 
     #[wasm_bindgen(js_name = processEvent)]
@@ -61,8 +75,13 @@ impl WasmRuleEngine {
         event_json: &str,
         vars_json: Option<String>,
     ) -> Result<JsValue, JsError> {
-        let event: workflow_domain::TriggerEvent = serde_json::from_str(event_json)
-            .map_err(|e| JsError::new(&workflow_i18n::tf("wasm.error_invalid_event", &[("error", &e.to_string())])))?;
+        let event: workflow_domain::TriggerEvent =
+            serde_json::from_str(event_json).map_err(|e| {
+                JsError::new(&workflow_i18n::tf(
+                    "wasm.error_invalid_event",
+                    &[("error", &e.to_string())],
+                ))
+            })?;
 
         let vars: Option<serde_json::Value> = match vars_json {
             Some(v) => Some(
@@ -84,8 +103,13 @@ impl WasmRuleEngine {
 
     #[wasm_bindgen(js_name = updateRules)]
     pub fn update_rules(&mut self, rules_json: &str) -> Result<(), JsError> {
-        let rules: Vec<workflow_domain::TriggerRule> = serde_json::from_str(rules_json)
-            .map_err(|e| JsError::new(&workflow_i18n::tf("wasm.error_invalid_rules", &[("error", &e.to_string())])))?;
+        let rules: Vec<workflow_domain::TriggerRule> =
+            serde_json::from_str(rules_json).map_err(|e| {
+                JsError::new(&workflow_i18n::tf(
+                    "wasm.error_invalid_rules",
+                    &[("error", &e.to_string())],
+                ))
+            })?;
 
         self.engine.update_rules(rules);
         Ok(())
@@ -168,17 +192,28 @@ pub fn execute_flow(source: &str, event_data_json: &str) -> Result<JsValue, JsEr
             } else {
                 workflow_i18n::t("wasm.error_unknown_panic")
             };
-            Err(JsError::new(&workflow_i18n::tf("wasm.error_panic", &[("msg", &msg)])))
+            Err(JsError::new(&workflow_i18n::tf(
+                "wasm.error_panic",
+                &[("msg", &msg)],
+            )))
         }
     }
 }
 
 fn execute_flow_inner(source: &str, event_data_json: &str) -> Result<JsValue, JsError> {
-    let program = FlowParser::parse_flow_program(source)
-        .map_err(|e| JsError::new(&workflow_i18n::tf("wasm.error_parse", &[("error", &e.to_string())])))?;
+    let program = FlowParser::parse_flow_program(source).map_err(|e| {
+        JsError::new(&workflow_i18n::tf(
+            "wasm.error_parse",
+            &[("error", &e.to_string())],
+        ))
+    })?;
 
-    let event_data: serde_json::Value = serde_json::from_str(event_data_json)
-        .map_err(|e| JsError::new(&workflow_i18n::tf("wasm.error_invalid_event_data", &[("error", &e.to_string())])))?;
+    let event_data: serde_json::Value = serde_json::from_str(event_data_json).map_err(|e| {
+        JsError::new(&workflow_i18n::tf(
+            "wasm.error_invalid_event_data",
+            &[("error", &e.to_string())],
+        ))
+    })?;
 
     let mut evaluator = FlowEvaluator::new();
     evaluator.load_program(&program);

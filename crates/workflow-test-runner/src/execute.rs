@@ -65,7 +65,10 @@ pub fn execute_test(
             AssertKind::Logs,
             "",
             String::new(),
-            workflow_i18n::tf("test_runner.assertion_import_failed", &[("failure", &failure.to_string())]),
+            workflow_i18n::tf(
+                "test_runner.assertion_import_failed",
+                &[("failure", &failure.to_string())],
+            ),
         ));
     }
 
@@ -91,7 +94,10 @@ pub fn execute_test(
             AssertKind::Logs,
             "",
             String::new(),
-            workflow_i18n::tf("test_runner.assertion_no_workflow", &[("event", &test.on.event)]),
+            workflow_i18n::tf(
+                "test_runner.assertion_no_workflow",
+                &[("event", &test.on.event)],
+            ),
         ));
         return TestReport {
             name: test.name.clone(),
@@ -126,7 +132,10 @@ pub fn execute_test(
                     AssertKind::Logs,
                     "",
                     String::new(),
-                    workflow_i18n::tf("test_runner.assertion_workflow_error", &[("name", &workflow.name), ("error", &e.to_string())]),
+                    workflow_i18n::tf(
+                        "test_runner.assertion_workflow_error",
+                        &[("name", &workflow.name), ("error", &e.to_string())],
+                    ),
                 ));
                 continue;
             }
@@ -291,7 +300,11 @@ fn populate_imports(imports: &[ImportStmt], source_dir: &Path) -> ImportResoluti
                                 }
                                 Err(e) => out.failures.push(workflow_i18n::tf(
                                     "test_runner.import_invalid_json",
-                                    &[("name", &import.name), ("path", &resolved.to_string_lossy()), ("error", &e.to_string())]
+                                    &[
+                                        ("name", &import.name),
+                                        ("path", &resolved.to_string_lossy()),
+                                        ("error", &e.to_string()),
+                                    ],
                                 )),
                             }
                         }

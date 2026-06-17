@@ -63,9 +63,11 @@ fn main() -> eframe::Result<()> {
             visuals.extreme_bg_color = egui::Color32::from_rgb(30, 30, 30);
             visuals.faint_bg_color = egui::Color32::from_rgb(45, 45, 48);
             visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(45, 45, 48);
-            visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(180, 180, 180));
+            visuals.widgets.noninteractive.fg_stroke =
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(180, 180, 180));
             visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(55, 55, 58);
-            visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 200, 200));
+            visuals.widgets.inactive.fg_stroke =
+                egui::Stroke::new(1.0, egui::Color32::from_rgb(200, 200, 200));
             visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(70, 70, 75);
             visuals.widgets.active.bg_fill = egui::Color32::from_rgb(0, 122, 204);
             visuals.selection.bg_fill = egui::Color32::from_rgb(0, 122, 204);

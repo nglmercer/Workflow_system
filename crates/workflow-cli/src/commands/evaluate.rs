@@ -1,7 +1,7 @@
-use workflow_i18n::tf as i18n_tf;
 use workflow_actions::builtin_handlers;
 use workflow_domain::{GlobalSettings, RuleEngineConfig, WorkflowResult};
 use workflow_engine::RuleEngine;
+use workflow_i18n::tf as i18n_tf;
 use workflow_serialize::TriggerLoader;
 
 pub async fn run(
@@ -45,15 +45,27 @@ pub async fn run(
         engine.register_handler(handler);
     }
 
-    println!("{}", i18n_tf("cli.evaluate_processing", &[("event", event)]));
-    println!("{}", i18n_tf("cli.evaluate_data", &[("data", &event_data.to_string())]));
+    println!(
+        "{}",
+        i18n_tf("cli.evaluate_processing", &[("event", event)])
+    );
+    println!(
+        "{}",
+        i18n_tf("cli.evaluate_data", &[("data", &event_data.to_string())])
+    );
 
     let results = engine
         .process_event_simple(event, event_data, event_vars)
         .await?;
 
-    println!("
-{}", i18n_tf("cli.evaluate_matched", &[("count", &results.len().to_string())]));
+    println!(
+        "
+{}",
+        i18n_tf(
+            "cli.evaluate_matched",
+            &[("count", &results.len().to_string())]
+        )
+    );
     for result in &results {
         let status = if result.success { "✓" } else { "✗" };
         println!(
@@ -69,15 +81,36 @@ pub async fn run(
             } else {
                 "✓"
             };
-            println!("{}", i18n_tf("cli.evaluate_action", &[("status", action_status), ("action_type", &action.action_type)]));
+            println!(
+                "{}",
+                i18n_tf(
+                    "cli.evaluate_action",
+                    &[
+                        ("status", action_status),
+                        ("action_type", &action.action_type)
+                    ]
+                )
+            );
             if let Some(result) = &action.result {
-                println!("{}", i18n_tf("cli.evaluate_action_result", &[("result", &result.to_string())]));
+                println!(
+                    "{}",
+                    i18n_tf(
+                        "cli.evaluate_action_result",
+                        &[("result", &result.to_string())]
+                    )
+                );
             }
             if let Some(error) = &action.error {
-                eprintln!("{}", i18n_tf("cli.evaluate_action_error", &[("error", error)]));
+                eprintln!(
+                    "{}",
+                    i18n_tf("cli.evaluate_action_error", &[("error", error)])
+                );
             }
             if let Some(skipped) = &action.skipped {
-                println!("{}", i18n_tf("cli.evaluate_action_skipped", &[("skipped", skipped)]));
+                println!(
+                    "{}",
+                    i18n_tf("cli.evaluate_action_skipped", &[("skipped", skipped)])
+                );
             }
         }
     }

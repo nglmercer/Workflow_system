@@ -11,8 +11,8 @@
 //! it in the editor's status bar. Returning `None` means the user
 //! did not interact with the panel this frame.
 
-use workflow_i18n::t as i18n_t;
 use eframe::egui::{self, Color32, RichText, ScrollArea};
+use workflow_i18n::t as i18n_t;
 use workflow_lsp::features::{Diagnostic, DiagnosticSeverity};
 
 /// Render the diagnostics panel. Returns a status-bar message
@@ -28,34 +28,31 @@ pub fn show(ctx: &egui::Context, diagnostics: &[Diagnostic]) -> Option<String> {
         .default_height(100.0)
         .min_height(40.0)
         .show(ctx, |ui| {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(i18n_t("diagnostics.title")).strong());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                if ui
-                    .add(
-                        egui::Button::new(RichText::new("Copy").small())
-                            .rounding(4.0),
-                    )
-                    .clicked()
-                {
-                    let text = format_diagnostics(diagnostics);
-                    ctx.output_mut(|o| o.copied_text = text.clone());
-                    status = Some(format!(
-                        "Copied {} problem{} to clipboard",
-                        diagnostics.len(),
-                        if diagnostics.len() == 1 { "" } else { "s" }
-                    ));
-                }
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(i18n_t("diagnostics.title")).strong());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
+                    if ui
+                        .add(egui::Button::new(RichText::new("Copy").small()).rounding(4.0))
+                        .clicked()
+                    {
+                        let text = format_diagnostics(diagnostics);
+                        ctx.output_mut(|o| o.copied_text = text.clone());
+                        status = Some(format!(
+                            "Copied {} problem{} to clipboard",
+                            diagnostics.len(),
+                            if diagnostics.len() == 1 { "" } else { "s" }
+                        ));
+                    }
+                });
             });
+            ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    for diag in diagnostics {
+                        render_row(ui, diag);
+                    }
+                });
         });
-        ScrollArea::vertical()
-            .auto_shrink([false; 2])
-            .show(ui, |ui| {
-                for diag in diagnostics {
-                    render_row(ui, diag);
-                }
-            });
-    });
     status
 }
 
@@ -140,7 +137,13 @@ mod tests {
     fn format_single_error() {
         let d = [diag(DiagnosticSeverity::Error, 4, 2, "expected `;`")];
         let text = format_diagnostics(&d);
-        assert_eq!(text, format!("{} Ln 5, Col 3: expected `;`", i18n_t("diagnostics.severity_error")));
+        assert_eq!(
+            text,
+            format!(
+                "{} Ln 5, Col 3: expected `;`",
+                i18n_t("diagnostics.severity_error")
+            )
+        );
     }
 
     #[test]
@@ -152,7 +155,14 @@ mod tests {
         let text = format_diagnostics(&d);
         assert_eq!(
             text,
-            format!("{}\n{}", format!("{} Ln 1, Col 1: boom", i18n_t("diagnostics.severity_error")), format!("{} Ln 2, Col 5: be careful", i18n_t("diagnostics.severity_warning")))
+            format!(
+                "{}\n{}",
+                format!("{} Ln 1, Col 1: boom", i18n_t("diagnostics.severity_error")),
+                format!(
+                    "{} Ln 2, Col 5: be careful",
+                    i18n_t("diagnostics.severity_warning")
+                )
+            )
         );
     }
 }

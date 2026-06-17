@@ -5,9 +5,9 @@
 //! `--json` for machine-readable output and `--filter` for
 //! substring matching against test names.
 
-use workflow_i18n::tf as i18n_tf;
 use std::path::Path;
 use std::process::ExitCode;
+use workflow_i18n::tf as i18n_tf;
 
 use thiserror::Error;
 use workflow_test_runner::{TestRunner, TestRunnerConfig};
@@ -70,5 +70,14 @@ fn print_human(report: &workflow_test_runner::RunReport) {
             );
         }
     }
-    println!("{}", i18n_tf("cli.tests_passed", &[("passed", &report.passed.to_string()), ("failed", &report.failed.to_string())]));
+    println!(
+        "{}",
+        i18n_tf(
+            "cli.tests_passed",
+            &[
+                ("passed", &report.passed.to_string()),
+                ("failed", &report.failed.to_string())
+            ]
+        )
+    );
 }
