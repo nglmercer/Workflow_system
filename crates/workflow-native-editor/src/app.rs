@@ -1070,6 +1070,21 @@ impl EditorApp {
             return;
         }
         let col = column_at_x(galley, line_idx, local.x);
+
+        // Imports get a custom hover that surfaces the imported
+        // shape (e.g. `{ email: string, plan: string }`) rather than
+        // the generic "imported binding X" text. Detected by
+        // pattern-matching the line text — the parser's
+        // `ImportStmt` AST is also available via
+        // `lsp.get_analysis(uri).program`, but for a single-line
+        // decision a textual check is enough and keeps the hover
+        // path off the AST.
+        if let Some(import_line) = self.import_at_line(line_idx) {
+            self.hover_text = Some(self.build_import_hover(&import_line));
+            self.hover_pos = Some(pos);
+            return;
+        }
+
         if let Some(text) = features::hover_at(&self.lsp, &self.uri, line_idx, col) {
             self.hover_text = Some(popup::HoverContent::from_markdown(&text));
             self.hover_pos = Some(pos);
@@ -1077,6 +1092,59 @@ impl EditorApp {
             self.hover_text = None;
             self.hover_pos = None;
         }
+    }
+
+    /// If `line_idx` is an `@import` / `import` line, return the
+    /// parsed `(name, source)` pair. Returns `None` for every other
+    /// line so the standard hover path can take over.
+    fn import_at_line(&self, line_idx: usize) -> Option<ImportLine> {
+        let line = self.text.split('\n').nth(line_idx)?;
+        let trimmed = line.trim_start();
+        let body = trimmed
+            .strip_prefix("@import ")
+            .or_else(|| trimmed.strip_prefix("import "))?;
+        // Body shape: `NAME from <source>` where source is either a
+        // quoted string or an inline `{...}` object.
+        let (name, rest) = body.split_once(' ')?;
+        if name.is_empty() || !name.chars().all(is_ident_char) {
+            return None;
+        }
+        let after_name = rest.trim_start();
+        let after_from = after_name.strip_prefix("from ")?.trim_start();
+        let source = parse_import_source(after_from);
+        // The binding becomes visible at its `decl_span.start`, so
+        // use the byte offset of the first non-whitespace byte on
+        // this line as the lookup position. That guarantees the
+        // import binding is in scope no matter where on the line
+        // the user is hovering.
+        let leading_ws = line.len() - trimmed.len();
+        let byte_offset = byte_offset_of_line(&self.text, line_idx, leading_ws);
+        Some(ImportLine {
+            name: name.to_string(),
+            source,
+            line_text: trimmed.to_string(),
+            byte_offset,
+        })
+    }
+
+    /// Build a [`popup::HoverContent`] for an import line. The
+    /// signature is the resolved schema (rendered as a type table);
+    /// the docs surface the source path so the user can see where
+    /// the values come from.
+    fn build_import_hover(&self, import: &ImportLine) -> popup::HoverContent {
+        let binding = self
+            .lsp
+            .get_inference(&self.uri)
+            .and_then(|inf| inf.lookup_at_offset(&self.text, import.byte_offset, &import.name));
+        let schema_expr = binding
+            .as_ref()
+            .map(|b| popup::type_to_type_expr(&b.ty))
+            .unwrap_or_else(|| popup::TypeExpr::Name("any".into()));
+        let source_path = match &import.source {
+            ImportSourceLine::Path(p) => Some(p.clone()),
+            ImportSourceLine::Inline => None,
+        };
+        popup::HoverContent::for_import(&import.name, &schema_expr, source_path.as_deref())
     }
 
     fn insert_completion(&mut self, ctx: &egui::Context, idx: usize) {
@@ -1871,11 +1939,93 @@ fn pending_chord_label(c: super::keybindings::Chord) -> String {
     s
 }
 
+/// A lightweight view of an import line, used by the import-hover
+/// fast path in `update_hover`. Keeps the per-line parser logic
+/// out of the editor's hot loop.
+#[derive(Debug, Clone)]
+struct ImportLine {
+    name: String,
+    source: ImportSourceLine,
+    /// The trimmed line text — kept for diagnostic messages and
+    /// future hover variants.
+    #[allow(dead_code)]
+    line_text: String,
+    /// Byte offset (in `self.text`) of the first non-whitespace
+    /// byte on the import line. Used as the lookup position for
+    /// the scope index so the import binding is guaranteed to be
+    /// in scope (`decl_span.start <= byte_offset`).
+    byte_offset: usize,
+}
+
+/// What follows `import NAME from` on an import line. Strings are
+/// paths or URLs (depending on prefix); inline objects are
+/// represented as a unit variant — we only need to distinguish
+/// "path-like" from "inline" for the hover copy.
+#[derive(Debug, Clone)]
+enum ImportSourceLine {
+    Path(String),
+    Inline,
+}
+
+fn is_ident_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+/// Byte offset of the byte at column `col` (in characters, not
+/// bytes) on the line `line_idx` (0-based). Used by the import
+/// hover to query the scope index at a position guaranteed to be
+/// inside the import's `decl_span`. The implementation walks
+/// the source line-by-line so it stays correct for multi-byte
+/// UTF-8 content.
+fn byte_offset_of_line(source: &str, line_idx: usize, col: usize) -> usize {
+    let mut current_line = 0usize;
+    let mut offset_at_line_start = 0usize;
+    for (i, ch) in source.char_indices() {
+        if current_line == line_idx {
+            // Walk to the requested column.
+            let chars_before = source[offset_at_line_start..i].chars().count();
+            if chars_before >= col {
+                return i;
+            }
+        }
+        if ch == '\n' {
+            if current_line == line_idx {
+                // Past the end of the requested line.
+                return i;
+            }
+            current_line += 1;
+            offset_at_line_start = i + 1;
+        }
+    }
+    // Past the end of the source.
+    source.len()
+}
+
+/// Parse the source half of an import line. The grammar accepts a
+/// quoted string (path or URL) or an inline `{...}` JSON object;
+/// we return whichever shape we see, with the quotes stripped from
+/// the string form.
+fn parse_import_source(s: &str) -> ImportSourceLine {
+    let s = s.trim();
+    if let Some(inner) = s.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
+        return ImportSourceLine::Path(inner.to_string());
+    }
+    if let Some(inner) = s.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
+        return ImportSourceLine::Path(inner.to_string());
+    }
+    if s.starts_with('{') {
+        return ImportSourceLine::Inline;
+    }
+    // Fallback: treat as a bare path so the user still sees
+    // *something* in the hover source line.
+    ImportSourceLine::Path(s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::keybindings::Chord;
-    use super::pending_chord_label;
-    use super::EditorApp;
+    use super::super::file_io;
+    use super::{parse_import_source, pending_chord_label, EditorApp, ImportSourceLine};
     use eframe::egui::Key;
 
     #[test]
@@ -1928,6 +2078,168 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(app.title_label(), "● main.flow");
+    }
+
+    #[test]
+    fn import_at_line_recognizes_at_import_keyword() {
+        let mut app = EditorApp::default();
+        app.text = "@import USER_REGISTERED from \"./user_registered.json\"\n".to_string();
+        let line = app
+            .import_at_line(0)
+            .expect("expected an import line to be detected");
+        assert_eq!(line.name, "USER_REGISTERED");
+        assert!(matches!(
+            line.source,
+            ImportSourceLine::Path(ref p) if p == "./user_registered.json"
+        ));
+    }
+
+    #[test]
+    fn import_at_line_recognizes_plain_import_keyword() {
+        let mut app = EditorApp::default();
+        app.text = "import utils from \"./shared_utils.flow\"\n".to_string();
+        let line = app
+            .import_at_line(0)
+            .expect("expected an import line to be detected");
+        assert_eq!(line.name, "utils");
+        assert!(matches!(
+            line.source,
+            ImportSourceLine::Path(ref p) if p == "./shared_utils.flow"
+        ));
+    }
+
+    #[test]
+    fn import_at_line_returns_none_for_non_import_lines() {
+        let mut app = EditorApp::default();
+        app.text = "workflow \"W\" { on E\n  log(1)\n}\n".to_string();
+        for idx in 0..3 {
+            assert!(
+                app.import_at_line(idx).is_none(),
+                "line {idx} should not look like an import"
+            );
+        }
+    }
+
+    #[test]
+    fn import_at_line_handles_inline_object_source() {
+        let mut app = EditorApp::default();
+        app.text = "@import EVT from { id: 1, name: \"x\" }\n".to_string();
+        let line = app.import_at_line(0).expect("import line");
+        assert_eq!(line.name, "EVT");
+        assert!(matches!(line.source, ImportSourceLine::Inline));
+    }
+
+    #[test]
+    fn parse_import_source_strips_double_quotes() {
+        match parse_import_source("  \"./schema.json\"  ") {
+            ImportSourceLine::Path(p) => assert_eq!(p, "./schema.json"),
+            other => panic!("expected Path, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_import_source_strips_single_quotes() {
+        match parse_import_source("'./schema.json'") {
+            ImportSourceLine::Path(p) => assert_eq!(p, "./schema.json"),
+            other => panic!("expected Path, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_import_source_recognises_inline_object() {
+        assert!(matches!(
+            parse_import_source("{ a: 1 }"),
+            ImportSourceLine::Inline
+        ));
+    }
+
+    #[test]
+    fn parse_import_source_treats_bare_text_as_path() {
+        match parse_import_source("./bare.json") {
+            ImportSourceLine::Path(p) => assert_eq!(p, "./bare.json"),
+            other => panic!("expected Path, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn build_import_hover_uses_resolved_schema() {
+        let mut app = EditorApp::default();
+        app.text = r#"@import USER_REGISTERED from "./user_registered.json"
+
+workflow "W" {
+  on USER_REGISTERED
+  log(USER_REGISTERED.email)
+}
+"#
+        .to_string();
+        app.lsp.update_document(&app.uri, &app.text);
+        let import = app.import_at_line(0).expect("import line");
+        let hover = app.build_import_hover(&import);
+        assert_eq!(hover.title, "USER_REGISTERED");
+        assert_eq!(hover.kind, crate::popup::HoverKind::Import);
+        assert!(
+            hover
+                .docs
+                .as_deref()
+                .unwrap()
+                .contains("user_registered.json"),
+            "expected source path in docs, got {:?}",
+            hover.docs
+        );
+    }
+
+    /// Regression: the editor's default URI is
+    /// `file:///example.flow`, whose parent is `/`. The import
+    /// `./user_registered.json` does not exist there, so the schema
+    /// resolver used to skip the binding. The previous test only
+    /// checked that the source path made it into the hover docs
+    /// (which it does regardless of the schema). This one opens the
+    /// real `examples/advanced.flow` and asserts the
+    /// `NESTED_DATA` binding's hover signature carries the resolved
+    /// schema, not the `any` fallback the underlying
+    /// `infer_imports` bug produced.
+    #[test]
+    fn build_import_hover_for_real_file_resolves_schema() {
+        use crate::popup::{HoverSignature, TypeExpr};
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/advanced.flow");
+        let path = path.canonicalize().unwrap_or(path);
+        let source = std::fs::read_to_string(&path).expect("read advanced.flow");
+        let mut app = EditorApp::default();
+        let uri = file_io::path_to_uri(&path);
+        app.uri = uri.clone();
+        app.text = source.clone();
+        app.file_path = Some(path.clone());
+        app.lsp.update_document(&app.uri, &app.text);
+
+        let program = workflow_parser::FlowParser::parse_flow_program(&source).expect("parse");
+        let nested = program
+            .imports
+            .iter()
+            .find(|imp| imp.name == "NESTED_DATA")
+            .expect("NESTED_DATA import");
+        let line_idx = source[..nested.span.start]
+            .bytes()
+            .filter(|b| *b == b'\n')
+            .count();
+        let import = app
+            .import_at_line(line_idx)
+            .expect("import line for NESTED_DATA");
+        let hover = app.build_import_hover(&import);
+        assert_eq!(hover.title, "NESTED_DATA");
+        match hover.signature {
+            Some(HoverSignature::Type(TypeExpr::Object(ref fields))) => {
+                assert!(
+                    fields.iter().any(|f| f.name == "users"),
+                    "expected `users` field in resolved schema, got {:?}",
+                    fields
+                );
+            }
+            other => panic!(
+                "expected the resolved schema, got {:?} (any-fallback means infer_imports is still broken)",
+                other
+            ),
+        }
     }
 }
 

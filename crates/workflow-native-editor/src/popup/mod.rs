@@ -39,5 +39,5 @@ pub use layout::{
     HOVER_MIN_WIDTH,
 };
 #[allow(unused_imports)]
-pub use model::{HoverContent, HoverKind, HoverSignature, TypeExpr, TypeField};
+pub use model::{type_to_type_expr, HoverContent, HoverKind, HoverSignature, TypeExpr, TypeField};
 pub use workflow_lsp::features::CompletionKind;

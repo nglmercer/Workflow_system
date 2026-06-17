@@ -469,4 +469,135 @@ var result = double(num)"#;
             );
         }
     }
+
+    /// End-to-end regression for the editor hover shown when the
+    /// user mouses over the event name in `on USER_REGISTERED`.
+    /// Before the fix the markdown body reported `any` because
+    /// `infer_workflows` hard-coded the workflow-scoped event
+    /// binding to `Type::Any`. After the fix, the body must
+    /// surface the schema from `@import USER_REGISTERED`.
+    #[test]
+    fn hover_on_workflow_event_reports_import_schema() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/advanced.flow");
+        let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+        let mut state = ServerState::new();
+        let uri = format!("file://{}", path.to_string_lossy());
+        state.update_document(&uri, &source);
+        // Find the line of the first `on USER_REGISTERED` and the
+        // column of `USER_REGISTERED` so the test survives small
+        // edits to the example file.
+        let lines: Vec<&str> = source.lines().collect();
+        let (line_idx, line) = lines
+            .iter()
+            .enumerate()
+            .find(|(_, l)| l.trim_start().starts_with("on USER_REGISTERED"))
+            .expect("`on USER_REGISTERED` line in advanced.flow");
+        let col = line
+            .find("USER_REGISTERED")
+            .expect("USER_REGISTERED in line")
+            + "USER_REGISTERED".len() / 2;
+        let markdown = hover_at(&state, &uri, line_idx, col).expect("hover returns a body");
+        assert!(
+            markdown.contains("USER_REGISTERED"),
+            "hover body should mention the event, got: {markdown}"
+        );
+        assert!(
+            !markdown.contains("`any`"),
+            "hover should not fall back to any, got: {markdown}"
+        );
+        assert!(
+            markdown.contains("email") && markdown.contains("plan"),
+            "hover should expose the schema fields, got: {markdown}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod import_lookup_regression_tests {
+    use super::*;
+    use crate::inference::Type;
+    use std::path::Path;
+    /// Regression: `infer_imports` used to call
+    /// `lookup_scope_for(name, 0)`, which misses the import's
+    /// `decl_span` for any import declared past the first byte of
+    /// the file. This loads `examples/advanced.flow` (whose imports
+    /// are at offsets 504, 558, 604, 654) and asserts every binding
+    /// resolves to the actual schema type, not the `Type::Any`
+    /// fallback the bug produced.
+    #[test]
+    fn imports_in_examples_have_resolved_types() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/advanced.flow");
+        let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+        let mut state = ServerState::new();
+        let uri = format!("file://{}", path.to_string_lossy());
+        state.update_document(&uri, &source);
+        let inf = state.get_inference(&uri).expect("inference");
+        let program = workflow_parser::FlowParser::parse_flow_program(&source).expect("parse");
+        for imp in &program.imports {
+            let binding = inf
+                .lookup_at_offset(&source, imp.span.start, &imp.name)
+                .unwrap_or_else(|| panic!("import {} not found at offset {}", imp.name, imp.span.start));
+            assert!(
+                !matches!(binding.ty, Type::Any),
+                "import {} should resolve to a real schema, got Any",
+                imp.name
+            );
+        }
+    }
+
+    /// Regression: `infer_workflows` used to hard-code the
+    /// workflow's event name and `data` event payload to
+    /// `Type::Any`, so hovering on `on USER_REGISTERED` (or any
+    /// field access off the implicit `data`) reported `any` even
+    /// though `@import USER_REGISTERED` was sitting a few lines
+    /// above with the real schema. This test asserts that for
+    /// every workflow whose event matches an `@import`, the
+    /// workflow-scoped binding for the event name and the `data`
+    /// carrier both resolve to that import's schema.
+    #[test]
+    fn workflow_event_bindings_use_import_type() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/advanced.flow");
+        let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+        let mut state = ServerState::new();
+        let uri = format!("file://{}", path.to_string_lossy());
+        state.update_document(&uri, &source);
+        let inf = state.get_inference(&uri).expect("inference");
+        let program = workflow_parser::FlowParser::parse_flow_program(&source).expect("parse");
+        // Restrict to workflows that have a matching import — the
+        // other ones (e.g. `CALCULATE`) legitimately fall back to
+        // `any` because no schema was declared for them.
+        let imported: std::collections::HashSet<&str> = program
+            .imports
+            .iter()
+            .map(|imp| imp.name.as_str())
+            .collect();
+        for w in &program.workflows {
+            if !imported.contains(w.event.as_str()) {
+                continue;
+            }
+            let offset = w.span.start;
+            let event_binding = inf
+                .lookup_at_offset(&source, offset, &w.event)
+                .unwrap_or_else(|| panic!("event {} not found at workflow start", w.event));
+            assert!(
+                !matches!(event_binding.ty, Type::Any),
+                "workflow event {} should resolve to import's schema, got Any",
+                w.event
+            );
+            assert!(
+                event_binding.annotated,
+                "workflow event {} should be marked annotated (came from an @import)",
+                w.event
+            );
+            let data_binding = inf
+                .lookup_at_offset(&source, offset, "data")
+                .expect("data binding not found at workflow start");
+            assert!(
+                !matches!(data_binding.ty, Type::Any),
+                "workflow `data` should resolve to import's schema for event {}, got Any",
+                w.event
+            );
+        }
+    }
 }

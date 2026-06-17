@@ -162,6 +162,7 @@ file_io:
 popup:
   hover_array_of: "Arreglo de"
   hover_returns: "retorna"
+  hover_import_path: "**origen:** `{path}`\n\n"
   badge_param: "@parámetro"
   badge_event: "@evento"
   badge_var: "@variable"
@@ -171,6 +172,7 @@ popup:
   badge_error: "@error"
   badge_warn: "@advertencia"
   badge_doc: "@doc"
+  badge_import: "@importar"
 
 search_in_files:
   title: "Buscar en archivos"

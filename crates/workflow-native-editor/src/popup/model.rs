@@ -33,6 +33,8 @@ pub enum HoverKind {
     Doc,
     /// A test report row from the test panel.
     Test,
+    /// A `@import` statement that binds a JSON schema to a name.
+    Import,
 }
 
 impl HoverKind {
@@ -49,6 +51,7 @@ impl HoverKind {
             Self::Warning => "@warn",
             Self::Doc => "@doc",
             Self::Test => "@test",
+            Self::Import => "@import",
         }
     }
 
@@ -67,6 +70,7 @@ impl HoverKind {
             Self::Warning => "A warning diagnostic (deprecated usage, likely bug, etc.).",
             Self::Doc => "A documentation entry — for symbols with no better kind.",
             Self::Test => "A test result row from the test panel.",
+            Self::Import => "A schema import that binds a JSON shape to the named identifier.",
         })
     }
 
@@ -83,6 +87,7 @@ impl HoverKind {
             Self::Warning => "!",
             Self::Doc => "✦",
             Self::Test => "✓",
+            Self::Import => "↪",
         }
     }
 }
@@ -185,6 +190,19 @@ impl HoverContent {
         self
     }
 
+    /// Build a `HoverContent` for an `@import` statement. The title
+    /// is the imported binding name; the signature is the schema
+    /// (rendered as a type table); the docs surface the source
+    /// path so the user can see where the values come from.
+    pub fn for_import(name: &str, schema: &TypeExpr, source_path: Option<&str>) -> Self {
+        let mut content = Self::new(name, HoverKind::Import).with_typed_signature(schema.clone());
+        if let Some(path) = source_path {
+            let body = workflow_i18n::tf("popup.hover_import_path", &[("path", path)]);
+            content = content.with_docs(body);
+        }
+        content
+    }
+
     /// Build a `HoverContent` from the legacy markdown blob produced
     /// by `workflow_lsp::features::hover_at`.
     pub fn from_markdown(md: &str) -> Self {
@@ -263,6 +281,42 @@ fn classify_signature(cleaned: &str) -> HoverSignature {
     match p.parse_type_expr() {
         Ok(ty) if p.at_end() => HoverSignature::Type(ty),
         _ => HoverSignature::Text(cleaned.to_string()),
+    }
+}
+
+/// Convert an inferred [`workflow_lsp::inference::Type`] into the
+/// popup's [`TypeExpr`] form so it can be rendered as a structured
+/// type table. The conversion is lossless: every variant of `Type`
+/// maps to a corresponding `TypeExpr` shape.
+pub fn type_to_type_expr(ty: &workflow_lsp::inference::Type) -> TypeExpr {
+    use workflow_lsp::inference::Type;
+    match ty {
+        Type::String => TypeExpr::Name("string".into()),
+        Type::Number => TypeExpr::Name("number".into()),
+        Type::Bool => TypeExpr::Name("bool".into()),
+        Type::Null => TypeExpr::Name("null".into()),
+        Type::Any => TypeExpr::Name("any".into()),
+        Type::Array(inner) => TypeExpr::Array(Box::new(type_to_type_expr(inner))),
+        Type::Object(fields) => TypeExpr::Object(
+            fields
+                .iter()
+                .map(|(name, t)| TypeField {
+                    name: name.clone(),
+                    ty: type_to_type_expr(t),
+                })
+                .collect(),
+        ),
+        Type::Function { params, ret } => TypeExpr::Func {
+            params: params
+                .iter()
+                .enumerate()
+                .map(|(i, t)| TypeField {
+                    name: format!("arg{}", i),
+                    ty: type_to_type_expr(t),
+                })
+                .collect(),
+            ret: Box::new(type_to_type_expr(ret)),
+        },
     }
 }
 
@@ -509,6 +563,7 @@ mod tests {
             HoverKind::Error,
             HoverKind::Warning,
             HoverKind::Doc,
+            HoverKind::Import,
         ];
         let mut colors: Vec<Color32> = kinds.iter().map(|k| Theme::hover_badge(*k)).collect();
         colors.dedup();
@@ -531,6 +586,7 @@ mod tests {
             HoverKind::Warning,
             HoverKind::Doc,
             HoverKind::Test,
+            HoverKind::Import,
         ];
         for k in kinds {
             assert!(!k.badge().is_empty(), "empty badge for {:?}", k);
@@ -555,6 +611,7 @@ mod tests {
             HoverKind::Warning,
             HoverKind::Doc,
             HoverKind::Test,
+            HoverKind::Import,
         ];
         for k in kinds {
             let g = k.glyph();
@@ -575,6 +632,7 @@ mod tests {
             HoverKind::Warning,
             HoverKind::Doc,
             HoverKind::Test,
+            HoverKind::Import,
         ];
         for k in kinds {
             let d = k.doc().expect("kind must provide a doc");
@@ -586,6 +644,12 @@ mod tests {
     fn test_kind_uses_test_badge_and_glyph() {
         assert_eq!(HoverKind::Test.badge(), "@test");
         assert_eq!(HoverKind::Test.glyph(), "✓");
+    }
+
+    #[test]
+    fn import_kind_uses_import_badge_and_glyph() {
+        assert_eq!(HoverKind::Import.badge(), "@import");
+        assert_eq!(HoverKind::Import.glyph(), "↪");
     }
 
     #[test]
@@ -609,5 +673,88 @@ mod tests {
         let s = "Parameter of workflow \"X\" (event \"NESTED_DATA\")";
         assert_eq!(extract_event_ref(s).as_deref(), Some("NESTED_DATA"));
         assert_eq!(extract_event_ref("no event here"), None);
+    }
+
+    #[test]
+    fn for_import_builds_structured_content() {
+        use workflow_lsp::inference::Type;
+        let schema = Type::Object(vec![
+            ("email".to_string(), Type::String),
+            ("plan".to_string(), Type::String),
+        ]);
+        let expr = type_to_type_expr(&schema);
+        let content =
+            HoverContent::for_import("USER_REGISTERED", &expr, Some("./user_registered.json"));
+        assert_eq!(content.title, "USER_REGISTERED");
+        assert_eq!(content.kind, HoverKind::Import);
+        match content.signature {
+            Some(HoverSignature::Type(TypeExpr::Object(fields))) => {
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[0].name, "email");
+                assert_eq!(fields[1].name, "plan");
+            }
+            other => panic!("expected Type(Object), got {:?}", other),
+        }
+        assert!(content.docs.is_some());
+        assert!(content
+            .docs
+            .as_deref()
+            .unwrap()
+            .contains("user_registered.json"));
+    }
+
+    #[test]
+    fn for_import_skips_docs_when_no_path() {
+        use workflow_lsp::inference::Type;
+        let expr = TypeExpr::Name("any".into());
+        let content = HoverContent::for_import("X", &expr, None);
+        assert_eq!(content.kind, HoverKind::Import);
+        assert!(content.docs.is_none());
+    }
+
+    #[test]
+    fn type_to_type_expr_round_trips_primitives() {
+        use workflow_lsp::inference::Type;
+        assert_eq!(
+            type_to_type_expr(&Type::String),
+            TypeExpr::Name("string".into())
+        );
+        assert_eq!(
+            type_to_type_expr(&Type::Number),
+            TypeExpr::Name("number".into())
+        );
+        assert_eq!(
+            type_to_type_expr(&Type::Bool),
+            TypeExpr::Name("bool".into())
+        );
+        assert_eq!(
+            type_to_type_expr(&Type::Null),
+            TypeExpr::Name("null".into())
+        );
+        assert_eq!(type_to_type_expr(&Type::Any), TypeExpr::Name("any".into()));
+    }
+
+    #[test]
+    fn type_to_type_expr_converts_nested_array() {
+        use workflow_lsp::inference::Type;
+        let ty = Type::Array(Box::new(Type::Object(vec![
+            ("id".to_string(), Type::Number),
+            ("items".to_string(), Type::Array(Box::new(Type::String))),
+        ])));
+        let expr = type_to_type_expr(&ty);
+        match expr {
+            TypeExpr::Array(inner) => match *inner {
+                TypeExpr::Object(fields) => {
+                    assert_eq!(fields.len(), 2);
+                    assert_eq!(fields[0].name, "id");
+                    match &fields[1].ty {
+                        TypeExpr::Array(s) => assert_eq!(**s, TypeExpr::Name("string".into())),
+                        _ => panic!("expected nested array"),
+                    }
+                }
+                _ => panic!("expected Object inside array"),
+            },
+            _ => panic!("expected Array"),
+        }
     }
 }

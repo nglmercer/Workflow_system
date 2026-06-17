@@ -10,7 +10,7 @@
 //! backward compatibility with consumers that haven't been
 //! ported to the new byte-offset lookup.
 
-use workflow_parser::ast::{Expr, FlowProgram, Stmt};
+use workflow_parser::ast::{Expr, FlowProgram, ImportStmt, Stmt};
 
 use super::annotation::Annotations;
 use super::expr::{infer_expr, infer_expr_with_ctx};
@@ -265,7 +265,7 @@ pub fn run_program_with_imports(
     infer_globals(inference, program, annotations);
     infer_functions(inference, program, annotations);
     infer_workflows(inference, program, annotations, import_bindings);
-    infer_imports(inference, import_bindings);
+    infer_imports(inference, &program.imports, import_bindings);
 
     // Project the typed bindings into the per-line table. We use
     // the line's *end* so any binding declared on the same line
@@ -450,19 +450,30 @@ fn infer_workflows(
             }
         }
         // `data` and the event name are also workflow bindings.
+        // Both inherit their type from the matching `@import`
+        // binding when there is one — otherwise hovering on
+        // `on USER_REGISTERED` (or the `data` carrier) would
+        // report `any` even though the schema is sitting right
+        // there in the imports list. We mark `annotated` only when
+        // the type came from a real import so completion/hover can
+        // tell a typed event from a generic one.
         for &(name, _kind) in &[
             ("data", BindingKind::EventPayload),
             (&w.event, BindingKind::WorkflowEvent),
         ] {
             if let Some(sid) = lookup_scope_for(inference, name, w.span.start) {
+                let (ty, annotated) = match event_binding {
+                    Some(b) => (b.ty.clone(), true),
+                    None => (Type::Any, false),
+                };
                 inference.typed.insert(
                     name,
                     sid,
                     InferredBinding {
                         name: name.to_string(),
-                        ty: Type::Any,
+                        ty,
                         value: None,
-                        annotated: false,
+                        annotated,
                     },
                 );
             }
@@ -591,13 +602,29 @@ fn infer_body_bindings(
     }
 }
 
-fn infer_imports(inference: &mut super::Inference, import_bindings: &[InferredBinding]) {
+fn infer_imports(
+    inference: &mut super::Inference,
+    imports: &[ImportStmt],
+    import_bindings: &[InferredBinding],
+) {
     // Each import binding is a module-level binding named after
     // the import's `name` field. We find the scope binding the
     // scope index recorded (it was added in `walk_program` with
     // kind=Import) and attach the type info.
+    //
+    // The lookup MUST happen at the import's `span.start`, not at
+    // offset 0: the import binding is only visible from its
+    // declaration onward, so querying at 0 returns `None` for any
+    // import declared past the first byte. Without the correct
+    // offset the typed binding never gets attached, hover falls
+    // back to `any`, and member completions stop working.
     for ib in import_bindings {
-        if let Some(sid) = lookup_scope_for(inference, &ib.name, 0) {
+        let offset = imports
+            .iter()
+            .find(|imp| imp.name == ib.name)
+            .map(|imp| imp.span.start)
+            .unwrap_or(0);
+        if let Some(sid) = lookup_scope_for(inference, &ib.name, offset) {
             inference.typed.insert(&ib.name, sid, ib.clone());
         }
     }

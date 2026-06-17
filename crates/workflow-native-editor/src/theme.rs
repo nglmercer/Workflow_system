@@ -52,6 +52,7 @@ impl Theme {
             HoverKind::Warning => Color32::from_rgb(200, 160, 50),
             HoverKind::Doc => Color32::from_rgb(110, 110, 130),
             HoverKind::Test => Color32::from_rgb(80, 170, 110),
+            HoverKind::Import => Color32::from_rgb(120, 150, 200),
         }
     }
 
@@ -423,6 +424,8 @@ mod tests {
             HoverKind::Error,
             HoverKind::Warning,
             HoverKind::Doc,
+            HoverKind::Test,
+            HoverKind::Import,
         ];
         let mut seen = std::collections::HashSet::new();
         for k in kinds {

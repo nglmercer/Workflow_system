@@ -176,6 +176,7 @@ file_io:
 popup:
   hover_array_of: "Array of"
   hover_returns: "returns"
+  hover_import_path: "**source:** `{path}`\n\n"
   badge_param: "@param"
   badge_event: "@event"
   badge_var: "@var"
@@ -185,6 +186,7 @@ popup:
   badge_error: "@error"
   badge_warn: "@warn"
   badge_doc: "@doc"
+  badge_import: "@import"
 
 search_in_files:
   title: "Find in Files"
