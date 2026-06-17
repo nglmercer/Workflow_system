@@ -3,8 +3,11 @@
 //! Renders a horizontal bar with search input, match count,
 //! next/previous navigation, case-sensitivity toggle, and close
 //! button. The bar is toggled by Ctrl+F and closed by Escape.
+//!
+//! Icons are painted using egui's `Painter` API for consistent
+//! cross-platform rendering (no font dependency).
 
-use eframe::egui::{self, RichText, TextEdit};
+use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Stroke, TextEdit, Vec2};
 
 /// State for the find bar.
 pub struct FindState {
@@ -149,6 +152,108 @@ pub enum FindAction {
     ToggleWholeWord,
 }
 
+// ---------------------------------------------------------------------------
+// Icon painting helpers — draw simple shapes with egui::Painter so we
+// don't depend on any icon font that may be missing on some platforms.
+// ---------------------------------------------------------------------------
+
+const ICON_COLOR: Color32 = Color32::from_rgb(180, 180, 180);
+const ICON_COLOR_HOVER: Color32 = Color32::from_rgb(240, 240, 240);
+
+/// Draw an upward-pointing triangle (previous match).
+fn paint_arrow_up(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let cx = rect.center().x;
+    let top = Pos2::new(cx, rect.top() + 2.0);
+    let bl = Pos2::new(rect.left() + 3.0, rect.bottom() - 2.0);
+    let br = Pos2::new(rect.right() - 3.0, rect.bottom() - 2.0);
+    painter.add(egui::Shape::convex_polygon(
+        vec![top, bl, br],
+        color,
+        Stroke::NONE,
+    ));
+}
+
+/// Draw a downward-pointing triangle (next match).
+fn paint_arrow_down(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let cx = rect.center().x;
+    let bot = Pos2::new(cx, rect.bottom() - 2.0);
+    let tl = Pos2::new(rect.left() + 3.0, rect.top() + 2.0);
+    let tr = Pos2::new(rect.right() - 3.0, rect.top() + 2.0);
+    painter.add(egui::Shape::convex_polygon(
+        vec![bot, tl, tr],
+        color,
+        Stroke::NONE,
+    ));
+}
+
+/// Draw an X (close).
+fn paint_close(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let stroke = Stroke::new(2.0, color);
+    let pad = 4.0;
+    let tl = Pos2::new(rect.left() + pad, rect.top() + pad);
+    let br = Pos2::new(rect.right() - pad, rect.bottom() - pad);
+    let tr = Pos2::new(rect.right() - pad, rect.top() + pad);
+    let bl = Pos2::new(rect.left() + pad, rect.bottom() - pad);
+    painter.line_segment([tl, br], stroke);
+    painter.line_segment([tr, bl], stroke);
+}
+
+/// Draw a checkmark (for toggle buttons when active).
+fn paint_check(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let stroke = Stroke::new(2.0, color);
+    let p1 = Pos2::new(rect.left() + 4.0, rect.center().y);
+    let p2 = Pos2::new(rect.center().x - 1.0, rect.bottom() - 4.0);
+    let p3 = Pos2::new(rect.right() - 4.0, rect.top() + 4.0);
+    painter.line_segment([p1, p2], stroke);
+    painter.line_segment([p2, p3], stroke);
+}
+
+/// A custom icon button that paints its icon using the Painter API.
+fn icon_button(ui: &mut egui::Ui, _id: &str, paint_fn: fn(&egui::Painter, Rect, Color32)) -> bool {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(22.0), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let color = if response.hovered() || response.is_pointer_button_down_on() {
+            ICON_COLOR_HOVER
+        } else {
+            ICON_COLOR
+        };
+        let painter = ui.painter();
+        paint_fn(painter, rect, color);
+    }
+    response.clicked()
+}
+
+/// A toggle icon button that shows a checkmark when active.
+fn toggle_icon_button(
+    ui: &mut egui::Ui,
+    _id: &str,
+    active: bool,
+    paint_fn: fn(&egui::Painter, Rect, Color32),
+) -> bool {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(22.0), egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let bg = if active {
+            Color32::from_rgba_premultiplied(80, 80, 80, 120)
+        } else if response.hovered() {
+            Color32::from_rgba_premultiplied(60, 60, 60, 80)
+        } else {
+            Color32::TRANSPARENT
+        };
+        let painter = ui.painter();
+        painter.rect_filled(rect, Rounding::same(4.0), bg);
+        let color = if active {
+            Color32::from_rgb(100, 200, 255)
+        } else {
+            ICON_COLOR
+        };
+        paint_fn(painter, rect, color);
+        if active {
+            paint_check(painter, rect, color);
+        }
+    }
+    response.clicked()
+}
+
 /// Render the find bar. Returns a `FindAction` indicating what
 /// the user did this frame.
 pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
@@ -168,42 +273,43 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
             action = FindAction::QueryChanged;
         }
 
-        // Case sensitivity toggle (Aa)
-        if ui
-            .add(
-                egui::Button::new(RichText::new("Aa").small())
-                    .rounding(4.0)
-                    .min_size(egui::vec2(28.0, 20.0))
-                    .selected(state.case_sensitive),
-            )
-            .clicked()
-        {
+        // Case sensitivity toggle
+        if toggle_icon_button(ui, "find_case", state.case_sensitive, |painter, rect, color| {
+            // Draw "Aa" text
+            let font = egui::FontId::monospace(9.0);
+            let center = rect.center();
+            let a1 = painter.layout_no_wrap(
+                "A".to_string(),
+                font.clone(),
+                color,
+            );
+            let a2 = painter.layout_no_wrap("a".to_string(), font, color);
+            let w = a1.size().x + a2.size().x;
+            let x = center.x - w / 2.0;
+            let y = center.y - a1.size().y / 2.0;
+            painter.galley(Pos2::new(x, y), a1, Color32::TRANSPARENT);
+            painter.galley(Pos2::new(x + 7.0, y), a2, Color32::TRANSPARENT);
+        }) {
             action = FindAction::ToggleCase;
         }
 
-        // Regex toggle (.*)
-        if ui
-            .add(
-                egui::Button::new(RichText::new(".*").small())
-                    .rounding(4.0)
-                    .min_size(egui::vec2(28.0, 20.0))
-                    .selected(state.regex),
-            )
-            .clicked()
-        {
+        // Regex toggle
+        if toggle_icon_button(ui, "find_regex", state.regex, |painter, rect, color| {
+            let font = egui::FontId::monospace(9.0);
+            let galley = painter.layout_no_wrap(".*".to_string(), font, color);
+            let pos = rect.center() - galley.size() / 2.0;
+            painter.galley(pos, galley, Color32::TRANSPARENT);
+        }) {
             action = FindAction::ToggleRegex;
         }
 
-        // Whole word toggle (Ab)
-        if ui
-            .add(
-                egui::Button::new(RichText::new("Ab").small())
-                    .rounding(4.0)
-                    .min_size(egui::vec2(28.0, 20.0))
-                    .selected(state.whole_word),
-            )
-            .clicked()
-        {
+        // Whole word toggle
+        if toggle_icon_button(ui, "find_word", state.whole_word, |painter, rect, color| {
+            let font = egui::FontId::monospace(9.0);
+            let galley = painter.layout_no_wrap("Ab".to_string(), font, color);
+            let pos = rect.center() - galley.size() / 2.0;
+            painter.galley(pos, galley, Color32::TRANSPARENT);
+        }) {
             action = FindAction::ToggleWholeWord;
         }
 
@@ -217,37 +323,18 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
             ui.label(RichText::new(label).small().weak());
         }
 
-        // Navigation buttons (up/down arrows)
-        if ui
-            .add(
-                egui::Button::new(RichText::new("▲").small())
-                    .rounding(4.0)
-                    .min_size(egui::vec2(24.0, 20.0)),
-            )
-            .clicked()
-        {
+        // Previous match (up arrow)
+        if icon_button(ui, "find_prev", paint_arrow_up) {
             action = FindAction::Previous;
         }
-        if ui
-            .add(
-                egui::Button::new(RichText::new("▼").small())
-                    .rounding(4.0)
-                    .min_size(egui::vec2(24.0, 20.0)),
-            )
-            .clicked()
-        {
+
+        // Next match (down arrow)
+        if icon_button(ui, "find_next", paint_arrow_down) {
             action = FindAction::Next;
         }
 
-        // Close button (× multiplication sign)
-        if ui
-            .add(
-                egui::Button::new(RichText::new("×").small())
-                    .rounding(4.0)
-                    .min_size(egui::vec2(24.0, 20.0)),
-            )
-            .clicked()
-        {
+        // Close button (X)
+        if icon_button(ui, "find_close", paint_close) {
             action = FindAction::Close;
         }
     });
