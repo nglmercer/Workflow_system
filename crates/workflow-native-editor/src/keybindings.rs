@@ -275,6 +275,7 @@ impl Keymap {
     /// Returns the short description if the label isn't found,
     /// which keeps the hover behavior safe even if the keymap is
     /// mutated mid-iteration.
+    #[allow(dead_code)]
     pub fn long_description_for(&self, label: &str) -> String {
         for (matcher, cmd) in &self.entries {
             if matches!(cmd, Command::None) {

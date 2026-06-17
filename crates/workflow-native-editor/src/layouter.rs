@@ -129,3 +129,22 @@ pub fn layout_flow(
 
     ui.fonts(|f| f.layout_job(job))
 }
+
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::theme::Theme;
+
+    #[test]
+    fn match_highlight_aliases_match_theme() {
+        assert_eq!(
+            crate::layouter::MATCH_HIGHLIGHT,
+            Theme::LAYOUT_FIND_MATCH_HIGHLIGHT,
+        );
+        assert_eq!(
+            crate::layouter::CURRENT_MATCH_HIGHLIGHT,
+            Theme::LAYOUT_CURRENT_FIND_MATCH_HIGHLIGHT,
+        );
+    }
+}

@@ -149,3 +149,24 @@ fn kind_glyph(kind: CompletionKind) -> &'static str {
     }
 }
 
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::Theme;
+    use workflow_lsp::features::CompletionKind;
+
+    #[test]
+    fn completion_colors_match_theme() {
+        assert_eq!(Theme::completion(CompletionKind::Keyword), Color32::from_rgb(200, 120, 255));
+        assert_eq!(Theme::completion(CompletionKind::Function), Color32::from_rgb(100, 200, 255));
+    }
+
+    #[test]
+    fn completion_kind_glyphs_are_short() {
+        let k = CompletionKind::Keyword;
+        let g = kind_glyph(k);
+        assert!(!g.is_empty());
+    }
+}

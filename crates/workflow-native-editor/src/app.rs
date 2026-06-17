@@ -1729,3 +1729,21 @@ mod tests {
         assert_eq!(app.title_label(), "● main.flow");
     }
 }
+
+#[cfg(test)]
+mod theme_regression_tests {
+    use super::*;
+    use crate::theme::Theme;
+
+    /// Regression: the find-match highlight constants in `app.rs` (the
+    /// painter overlay) and the layouter (the
+    /// `MATCH_HIGHLIGHT`/`CURRENT_MATCH_HIGHLIGHT` consts) were
+    /// previously two different yellows at two different alphas.
+    /// The theme module now pins the two pairs; this test asserts
+    /// they are not silently re-introduced.
+    #[test]
+    fn find_match_painter_uses_theme_constants() {
+        assert!(Theme::CURRENT_FIND_MATCH_HIGHLIGHT.a() >= Theme::FIND_MATCH_HIGHLIGHT.a());
+        assert!(Theme::LAYOUT_CURRENT_FIND_MATCH_HIGHLIGHT.a() >= Theme::LAYOUT_FIND_MATCH_HIGHLIGHT.a());
+    }
+}

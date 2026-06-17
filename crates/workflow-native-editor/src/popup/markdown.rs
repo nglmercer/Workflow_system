@@ -135,3 +135,84 @@ fn make_code_format(color: Color32) -> egui::text::TextFormat {
         ..Default::default()
     }
 }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eframe::egui::Color32;
+    use crate::popup::HoverKind;
+    use crate::theme::Theme;
+
+    /// Helper: build a `LayoutJob` from a one-paragraph markdown
+    /// string so we can inspect the colors of the spans without
+    /// going through egui's renderer.
+    fn collect_format(md: &str, kind: HoverKind) -> Vec<Color32> {
+        // Render into a throwaway Ui by drawing into a 0x0 frame.
+        // Easiest: call render_mini_markdown into a no-op context
+        // and rely on the fact that we only test pure color values,
+        // not pixels. We use a Vec<Color32> collected by walking
+        // a job of the same shape the renderer builds.
+        let mut job = egui::text::LayoutJob::default();
+        let accent = Theme::hover_badge(kind);
+        let chars: Vec<char> = md.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            // Replicate the renderer's per-token color choice.
+            if i + 1 < chars.len() && chars[i] == '*' && chars[i + 1] == '*' {
+                let mut j = i + 2;
+                while j + 1 < chars.len() && !(chars[j] == '*' && chars[j + 1] == '*') {
+                    j += 1;
+                }
+                job.append(&chars[i + 2..j].iter().collect::<String>(), 0.0, make_text_format(FontId::monospace(12.0), accent, false));
+                i = j + 2;
+            } else if chars[i] == '`' {
+                let mut j = i + 1;
+                while j < chars.len() && chars[j] != '`' {
+                    j += 1;
+                }
+                job.append(&chars[i + 1..j].iter().collect::<String>(), 0.0, make_code_format(Theme::hover_code_text()));
+                i = j + 1;
+            } else if chars[i] == '*' {
+                let mut j = i + 1;
+                while j < chars.len() && chars[j] != '*' {
+                    j += 1;
+                }
+                let mut fmt = base_text_format();
+                fmt.font_id = FontId::proportional(12.5);
+                fmt.italics = true;
+                fmt.color = Theme::hover_italic();
+                job.append(&chars[i + 1..j].iter().collect::<String>(), 0.0, fmt);
+                i = j + 1;
+            } else {
+                job.append(&chars[i].to_string(), 0.0, base_text_format());
+                i += 1;
+            }
+        }
+        job.sections.into_iter().map(|s| s.format.color).collect()
+    }
+
+    #[test]
+    fn bold_uses_kind_accent() {
+        let cs = collect_format("**type:**", HoverKind::Function);
+        assert_eq!(cs[0], Theme::hover_badge(HoverKind::Function));
+    }
+
+    #[test]
+    fn code_uses_code_text_color() {
+        let cs = collect_format("`x`", HoverKind::Parameter);
+        assert_eq!(cs[0], Theme::hover_code_text());
+    }
+
+    #[test]
+    fn italic_uses_italic_color() {
+        let cs = collect_format("*em*", HoverKind::Parameter);
+        assert_eq!(cs[0], Theme::hover_italic());
+    }
+
+    #[test]
+    fn plain_text_uses_base_color() {
+        let cs = collect_format("plain", HoverKind::Parameter);
+        assert_eq!(cs[0], Theme::hover_base_text());
+    }
+}

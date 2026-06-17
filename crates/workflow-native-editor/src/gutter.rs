@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Vec2};
 
-use super::folding::{self, FoldKind, FoldRegion};
+use super::folding::{self, FoldRegion};
 use super::layouter::LINE_HEIGHT;
 use crate::theme::{fold_chevron, fold_kind_label, Theme};
 
@@ -164,6 +164,7 @@ pub fn prune_stale(collapsed: &mut BTreeSet<usize>, source: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::folding::FoldKind;
 
     #[test]
     fn width_scales_with_line_count() {

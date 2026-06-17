@@ -269,3 +269,16 @@ mod tests {
         assert!(text.contains("actual=null"));
     }
 }
+
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::theme::Theme;
+
+    #[test]
+    fn pass_color_matches_theme() {
+        assert_eq!(style_for_pass(true).0, Theme::test_pass(true));
+        assert_eq!(style_for_pass(false).0, Theme::test_pass(false));
+    }
+}

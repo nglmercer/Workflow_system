@@ -167,3 +167,25 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use crate::theme::Theme;
+
+    #[test]
+    fn severity_colors_match_theme() {
+        assert_eq!(
+            style_for(DiagnosticSeverity::Error).0,
+            Theme::diagnostic_severity("error"),
+        );
+        assert_eq!(
+            style_for(DiagnosticSeverity::Warning).0,
+            Theme::diagnostic_severity("warning"),
+        );
+        assert_eq!(
+            style_for(DiagnosticSeverity::Info).0,
+            Theme::diagnostic_severity("info"),
+        );
+    }
+}

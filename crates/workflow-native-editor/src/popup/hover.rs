@@ -271,3 +271,63 @@ fn event_chip_width(text: &str) -> f32 {
 fn i18n_t_hovers_returns() -> String {
     workflow_i18n::t("popup.hover_returns")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::Theme;
+    use crate::popup::HoverKind;
+
+    /// `hover_event_chip_bg` applies alpha 70 of the badge color.
+    /// The RGB channels are gamma-corrected premultiplied values, so
+    /// we assert only the alpha here.
+    #[test]
+    fn event_chip_alpha_matches_documented_value() {
+        let badge = Theme::hover_badge(HoverKind::Parameter);
+        let chip = Theme::hover_event_chip_bg(badge);
+        assert_eq!(chip.a(), 70);
+    }
+
+    /// `hover_pill_bg` applies alpha 50 of the supplied color.
+    #[test]
+    fn pill_alpha_matches_documented_value() {
+        let color = Theme::type_color("number");
+        let pill = Theme::hover_pill_bg(color);
+        assert_eq!(pill.a(), 50);
+    }
+
+    /// Every primitive type color in the theme is non-default.
+    #[test]
+    fn type_colors_are_non_default() {
+        for name in ["number", "string", "bool", "null", "any"] {
+            assert_ne!(Theme::type_color(name), Color32::default());
+        }
+    }
+
+    /// `hover_title` / `hover_base_text` / `hover_doc_label` are
+    /// distinct grays that the renderer uses in different contexts.
+    #[test]
+    fn hover_text_grays_are_distinct() {
+        let title = Theme::hover_title();
+        let base = Theme::hover_base_text();
+        let doc = Theme::hover_doc_label();
+        assert_ne!(title, base);
+        assert_ne!(base, doc);
+        assert_ne!(title, doc);
+    }
+
+    /// `hover_strong_for` returns the kind's badge color so
+    /// `**bold**` markdown spans match the badge in the header.
+    #[test]
+    fn hover_strong_for_matches_kind_badge() {
+        for k in [
+            HoverKind::Parameter,
+            HoverKind::Event,
+            HoverKind::Function,
+            HoverKind::Type,
+            HoverKind::Field,
+        ] {
+            assert_eq!(Theme::hover_strong_for(k), Theme::hover_badge(k));
+        }
+    }
+}

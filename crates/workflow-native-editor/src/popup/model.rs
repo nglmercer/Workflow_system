@@ -12,8 +12,6 @@
 //! colors.
 
 use super::type_parser::TypeParser;
-use eframe::egui::Color32;
-use crate::theme::Theme;
 
 // ---------------------------------------------------------------------------
 // HoverKind
@@ -408,6 +406,8 @@ fn find_pair(chars: &[char], from: usize, a: char, b: char) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
+    use eframe::egui::Color32;
+    use crate::theme::Theme;
     use super::*;
 
     #[test]
@@ -516,6 +516,72 @@ mod tests {
             colors.len() >= kinds.len() - 1,
             "badges should be visually distinct"
         );
+    }
+
+    #[test]
+    fn every_hover_kind_has_a_badge_label() {
+        let kinds = [
+            HoverKind::Parameter,
+            HoverKind::Event,
+            HoverKind::Variable,
+            HoverKind::Function,
+            HoverKind::Type,
+            HoverKind::Field,
+            HoverKind::Error,
+            HoverKind::Warning,
+            HoverKind::Doc,
+            HoverKind::Test,
+        ];
+        for k in kinds {
+            assert!(!k.badge().is_empty(), "empty badge for {:?}", k);
+            assert!(k.badge().starts_with('@'), "badge {:?} should start with @", k);
+        }
+    }
+
+    #[test]
+    fn every_hover_kind_has_a_single_glyph() {
+        let kinds = [
+            HoverKind::Parameter,
+            HoverKind::Event,
+            HoverKind::Variable,
+            HoverKind::Function,
+            HoverKind::Type,
+            HoverKind::Field,
+            HoverKind::Error,
+            HoverKind::Warning,
+            HoverKind::Doc,
+            HoverKind::Test,
+        ];
+        for k in kinds {
+            let g = k.glyph();
+            assert_eq!(g.chars().count(), 1, "glyph {:?} not 1 char", k);
+        }
+    }
+
+    #[test]
+    fn every_hover_kind_has_a_non_empty_doc() {
+        let kinds = [
+            HoverKind::Parameter,
+            HoverKind::Event,
+            HoverKind::Variable,
+            HoverKind::Function,
+            HoverKind::Type,
+            HoverKind::Field,
+            HoverKind::Error,
+            HoverKind::Warning,
+            HoverKind::Doc,
+            HoverKind::Test,
+        ];
+        for k in kinds {
+            let d = k.doc().expect("kind must provide a doc");
+            assert!(d.ends_with('.'), "doc for {:?} should end with a period", k);
+        }
+    }
+
+    #[test]
+    fn test_kind_uses_test_badge_and_glyph() {
+        assert_eq!(HoverKind::Test.badge(), "@test");
+        assert_eq!(HoverKind::Test.glyph(), "✓");
     }
 
     #[test]
