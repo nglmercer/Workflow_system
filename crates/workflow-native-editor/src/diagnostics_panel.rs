@@ -11,10 +11,9 @@
 //! it in the editor's status bar. Returning `None` means the user
 //! did not interact with the panel this frame.
 
+use workflow_i18n::t as i18n_t;
 use eframe::egui::{self, Color32, RichText, ScrollArea};
 use workflow_lsp::features::{Diagnostic, DiagnosticSeverity};
-
-const MAX_HEIGHT: f32 = 100.0;
 
 /// Render the diagnostics panel. Returns a status-bar message
 /// describing the result of any user action this frame (currently
@@ -27,9 +26,10 @@ pub fn show(ctx: &egui::Context, diagnostics: &[Diagnostic]) -> Option<String> {
     egui::TopBottomPanel::bottom("diagnostics")
         .resizable(true)
         .default_height(100.0)
+        .min_height(40.0)
         .show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Problems").strong());
+            ui.label(RichText::new(i18n_t("diagnostics.title")).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                 if ui
                     .add(
@@ -49,7 +49,7 @@ pub fn show(ctx: &egui::Context, diagnostics: &[Diagnostic]) -> Option<String> {
             });
         });
         ScrollArea::vertical()
-            .max_height(MAX_HEIGHT)
+            .auto_shrink([false; 2])
             .show(ui, |ui| {
                 for diag in diagnostics {
                     render_row(ui, diag);

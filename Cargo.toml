@@ -11,6 +11,7 @@ members = [
     "crates/workflow-lsp",
     "crates/workflow-native-editor",
     "crates/workflow-test-runner",
+    "crates/workflow-i18n",
 ]
 
 [workspace.package]
@@ -36,6 +37,8 @@ js-sys = "0.3"
 web-sys = { version = "0.3", features = ["console"] }
 pest = "2"
 pest_derive = "2"
+rust-i18n = "3"
+ignore = "0.4"
 
 [profile.release]
 lto = "thin"

@@ -29,10 +29,13 @@ use workflow_lsp::features::{self, Diagnostic};
 use workflow_lsp::ServerState;
 
 use super::completion::{self, CompletionState};
-use super::cursor::{self, column_at_x, cursor_screen_pos, row_at_y, CursorPosition};
+use super::cursor::{self, char_to_line_col, column_at_x, cursor_screen_pos, row_at_y, CursorPosition};
 use super::diagnostics_panel;
 use super::file_browser;
 use super::file_io;
+#[cfg(not(target_arch = "wasm32"))]
+use super::search_in_files::{SearchInFilesEvent, SearchInFilesState};
+use super::find_bar::{self, FindState};
 use super::folding;
 use super::gutter;
 use super::history::{History, Snapshot};
@@ -44,6 +47,7 @@ use super::recent::RecentList;
 use super::shortcuts_window;
 use super::snippet::PendingSnippet;
 use super::test_panel;
+use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 
 pub struct EditorApp {
     text: String,
@@ -126,6 +130,12 @@ pub struct EditorApp {
     /// included so the panel can render the button without
     /// lying.
     test_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// Find bar state. Opened by Ctrl+F, closed by Escape.
+    find: FindState,
+    /// Global "find in files" panel. Desktop-only because the
+    /// `ignore` walker is not designed for `wasm32-unknown-unknown`.
+    #[cfg(not(target_arch = "wasm32"))]
+    search_in_files: SearchInFilesState,
 }
 
 const EXAMPLE_PROGRAM: &str = r#"workflow "Native Example" {
@@ -180,6 +190,9 @@ impl Default for EditorApp {
             tests_running: false,
             test_receiver: None,
             test_cancel: None,
+            find: FindState::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            search_in_files: SearchInFilesState::default(),
         }
     }
 }
@@ -202,11 +215,14 @@ impl eframe::App for EditorApp {
                 let title = self.title_label();
                 ui.label(RichText::new(title).strong());
                 ui.separator();
-                ui.label(format!("Ln {}, Col {}", self.cursor.line, self.cursor.col));
+                ui.label(i18n_tf("app.status_position", &[
+                    ("line", &self.cursor.line.to_string()),
+                    ("col", &self.cursor.col.to_string()),
+                ]));
                 ui.separator();
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                    if ui.button(RichText::new("Clear").small()).clicked() {
+                    if ui.button(RichText::new(i18n_t("toolbar.clear")).small()).clicked() {
                         self.history
                             .snapshot(self.snapshot(ctx))
                             .commit_structural();
@@ -215,18 +231,18 @@ impl eframe::App for EditorApp {
                         self.dirty = true;
                         self.frame_start = Some(self.snapshot(ctx));
                     }
-                    if ui.button(RichText::new("Shortcuts (F1)").small()).clicked() {
+                    if ui.button(RichText::new(i18n_t("toolbar.shortcuts")).small()).clicked() {
                         self.shortcuts_open = !self.shortcuts_open;
                     }
-                    if ui.button(RichText::new("Save (Ctrl+S)").small()).clicked() {
+                    if ui.button(RichText::new(i18n_t("toolbar.save")).small()).clicked() {
                         self.save_current();
                     }
-                    if ui.button(RichText::new("Open… (Ctrl+O)").small()).clicked() {
+                    if ui.button(RichText::new(i18n_t("toolbar.open")).small()).clicked() {
                         // Defer the dialog so it runs at the top of
                         // the next frame, outside the egui borrow.
                         self.pending_open_dialog = true;
                     }
-                    if ui.button(RichText::new("Close Project").small()).clicked() {
+                    if ui.button(RichText::new(i18n_t("toolbar.close_project")).small()).clicked() {
                         self.close_project(ctx);
                     }
                 });
@@ -249,7 +265,7 @@ impl eframe::App for EditorApp {
                 });
                 for path in dropped {
                     if let Err(e) = self.load_path_into_editor(&path) {
-                        self.status = format!("Open failed: {}", e);
+                        self.status = i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
                     }
                 }
             });
@@ -260,7 +276,7 @@ impl eframe::App for EditorApp {
             // file in the current directory.
             if let Some(picked) = file_browser::show(ctx, self.file_path.as_deref()) {
                 if let Err(e) = self.load_path_into_editor(&picked) {
-                    self.status = format!("Open failed: {}", e);
+                    self.status = i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
                 }
             }
             egui::CentralPanel::default().show(ctx, |ui| {
@@ -274,7 +290,7 @@ impl eframe::App for EditorApp {
                 });
                 for path in dropped {
                     if let Err(e) = self.load_path_into_editor(&path) {
-                        self.status = format!("Open failed: {}", e);
+                        self.status = i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
                     }
                 }
             });
@@ -282,6 +298,33 @@ impl eframe::App for EditorApp {
 
         if let Some(msg) = diagnostics_panel::show(ctx, &self.diagnostics) {
             self.status = msg;
+        }
+
+        // Show the find bar if open.
+        if self.find.open {
+            egui::TopBottomPanel::bottom("find_bar").show(ctx, |ui| {
+                let action = find_bar::show(ui, &mut self.find);
+                match action {
+                    find_bar::FindAction::Close => self.find.close(),
+                    find_bar::FindAction::Next => {
+                        self.find.next_match();
+                        self.jump_to_current_match();
+                    }
+                    find_bar::FindAction::Previous => {
+                        self.find.prev_match();
+                        self.jump_to_current_match();
+                    }
+                    find_bar::FindAction::QueryChanged => {
+                        self.find.update_matches(&self.text);
+                        self.jump_to_current_match();
+                    }
+                    find_bar::FindAction::ToggleCase => {
+                        self.find.toggle_case_sensitive(&self.text);
+                        self.jump_to_current_match();
+                    }
+                    find_bar::FindAction::None => {}
+                }
+            });
         }
 
         // Drain any test result that arrived from the background
@@ -311,6 +354,25 @@ impl eframe::App for EditorApp {
             self.status = m;
         }
 
+        // Drain any pending results from the global search
+        // worker. The poll is cheap (a non-blocking mpsc
+        // `try_recv`) so we do it every frame.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.search_in_files.poll() {
+                ctx.request_repaint();
+            }
+            if let Some(event) = super::search_in_files::show(ctx, &mut self.search_in_files) {
+                match event {
+                    SearchInFilesEvent::OpenMatch(idx) => {
+                        if let Some(m) = self.search_in_files.results.get(idx).cloned() {
+                            self.open_search_result(ctx, m.clone());
+                        }
+                    }
+                }
+            }
+        }
+
         if self.completion.visible && !self.completion.items.is_empty() {
             if let Some(idx) = popup::show_completion(
                 ctx,
@@ -331,6 +393,125 @@ impl eframe::App for EditorApp {
 }
 
 impl EditorApp {
+    /// Move the text cursor to the start of the current find match,
+    /// if any, and request a repaint so the editor scrolls there.
+    fn jump_to_current_match(&mut self) {
+        if let Some((start, _)) = self.find.current_range() {
+            let (line, col) = char_to_line_col(&self.text, start);
+            self.cursor = CursorPosition::new(line, col);
+        }
+    }
+
+    /// Open a file from a global-search result and position the
+    /// cursor on the matching line. If the result is already in
+    /// the current buffer we just move the cursor.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_search_result(&mut self, _ctx: &egui::Context, m: super::search_in_files::FileMatch) {
+        let already_open = self
+            .file_path
+            .as_deref()
+            .map(|p| p == m.path.as_path())
+            .unwrap_or(false);
+        if !already_open {
+            if let Err(e) = self.load_path_into_editor(&m.path) {
+                self.status = i18n_tf(
+                    "app.status_open_failed",
+                    &[("error", &e.to_string())],
+                );
+                return;
+            }
+        }
+        let target = m.line.min(1);
+        self.cursor = CursorPosition::new(target, m.col);
+        self.find.open(None);
+        self.find.query = self.search_in_files.query.clone();
+        self.find.update_matches(&self.text);
+    }
+    /// Paint translucent rectangles over the editor for every visible
+    /// find match in the current galley. Returns the rect of the
+    /// current match so the caller can scroll the editor there.
+    fn paint_find_highlights(
+        &self,
+        ui: &egui::Ui,
+        galley: &Arc<egui::Galley>,
+        editor_rect: Rect,
+    ) -> Option<Rect> {
+        if !self.find.open || self.find.match_offsets.is_empty() {
+            return None;
+        }
+        let source_to_display = folding::source_to_display_map(&self.text, &self.collapsed);
+        let mut current_rect: Option<Rect> = None;
+        for (idx, (start, end)) in self.find.match_offsets.iter().enumerate() {
+            let (line, _col_start) = char_to_line_col(&self.text, *start);
+            let (line_end, _col_end) = char_to_line_col(&self.text, *end);
+            if line_end != line {
+                // Skip multi-line matches for now; they would split
+                // the highlight across rows and complicate the
+                // visual.
+                continue;
+            }
+            let display_line = match source_to_display.get(line.saturating_sub(1)) {
+                Some(&dl) if dl == usize::MAX => continue, // inside a collapsed fold
+                Some(&dl) => dl,
+                None => continue,
+            };
+            if display_line >= galley.rows.len() {
+                continue;
+            }
+            let row = &galley.rows[display_line];
+            let col_start = cursor::column_at_x(galley, display_line, row.rect.min.x).min(0);
+            // Use the char index in the display row, computed from the
+            // source byte offset. We approximate by computing the
+            // column via the row's leading whitespace (line's
+            // start) and the byte offset within the line.
+            let line_byte_start: usize = self
+                .text
+                .lines()
+                .take(line.saturating_sub(1))
+                .map(|l| l.len() + 1)
+                .sum();
+            let col_in_line_start = start.saturating_sub(line_byte_start);
+            let col_in_line_end = end.saturating_sub(line_byte_start);
+            let row_start_x = row.rect.min.x;
+            // Use cursor_screen_pos to find the left edge of the row,
+            // then step per character.
+            let left_pos = cursor::cursor_screen_pos(
+                galley,
+                editor_rect,
+                display_line,
+                col_in_line_start,
+            );
+            let right_pos = cursor::cursor_screen_pos(
+                galley,
+                editor_rect,
+                display_line,
+                col_in_line_end,
+            );
+            let mut rect = egui::Rect::from_min_max(left_pos, right_pos);
+            // Make sure the rect has a sensible height even for empty
+            // matches.
+            if rect.height() < LINE_HEIGHT {
+                rect = egui::Rect::from_min_size(
+                    rect.min,
+                    egui::Vec2::new(rect.width().max(2.0), LINE_HEIGHT),
+                );
+            }
+            let _ = col_start;
+            let _ = row_start_x;
+            let color = if idx == self.find.current_match {
+                egui::Color32::from_rgba_unmultiplied(255, 220, 0, 90)
+            } else {
+                egui::Color32::from_rgba_unmultiplied(255, 220, 0, 40)
+            };
+            let painter = ui.painter_at(editor_rect);
+            painter.rect_filled(rect, 0.0, color);
+            if idx == self.find.current_match {
+                current_rect = Some(rect);
+            }
+        }
+        current_rect
+    }
+
     fn render_editor(&mut self, ctx: &egui::Context, ui: &mut Ui) {
         // Save the *pre-edit* state once per frame so we can push it
         // to the undo stack if the user typed.
@@ -495,6 +676,10 @@ impl EditorApp {
 
                     self.update_hover(response.rect, &galley, response.hover_pos());
 
+                    if let Some(current_rect) = self.paint_find_highlights(ui, &galley, response.rect) {
+                        ui.scroll_to_rect(current_rect, Some(egui::Align::Center));
+                    }
+
                     if !response.changed() {
                         self.frame_start = Some(post_edit);
                     }
@@ -505,6 +690,14 @@ impl EditorApp {
     /// Run the global key handlers, then apply the result to editor
     /// state.
     fn handle_global_keys(&mut self, ctx: &egui::Context) {
+        // When the find bar is open, Escape closes it.
+        if self.find.open && shortcuts_window::esc_pressed(ctx) {
+            self.find.close();
+            ctx.input_mut(|i| {
+                let _ = i.count_and_consume_key(egui::Modifiers::default(), egui::Key::Escape);
+            });
+            return;
+        }
         // When the shortcuts window is open, swallow `Esc` so it
         // closes the window instead of cancelling a snippet or
         // dismissing the completion popup.
@@ -525,7 +718,7 @@ impl EditorApp {
         // Surface the pending chord in the status bar so the user
         // knows the keymap is waiting for a second key.
         if let Some(pending) = self.keymap.pending() {
-            self.status = format!("…{}", pending_chord_label(pending));
+            self.status = i18n_tf("app.status_chord_pending", &[("label", &pending_chord_label(pending))]);
         } else if matches!(command, Command::None) {
             // Don't clobber an existing status message just because
             // the user hit an unrelated key.
@@ -566,10 +759,11 @@ impl EditorApp {
                 self.pending_open_dialog = true;
             }
             Command::Find => {
-                self.status = "Find: not implemented yet (Ctrl+F)".to_string();
+                self.find.open(None);
+                self.find.update_matches(&self.text);
             }
             Command::GotoLine => {
-                self.status = "Go to line: not implemented yet (Ctrl+G)".to_string();
+                self.status = i18n_t("goto.not_implemented");
             }
             Command::ShowShortcuts => {
                 self.shortcuts_open = !self.shortcuts_open;
@@ -585,6 +779,15 @@ impl EditorApp {
             Command::UnfoldAll => self.collapsed.clear(),
             Command::RunTests => self.run_tests(),
             Command::GotoDefinition => self.goto_definition_at_cursor(),
+            #[cfg(not(target_arch = "wasm32"))]
+            Command::SearchInFiles => {
+                let default_root = self
+                    .file_path
+                    .as_deref()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.to_path_buf());
+                self.search_in_files.open(default_root);
+            }
         }
     }
 
@@ -844,7 +1047,7 @@ impl EditorApp {
         }
         let current = lines[line_idx];
         self.insert_text(ctx, format!("\n{}", current));
-        self.status = format!("Duplicated line {}", self.cursor.line);
+        self.status = i18n_tf("app.status_duplicated_line", &[("line", &self.cursor.line.to_string())]);
     }
 
     /// Delete the cursor's line. The line and its trailing newline
@@ -946,19 +1149,19 @@ impl EditorApp {
                 if entry.is_user_defined {
                     // Try to find the source file from the import statements
                     if let Some(source_path) = self.find_import_source(&word) {
-                        self.status = format!("Opening: {}", source_path);
+                        self.status = i18n_tf("app.status_opening", &[("path", &source_path)]);
                         // Open the source file
                         if let Ok(path) = std::path::Path::new(&source_path).canonicalize() {
                             if let Err(e) = self.load_path_into_editor(&path) {
-                                self.status = format!("Failed to open: {}", e);
+                                self.status = i18n_tf("app.status_failed_to_open", &[("error", &e.to_string())]);
                             }
                         } else {
-                            self.status = format!("File not found: {}", source_path);
+                            self.status = i18n_tf("app.status_file_not_found", &[("path", &source_path)]);
                         }
                         return;
                     }
                 }
-                self.status = format!("Function '{}' is a built-in", word);
+                self.status = i18n_tf("app.status_function_builtin", &[("name", &word)]);
                 return;
             }
 
@@ -966,12 +1169,12 @@ impl EditorApp {
             if inference.functions.contains_key(&word) {
                 // For local functions, we could jump to the function definition
                 // For now, just show a status message
-                self.status = format!("Local function: {}", word);
+                self.status = i18n_tf("app.status_function_local", &[("name", &word)]);
                 return;
             }
         }
 
-        self.status = format!("No definition found for '{}'", word);
+        self.status = i18n_tf("app.status_no_definition", &[("name", &word)]);
     }
 
     /// Extract the word at the given column position in a line.
@@ -1045,7 +1248,7 @@ impl EditorApp {
                 }
             }
             None => {
-                self.status = "No fold region on this line".to_string();
+                self.status = i18n_t("app.status_no_fold");
             }
         }
     }
@@ -1143,7 +1346,7 @@ impl EditorApp {
         });
         self.test_receiver = Some(rx);
         self.tests_running = true;
-        self.status = "Running tests…".to_string();
+        self.status = i18n_t("app.status_running_tests");
     }
 
     /// Called by the test panel's Cancel button. We don't
@@ -1154,7 +1357,7 @@ impl EditorApp {
         if let Some(flag) = &self.test_cancel {
             flag.store(true, std::sync::atomic::Ordering::SeqCst);
         }
-        self.status = "Cancel requested (will finish current test)".to_string();
+        self.status = i18n_t("app.status_cancel_requested");
     }
 
     /// Drain the test result channel. Called once per frame.
@@ -1188,11 +1391,11 @@ impl EditorApp {
         match dialog.pick_file() {
             Some(path) => {
                 if let Err(e) = self.load_path_into_editor(&path) {
-                    self.status = format!("Open failed: {}", e);
+                    self.status = i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
                 }
             }
             None => {
-                self.status = "Open cancelled".to_string();
+                self.status = i18n_t("app.status_open_cancelled");
             }
         }
     }
@@ -1223,7 +1426,7 @@ impl EditorApp {
         self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
         self.cursor = CursorPosition::new(1, 1);
         self.home_open = false;
-        self.status = format!("Opened {}", path.display());
+        self.status = i18n_tf("app.status_opened", &[("path", &path.display().to_string())]);
         // Record this open in the recents list. We do the file
         // I/O here rather than on every keystroke; the home screen
         // is the only consumer and the list is capped at 10.
@@ -1231,7 +1434,7 @@ impl EditorApp {
         if let Err(e) = self.recents.save() {
             // Recents persistence is best-effort: log to status
             // but don't undo the file open.
-            self.status = format!("Opened {} (recents save failed: {})", path.display(), e);
+            self.status = i18n_tf("app.status_opened_recents_failed", &[("path", &path.display().to_string()), ("error", &e.to_string())]);
         }
         Ok(())
     }
@@ -1244,10 +1447,10 @@ impl EditorApp {
             Some(path) => match file_io::save_to_path(&path, &self.text) {
                 Ok(saved) => {
                     self.dirty = false;
-                    self.status = format!("Saved {}", saved.display());
+                    self.status = i18n_tf("app.status_saved", &[("path", &saved.display().to_string())]);
                 }
                 Err(e) => {
-                    self.status = format!("Save failed: {}", e);
+                    self.status = i18n_tf("app.status_save_failed", &[("error", &e.to_string())]);
                 }
             },
             None => self.save_as_dialog(),
@@ -1266,7 +1469,7 @@ impl EditorApp {
         let chosen = match dialog.save_file() {
             Some(p) => p,
             None => {
-                self.status = "Save cancelled".to_string();
+                self.status = i18n_t("app.status_save_cancelled");
                 return;
             }
         };
@@ -1275,10 +1478,10 @@ impl EditorApp {
                 self.file_path = Some(saved.clone());
                 self.uri = file_io::path_to_uri(&saved);
                 self.dirty = false;
-                self.status = format!("Saved {}", saved.display());
+                self.status = i18n_tf("app.status_saved", &[("path", &saved.display().to_string())]);
             }
             Err(e) => {
-                self.status = format!("Save failed: {}", e);
+                self.status = i18n_tf("app.status_save_failed", &[("error", &e.to_string())]);
             }
         }
     }
@@ -1298,7 +1501,7 @@ impl EditorApp {
             }
             HomeAction::OpenPath(path) => {
                 if let Err(e) = self.load_path_into_editor(&path) {
-                    self.status = format!("Open failed: {}", e);
+                    self.status = i18n_tf("app.status_open_failed", &[("error", &e.to_string())]);
                 }
             }
         }
@@ -1322,7 +1525,7 @@ impl EditorApp {
         self.lsp.update_document(&self.uri, &self.text);
         self.cursor = CursorPosition::new(1, 1);
         self.home_open = false;
-        self.status = "New file".to_string();
+        self.status = i18n_t("app.status_new_file");
         self.frame_start = Some(self.snapshot(ctx));
     }
 
@@ -1341,7 +1544,7 @@ impl EditorApp {
         self.collapsed.clear();
         self.diagnostics.clear();
         self.home_open = true;
-        self.status = "Closed project".to_string();
+        self.status = i18n_t("app.status_closed_project");
         let _ = ctx;
     }
 }

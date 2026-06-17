@@ -12,9 +12,8 @@
 //! machine — the integration glue lives in `app.rs`.
 
 use eframe::egui::{self, Color32, RichText, ScrollArea};
+use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 use workflow_test_runner::RunReport;
-
-const MAX_HEIGHT: f32 = 140.0;
 
 /// Render the test panel. Returns a status-bar message describing
 /// the result of any user action this frame (currently "Copied N
@@ -30,14 +29,15 @@ pub fn show(
     egui::TopBottomPanel::bottom("test_panel")
         .resizable(true)
         .default_height(140.0)
+        .min_height(60.0)
         .show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Tests").strong());
+            ui.label(RichText::new(i18n_t("test_panel.title")).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                 if running {
                     if ui
                         .add(
-                            egui::Button::new(RichText::new("Cancel").small())
+                            egui::Button::new(RichText::new(i18n_t("test_panel.cancel")).small())
                                 .rounding(4.0),
                         )
                         .clicked()
@@ -46,7 +46,7 @@ pub fn show(
                     }
                 } else if ui
                     .add(
-                        egui::Button::new(RichText::new("Run").small())
+                        egui::Button::new(RichText::new(i18n_t("test_panel.run")).small())
                             .rounding(4.0),
                     )
                     .clicked()
@@ -57,7 +57,7 @@ pub fn show(
                     if !running && !r.tests.is_empty() {
                         if ui
                             .add(
-                                egui::Button::new(RichText::new("Copy").small())
+                                egui::Button::new(RichText::new(i18n_t("diagnostics.copy")).small())
                                     .rounding(4.0),
                             )
                             .clicked()
@@ -76,7 +76,7 @@ pub fn show(
         });
 
         ScrollArea::vertical()
-            .max_height(MAX_HEIGHT)
+            .auto_shrink([false; 2])
             .show(ui, |ui| {
                 if running {
                     ui.label(RichText::new("Running…").italics());
@@ -85,7 +85,7 @@ pub fn show(
                 match report {
                     None => {
                         ui.label(
-                            RichText::new("Press Run (or Ctrl+T) to execute tests in this file.")
+                            RichText::new(i18n_t("test_panel.idle_hint"))
                                 .weak(),
                         );
                     }
@@ -98,7 +98,7 @@ pub fn show(
 
 fn render_report(ui: &mut egui::Ui, report: &RunReport) {
     if report.tests.is_empty() {
-        ui.label(RichText::new("No tests in this file.").weak());
+        ui.label(RichText::new(i18n_t("test_panel.no_tests")).weak());
         return;
     }
     for t in &report.tests {
@@ -106,9 +106,12 @@ fn render_report(ui: &mut egui::Ui, report: &RunReport) {
     }
     ui.separator();
     ui.label(
-        RichText::new(format!(
-            "{} passed · {} failed",
-            report.passed, report.failed
+        RichText::new(i18n_tf(
+            "test_panel.summary",
+            &[
+                ("passed", &report.passed.to_string()),
+                ("failed", &report.failed.to_string()),
+            ],
         ))
         .strong(),
     );

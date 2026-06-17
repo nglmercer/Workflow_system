@@ -4,6 +4,7 @@ mod cursor;
 mod diagnostics_panel;
 mod file_browser;
 mod file_io;
+mod find_bar;
 mod folding;
 mod gutter;
 mod highlight;
@@ -13,6 +14,8 @@ mod keybindings;
 mod layouter;
 mod popup;
 mod recent;
+#[cfg(not(target_arch = "wasm32"))]
+mod search_in_files;
 mod shortcuts_window;
 mod snippet;
 mod test_panel;
@@ -21,6 +24,27 @@ use app::EditorApp;
 use eframe::egui;
 
 fn main() -> eframe::Result<()> {
+    // Test hook: `--print-locale` resolves the i18n locale
+    // (from CLI flag, then `LANG`/`LC_*` env vars, then `en`)
+    // and prints it to stdout, then exits. Used by CI to assert
+    // that locale resolution is wired correctly without booting
+    // the GUI event loop.
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        if arg == "--print-locale" {
+            let locale = workflow_i18n::init();
+            println!("{}", locale);
+            return Ok(());
+        }
+        if arg == "--locale" {
+            let value = args.next().unwrap_or_default();
+            let locale = workflow_i18n::init_with(&value);
+            println!("{}", locale);
+            return Ok(());
+        }
+    }
+    workflow_i18n::init();
+
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1200.0, 800.0])

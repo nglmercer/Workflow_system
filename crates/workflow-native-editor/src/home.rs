@@ -21,6 +21,7 @@ use std::path::PathBuf;
 use eframe::egui::{self, RichText, ScrollArea};
 
 use super::recent::RecentList;
+use workflow_i18n::t as i18n_t;
 
 /// Action the user took on the home screen. The editor handles
 /// each variant in its central `update` loop.
@@ -42,7 +43,7 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
             ui.vertical_centered(|ui| {
                 ui.add_space(80.0);
                 ui.label(
-                    RichText::new("Open a workflow file to start editing")
+                    RichText::new(i18n_t("home.drop_hint"))
                         .italics()
                         .weak(),
                 );
@@ -50,7 +51,7 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
                 ui.horizontal(|ui| {
                     if ui
                         .add(
-                            egui::Button::new(RichText::new("Open File…").size(14.0))
+                            egui::Button::new(RichText::new(i18n_t("home.open")).size(14.0))
                                 .rounding(4.0),
                         )
                         .clicked()
@@ -60,7 +61,7 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
                     ui.add_space(8.0);
                     if ui
                         .add(
-                            egui::Button::new(RichText::new("New File").size(14.0))
+                            egui::Button::new(RichText::new(i18n_t("home.new_file")).size(14.0))
                                 .rounding(4.0),
                         )
                         .clicked()
@@ -70,9 +71,9 @@ pub fn show(ui: &mut egui::Ui, recents: &RecentList) -> Option<HomeAction> {
                 });
                 ui.add_space(32.0);
                 if recents.entries().is_empty() {
-                    ui.label(RichText::new("No recent files").small().weak());
+                    ui.label(RichText::new(i18n_t("home.no_recents")).small().weak());
                 } else {
-                    ui.label(RichText::new("Recent").strong());
+                    ui.label(RichText::new(i18n_t("home.recents")).strong());
                     ui.add_space(6.0);
                     let max_height = 240.0;
                     ScrollArea::vertical()
