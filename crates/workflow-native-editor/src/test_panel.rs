@@ -14,6 +14,7 @@
 use eframe::egui::{self, Color32, RichText, ScrollArea};
 use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 use workflow_test_runner::RunReport;
+use crate::theme::Theme;
 
 /// Render the test panel. Returns a status-bar message describing
 /// the result of any user action this frame (currently "Copied N
@@ -138,16 +139,16 @@ fn render_test_row(ui: &mut egui::Ui, t: &workflow_test_runner::TestReport) {
                 a.actual,
                 a.expected
             ))
-            .color(Color32::from_rgb(255, 80, 80)),
+            .color(Theme::test_pass(false)),
         );
     }
 }
 
 fn style_for_pass(passed: bool) -> (Color32, &'static str) {
     if passed {
-        (Color32::from_rgb(80, 200, 120), "✓")
+        (Theme::test_pass(true), "✓")
     } else {
-        (Color32::from_rgb(255, 80, 80), "✗")
+        (Theme::test_pass(false), "✗")
     }
 }
 

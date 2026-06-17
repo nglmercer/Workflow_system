@@ -4,7 +4,8 @@
 //! `clamp_to_screen` keeps a proposed rect from drifting off the edge
 //! of the window when the editor is resized.
 
-use eframe::egui::{self, epaint, Color32, Frame, Margin, Rect, Rounding, Vec2};
+use eframe::egui::{self, epaint, Frame, Margin, Rect, Rounding, Vec2};
+use crate::theme::Theme;
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -33,7 +34,7 @@ pub(crate) fn popup_frame(ctx: &egui::Context) -> Frame {
             offset: Vec2::new(0.0, 3.0),
             blur: 14.0,
             spread: 0.0,
-            color: Color32::from_black_alpha(140),
+            color: Theme::POPUP_SHADOW,
         })
 }
 

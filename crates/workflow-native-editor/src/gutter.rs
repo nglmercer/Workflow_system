@@ -11,6 +11,7 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, Vec2};
 
 use super::folding::{self, FoldKind, FoldRegion};
 use super::layouter::LINE_HEIGHT;
+use crate::theme::{fold_chevron, fold_kind_label, Theme};
 
 /// Paint line numbers and fold chevrons into the given `rect`.
 ///
@@ -124,12 +125,9 @@ fn draw_chevron(ctx: &mut ChevronContext<'_>, y: f32, row_height: f32, region: &
     let response = ctx.ui.interact(chevron_rect, id, egui::Sense::click());
     let is_collapsed = ctx.collapsed.contains(&region.start_line);
     let glyph = if is_collapsed { "▶" } else { "▼" };
-    let base_color = match region.kind {
-        FoldKind::Function => Color32::from_rgb(120, 180, 255),
-        FoldKind::Workflow => Color32::from_rgb(255, 180, 120),
-    };
+    let base_color = fold_chevron(fold_kind_label(region.kind));
     let color = if response.hovered() {
-        Color32::from_gray(240)
+        Theme::gutter_text_hover()
     } else {
         base_color
     };

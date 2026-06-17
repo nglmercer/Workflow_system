@@ -9,6 +9,7 @@ use eframe::egui::{
     Vec2,
 };
 use workflow_lsp::features::{Completion, CompletionKind};
+use crate::theme::Theme;
 
 use super::layout::{
     clamp_to_screen, popup_frame, COMPLETION_MAX_HEIGHT, COMPLETION_ROW_HEIGHT, COMPLETION_WIDTH,
@@ -90,7 +91,7 @@ fn render_completion_row(ui: &mut Ui, item: &Completion, selected: bool, height:
             .rect_stroke(rect.shrink(0.5), Rounding::same(3.0), stroke);
     }
 
-    let accent = color_for_kind(item.kind);
+    let accent = Theme::completion(item.kind);
     let glyph = kind_glyph(item.kind);
     let indent = 8.0;
     let has_detail = item.detail.is_some();
@@ -148,14 +149,3 @@ fn kind_glyph(kind: CompletionKind) -> &'static str {
     }
 }
 
-fn color_for_kind(kind: CompletionKind) -> Color32 {
-    match kind {
-        CompletionKind::Keyword => Color32::from_rgb(200, 120, 255),
-        CompletionKind::Function => Color32::from_rgb(100, 200, 255),
-        CompletionKind::Variable => Color32::from_rgb(220, 220, 220),
-        CompletionKind::Value => Color32::from_rgb(180, 220, 120),
-        CompletionKind::Property => Color32::from_rgb(255, 200, 100),
-        CompletionKind::Field => Color32::from_rgb(150, 220, 200),
-        CompletionKind::File => Color32::from_rgb(160, 180, 220),
-    }
-}

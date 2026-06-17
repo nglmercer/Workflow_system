@@ -14,6 +14,7 @@
 //! caller polls [`esc_pressed`] to close on `Esc`.
 
 use eframe::egui::{self, Color32, FontId, RichText, ScrollArea, Vec2};
+use crate::theme::Theme;
 use workflow_i18n::t as i18n_t;
 
 use super::keybindings::Keymap;
@@ -58,7 +59,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool, keymap: &Keymap) {
                                 RichText::new(label)
                                     .monospace()
                                     .font(FontId::monospace(13.0))
-                                    .color(Color32::from_rgb(220, 220, 255)),
+                                    .color(Theme::chord_label()),
                             );
                             ui.label(cmd);
                             ui.end_row();

@@ -11,9 +11,9 @@
 //! classify the rest by content, and let the renderer apply the
 //! colors.
 
-use eframe::egui::Color32;
-
 use super::type_parser::TypeParser;
+use eframe::egui::Color32;
+use crate::theme::Theme;
 
 // ---------------------------------------------------------------------------
 // HoverKind
@@ -51,19 +51,21 @@ impl HoverKind {
         }
     }
 
-    /// Color for the badge background and text.
-    pub(crate) fn badge_color(&self) -> Color32 {
-        match self {
-            Self::Parameter => Color32::from_rgb(70, 130, 200),
-            Self::Event => Color32::from_rgb(200, 130, 60),
-            Self::Variable => Color32::from_rgb(130, 170, 90),
-            Self::Function => Color32::from_rgb(160, 100, 200),
-            Self::Type => Color32::from_rgb(80, 170, 170),
-            Self::Field => Color32::from_rgb(200, 170, 80),
-            Self::Error => Color32::from_rgb(190, 60, 60),
-            Self::Warning => Color32::from_rgb(200, 160, 50),
-            Self::Doc => Color32::from_rgb(110, 110, 130),
-        }
+    /// One-sentence doc for the kind, surfaced as a muted italic
+    /// line in the hover body.
+    #[allow(dead_code)]
+    pub(crate) fn doc(&self) -> Option<&'static str> {
+        Some(match self {
+            Self::Parameter => "A workflow parameter bound to the event trigger.",
+            Self::Event => "An event this workflow listens for or emits.",
+            Self::Variable => "A local or imported variable in scope.",
+            Self::Function => "A callable function (built-in or user-defined).",
+            Self::Type => "A type expression from the workflow type DSL.",
+            Self::Field => "A field on a record/object type.",
+            Self::Error => "An error diagnostic surfaced by the LSP or the engine.",
+            Self::Warning => "A warning diagnostic (deprecated usage, likely bug, etc.).",
+            Self::Doc => "A documentation entry — for symbols with no better kind.",
+        })
     }
 
     /// Glyph prefix shown before the title (monospace, colored).
@@ -503,7 +505,7 @@ mod tests {
             HoverKind::Warning,
             HoverKind::Doc,
         ];
-        let mut colors: Vec<Color32> = kinds.iter().map(|k| k.badge_color()).collect();
+        let mut colors: Vec<Color32> = kinds.iter().map(|k| Theme::hover_badge(*k)).collect();
         colors.dedup();
         assert!(
             colors.len() >= kinds.len() - 1,

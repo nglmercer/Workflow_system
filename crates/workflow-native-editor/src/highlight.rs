@@ -1,7 +1,8 @@
 use eframe::egui::Color32;
 use std::collections::HashSet;
+use crate::theme::Theme;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum TokenKind {
     Keyword,
     String,
@@ -150,14 +151,5 @@ pub fn tokenize_line(line: &str, known_functions: &HashSet<String>) -> Vec<Token
 }
 
 pub fn token_color(kind: TokenKind) -> Color32 {
-    match kind {
-        TokenKind::Keyword => Color32::from_rgb(200, 120, 255),
-        TokenKind::String => Color32::from_rgb(180, 220, 120),
-        TokenKind::Number => Color32::from_rgb(255, 180, 100),
-        TokenKind::Comment => Color32::from_gray(100),
-        TokenKind::Function => Color32::from_rgb(100, 200, 255),
-        TokenKind::Operator => Color32::from_rgb(255, 120, 120),
-        TokenKind::Punctuation => Color32::from_gray(180),
-        TokenKind::Variable => Color32::WHITE,
-    }
+    Theme::token(kind)
 }

@@ -11,8 +11,14 @@ pub const FONT_SIZE: f32 = 14.0;
 pub const LINE_HEIGHT: f32 = 20.0;
 
 /// Colors for search match highlighting.
-pub const MATCH_HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(255, 200, 0, 60);
-pub const CURRENT_MATCH_HIGHLIGHT: Color32 = Color32::from_rgba_premultiplied(255, 140, 0, 100);
+pub use crate::theme::Theme;
+
+// Backward-compat aliases: the layouter has historically exposed
+// `MATCH_HIGHLIGHT` / `CURRENT_MATCH_HIGHLIGHT` as `pub const`s. They
+// now point at the centralized `Theme` constants so the editor
+// painter and the layouter can never drift.
+pub const MATCH_HIGHLIGHT: Color32 = Theme::LAYOUT_FIND_MATCH_HIGHLIGHT;
+pub const CURRENT_MATCH_HIGHLIGHT: Color32 = Theme::LAYOUT_CURRENT_FIND_MATCH_HIGHLIGHT;
 
 /// A range of bytes to highlight, with whether it's the current match.
 #[derive(Clone, Debug)]

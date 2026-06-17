@@ -8,6 +8,7 @@
 //! cross-platform rendering (no font dependency).
 
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Stroke, TextEdit, Vec2};
+use crate::theme::Theme;
 
 /// State for the find bar.
 #[derive(Default)]
@@ -28,9 +29,13 @@ pub struct FindState {
     pub total_matches: usize,
     /// Byte offsets of all matches in the text.
     pub match_offsets: Vec<(usize, usize)>,
+    /// Previous search queries (most recent first, max 20).
+    pub search_history: Vec<String>,
 }
 
 impl FindState {
+    const MAX_HISTORY: usize = 20;
+
     /// Open the find bar and pre-fill with the current selection if any.
     pub fn open(&mut self, selected_text: Option<&str>) {
         self.open = true;
@@ -43,11 +48,25 @@ impl FindState {
 
     /// Close the find bar and clear state.
     pub fn close(&mut self) {
+        let query = self.query.clone();
+        if !query.is_empty() {
+            self.push_history(&query);
+        }
         self.open = false;
         self.query.clear();
         self.current_match = 0;
         self.total_matches = 0;
         self.match_offsets.clear();
+    }
+
+    /// Add a query to the search history (most recent first).
+    fn push_history(&mut self, query: &str) {
+        if query.is_empty() {
+            return;
+        }
+        self.search_history.retain(|h| h != query);
+        self.search_history.insert(0, query.to_string());
+        self.search_history.truncate(Self::MAX_HISTORY);
     }
 
     /// Update match offsets based on the current query and text.
@@ -143,9 +162,15 @@ pub enum FindAction {
 // don't depend on any icon font that may be missing on some platforms.
 // ---------------------------------------------------------------------------
 
-const ICON_COLOR: Color32 = Color32::from_rgb(180, 180, 180);
-const ICON_COLOR_HOVER: Color32 = Color32::from_rgb(240, 240, 240);
 const ICON_BTN_SIZE: f32 = 28.0;
+
+// Local constants for the icon glyphs painted by `paint_arrow_up`,
+// `paint_arrow_down`, `paint_close`, `paint_check`. The single source
+// of truth for the icon palette is `crate::theme::Theme` — these
+// `const` aliases stay in sync via the `theme_icons_match` test in
+// `theme.rs::tests`.
+const ICON_COLOR: Color32 = Color32::from_gray(180);
+const ICON_COLOR_HOVER: Color32 = Color32::from_gray(240);
 
 /// Draw an upward-pointing triangle (previous match).
 fn paint_arrow_up(painter: &egui::Painter, rect: Rect, color: Color32) {
@@ -229,7 +254,7 @@ fn toggle_icon_button(
         let painter = ui.painter();
         painter.rect_filled(rect, Rounding::same(4.0), bg);
         let color = if active {
-            Color32::from_rgb(100, 200, 255)
+            Theme::find_icon_active()
         } else {
             ICON_COLOR
         };

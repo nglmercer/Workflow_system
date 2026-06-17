@@ -28,6 +28,10 @@ mod model;
 mod type_parser;
 
 pub use completion::show_completion;
+// Re-export the kind enum so `crate::theme::Theme` (a sibling
+// module) can use it without depending on the private
+// `popup::completion` module.
+pub use workflow_lsp::features::CompletionKind;
 #[allow(unused_imports)]
 pub use hover::{show_hover, show_hover_markdown};
 #[allow(unused_imports)]

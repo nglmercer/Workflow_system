@@ -63,9 +63,13 @@ pub struct SearchInFilesState {
     pub generation: u64,
     pub root: Option<PathBuf>,
     pub last_query: String,
+    /// Previous search queries (most recent first, max 20).
+    pub search_history: Vec<String>,
 }
 
 impl SearchInFilesState {
+    const MAX_HISTORY: usize = 20;
+
     /// Open the panel and (re)start a search with the current
     /// query, defaulting the search root to the parent directory
     /// of the open file or the current working directory.
@@ -79,6 +83,23 @@ impl SearchInFilesState {
         }
     }
 
+    /// Close the panel and cancel any running search.
+    pub fn close(&mut self) {
+        self.cancel_current();
+        self.open = false;
+    }
+
+    /// Add a query to the search history (most recent first).
+    fn push_history(&mut self, query: &str) {
+        if query.is_empty() {
+            return;
+        }
+        // Remove duplicate if it exists.
+        self.search_history.retain(|h| h != query);
+        self.search_history.insert(0, query.to_string());
+        self.search_history.truncate(Self::MAX_HISTORY);
+    }
+
     /// Tear down any running worker and start a new search with
     /// the current query. The old worker sees a flipped cancel
     /// flag and exits at the next batch boundary.
@@ -87,6 +108,8 @@ impl SearchInFilesState {
         if self.query.is_empty() {
             return;
         }
+        let query = self.query.clone();
+        self.push_history(&query);
         let Some(root) = self.root.clone() else {
             return;
         };
@@ -250,6 +273,9 @@ pub fn show(ctx: &egui::Context, state: &mut SearchInFilesState) -> Option<Searc
                 if state.in_flight && ui.button(i18n_t("search_in_files.stop")).clicked() {
                     state.cancel_current();
                 }
+                if ui.button("✕").clicked() {
+                    state.close();
+                }
             });
             let response = ui.add(
                 TextEdit::singleline(&mut state.query)
@@ -314,7 +340,7 @@ pub fn show(ctx: &egui::Context, state: &mut SearchInFilesState) -> Option<Searc
                                     RichText::new(&m.line_text[s..e])
                                         .small()
                                         .strong()
-                                        .color(egui::Color32::from_rgb(255, 220, 0)),
+                                        .color(crate::theme::Theme::search_hit()),
                                 );
                                 ui.label(RichText::new(&m.line_text[e..]).small());
                             });

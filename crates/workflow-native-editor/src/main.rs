@@ -19,6 +19,7 @@ mod search_in_files;
 mod shortcuts_window;
 mod snippet;
 mod test_panel;
+mod theme;
 
 use app::EditorApp;
 use eframe::egui;

@@ -537,9 +537,9 @@ impl EditorApp {
             }
             let _ = row_start_x;
             let color = if idx == self.find.current_match {
-                egui::Color32::from_rgba_unmultiplied(255, 220, 0, 90)
+                crate::theme::Theme::CURRENT_FIND_MATCH_HIGHLIGHT
             } else {
-                egui::Color32::from_rgba_unmultiplied(255, 220, 0, 40)
+                crate::theme::Theme::FIND_MATCH_HIGHLIGHT
             };
             let painter = ui.painter_at(editor_rect);
             painter.rect_filled(rect, 0.0, color);
@@ -757,6 +757,15 @@ impl EditorApp {
         // When the find bar is open, Escape closes it.
         if self.find.open && shortcuts_window::esc_pressed(ctx) {
             self.find.close();
+            ctx.input_mut(|i| {
+                let _ = i.count_and_consume_key(egui::Modifiers::default(), egui::Key::Escape);
+            });
+            return;
+        }
+        // When the search-in-files panel is open, Escape closes it.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.search_in_files.open && shortcuts_window::esc_pressed(ctx) {
+            self.search_in_files.close();
             ctx.input_mut(|i| {
                 let _ = i.count_and_consume_key(egui::Modifiers::default(), egui::Key::Escape);
             });
