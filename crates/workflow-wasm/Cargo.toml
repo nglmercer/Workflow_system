@@ -13,6 +13,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 workflow-domain = { path = "../workflow-domain" }
 workflow-engine = { path = "../workflow-engine" }
+workflow-i18n = { path = "../workflow-i18n" }
 workflow-parser = { path = "../workflow-parser" }
 workflow-actions = { path = "../workflow-actions" }
 workflow-serialize = { path = "../workflow-serialize", default-features = false }

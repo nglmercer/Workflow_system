@@ -327,7 +327,7 @@ pub fn show(ctx: &egui::Context, state: &mut SearchInFilesState) -> Option<Searc
                                 );
                                 ui.label(RichText::new(&m.line_text[e..]).small());
                             });
-                            if ui.button("Open").clicked() {
+                            if ui.button(i18n_t("search_in_files.open_match")).clicked() {
                                 event = Some(SearchInFilesEvent::OpenMatch(idx));
                             }
                         });

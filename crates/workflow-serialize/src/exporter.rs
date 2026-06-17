@@ -31,7 +31,7 @@ impl RuleExporter {
             _ => {
                 return Err(workflow_domain::WorkflowError::Io(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    format!("Unsupported file extension for: {}", path),
+                    workflow_i18n::tf("serialize.export_unsupported", &[("path", &path.to_string())]),
                 )))
             }
         };

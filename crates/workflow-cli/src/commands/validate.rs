@@ -22,7 +22,7 @@ pub fn run(path: &str) -> WorkflowResult<()> {
                 workflow_domain::IssueSeverity::Error => "✗ ERROR",
                 workflow_domain::IssueSeverity::Warning => "⚠ WARN",
             };
-            eprintln!("{} [{}]: {}", prefix, issue.field, issue.message);
+            eprintln!("{}", i18n_tf("cli.validate_issue", &[("prefix", &prefix), ("field", &issue.field), ("message", &issue.message)]));
         }
         Err(workflow_domain::WorkflowError::Validation(
             "Validation failed".to_string(),

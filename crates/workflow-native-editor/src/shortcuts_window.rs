@@ -60,7 +60,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool, keymap: &Keymap) {
                                     .font(FontId::monospace(13.0))
                                     .color(Color32::from_rgb(220, 220, 255)),
                             );
-                            ui.label(cmd.description());
+                            ui.label(cmd);
                             ui.end_row();
                         }
                     });

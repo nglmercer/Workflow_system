@@ -1,10 +1,11 @@
 mod commands;
 
+use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "workflow")]
-#[command(about = "Agnostic Workflow/Trigger System CLI")]
+#[command(about = i18n_t("cli.about"))]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
@@ -88,7 +89,7 @@ async fn main() {
                 Ok(code) if code == std::process::ExitCode::SUCCESS => std::process::exit(0),
                 Ok(_) => std::process::exit(1),
                 Err(e) => {
-                    eprintln!("Error: {}", e);
+                    eprintln!("{}", i18n_tf("cli.error_prefix", &[("error", &e.to_string())]));
                     std::process::exit(1);
                 }
             }
@@ -117,7 +118,7 @@ async fn main() {
         Ok(0) => {}
         Ok(code) => std::process::exit(code),
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("{}", i18n_tf("cli.error_prefix", &[("error", &e.to_string())]));
             std::process::exit(1);
         }
     }

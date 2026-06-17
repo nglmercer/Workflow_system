@@ -69,7 +69,7 @@ fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {
         if i > 0 {
             out.push('\n');
         }
-        out.push_str(severity_label(diag.severity));
+        out.push_str(&severity_label(diag.severity));
         out.push_str(&format!(
             " Ln {}, Col {}: {}",
             diag.start_line + 1,
@@ -80,12 +80,12 @@ fn format_diagnostics(diagnostics: &[Diagnostic]) -> String {
     out
 }
 
-fn severity_label(severity: DiagnosticSeverity) -> &'static str {
+fn severity_label(severity: DiagnosticSeverity) -> String {
     match severity {
-        DiagnosticSeverity::Error => "error",
-        DiagnosticSeverity::Warning => "warning",
-        DiagnosticSeverity::Info => "info",
-        DiagnosticSeverity::Hint => "hint",
+        DiagnosticSeverity::Error => i18n_t("diagnostics.severity_error"),
+        DiagnosticSeverity::Warning => i18n_t("diagnostics.severity_warning"),
+        DiagnosticSeverity::Info => i18n_t("diagnostics.severity_info"),
+        DiagnosticSeverity::Hint => i18n_t("diagnostics.severity_hint"),
     }
 }
 
@@ -140,7 +140,7 @@ mod tests {
     fn format_single_error() {
         let d = [diag(DiagnosticSeverity::Error, 4, 2, "expected `;`")];
         let text = format_diagnostics(&d);
-        assert_eq!(text, "error Ln 5, Col 3: expected `;`");
+        assert_eq!(text, format!("{} Ln 5, Col 3: expected `;`", i18n_t("diagnostics.severity_error")));
     }
 
     #[test]
@@ -152,7 +152,7 @@ mod tests {
         let text = format_diagnostics(&d);
         assert_eq!(
             text,
-            "error Ln 1, Col 1: boom\nwarning Ln 2, Col 5: be careful"
+            format!("{}\n{}", format!("{} Ln 1, Col 1: boom", i18n_t("diagnostics.severity_error")), format!("{} Ln 2, Col 5: be careful", i18n_t("diagnostics.severity_warning")))
         );
     }
 }

@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 pest = { workspace = true }
 pest_derive = { workspace = true }
+workflow-i18n = { path = "../workflow-i18n" }
 workflow-domain = { path = "../workflow-domain" }
 serde = { workspace = true }
 serde_json = { workspace = true }

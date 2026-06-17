@@ -49,7 +49,7 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
         if !modified.is_empty() {
             println!("{}", i18n_tf("cli.watching_changes", &[("count", &modified.len().to_string())]));
             for file in &modified {
-                println!("  - {}", file.display());
+                println!("{}", i18n_tf("cli.watching_file_changed", &[("path", &file.display().to_string())]));
             }
 
             let rules = TriggerLoader::load_rules_from_dir(path)?;

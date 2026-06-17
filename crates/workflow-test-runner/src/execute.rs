@@ -65,7 +65,7 @@ pub fn execute_test(
             AssertKind::Logs,
             "",
             String::new(),
-            format!("import resolution failed: {}", failure),
+            workflow_i18n::tf("test_runner.assertion_import_failed", &[("failure", &failure.to_string())]),
         ));
     }
 
@@ -91,7 +91,7 @@ pub fn execute_test(
             AssertKind::Logs,
             "",
             String::new(),
-            format!("no workflow handles event '{}'", test.on.event),
+            workflow_i18n::tf("test_runner.assertion_no_workflow", &[("event", &test.on.event)]),
         ));
         return TestReport {
             name: test.name.clone(),
@@ -126,7 +126,7 @@ pub fn execute_test(
                     AssertKind::Logs,
                     "",
                     String::new(),
-                    format!("workflow '{}' errored: {}", workflow.name, e),
+                    workflow_i18n::tf("test_runner.assertion_workflow_error", &[("name", &workflow.name), ("error", &e.to_string())]),
                 ));
                 continue;
             }
@@ -289,11 +289,9 @@ fn populate_imports(imports: &[ImportStmt], source_dir: &Path) -> ImportResoluti
                                     out.globals
                                         .insert(import.name.clone(), Value::from_json(&value));
                                 }
-                                Err(e) => out.failures.push(format!(
-                                    "{} from {}: invalid JSON: {}",
-                                    import.name,
-                                    resolved.display(),
-                                    e
+                                Err(e) => out.failures.push(workflow_i18n::tf(
+                                    "test_runner.import_invalid_json",
+                                    &[("name", &import.name), ("path", &resolved.to_string_lossy()), ("error", &e.to_string())]
                                 )),
                             }
                         }

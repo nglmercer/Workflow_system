@@ -12,7 +12,7 @@ impl TriggerLoader {
         if !dir.exists() {
             return Err(WorkflowError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("Directory not found: {}", dir_path),
+                workflow_i18n::tf("serialize.directory_not_found", &[("path", &dir_path.to_string())]),
             )));
         }
 
@@ -59,7 +59,7 @@ impl TriggerLoader {
             Some("toml") => toml_format::from_toml_str(&content),
             _ => Err(WorkflowError::Io(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
-                format!("Unsupported file extension: {:?}", path.extension()),
+                workflow_i18n::tf("serialize.unsupported_extension", &[("ext", &format!("{:?}", path.extension()))]),
             ))),
         }
     }
@@ -69,7 +69,7 @@ impl TriggerLoader {
         if !dir.exists() {
             return Err(WorkflowError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!("Directory not found: {}", dir_path),
+                workflow_i18n::tf("serialize.directory_not_found", &[("path", &dir_path.to_string())]),
             )));
         }
 

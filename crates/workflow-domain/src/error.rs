@@ -47,7 +47,7 @@ impl WorkflowError {
     /// is registered; falls back to the English `Display` impl for
     /// variants whose inner field needs no translation.
     pub fn display_localized(&self) -> String {
-        use workflow_i18n::{t as i18n_t, tf as i18n_tf};
+        use workflow_i18n::tf as i18n_tf;
         match self {
             WorkflowError::Validation(inner) => {
                 i18n_tf("domain.error_validation", &[("error", inner)])

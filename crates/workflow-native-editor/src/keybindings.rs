@@ -15,6 +15,7 @@
 use eframe::egui::{self, Key, Modifiers, Ui};
 
 use super::cursor::CursorPosition;
+use workflow_i18n::t as i18n_t;
 
 /// An editor action. The keymap maps chord sequences to commands;
 /// the editor's `handle_global_keys` dispatches on the command.
@@ -62,35 +63,35 @@ pub enum Command {
 
 impl Command {
     /// A short human-readable description of what the command does.
-    /// Used by the shortcuts help window.
-    pub fn description(self) -> &'static str {
+    /// Used by the shortcuts help window. Returns a localized string.
+    pub fn description(self) -> String {
         match self {
-            Command::PopupUp => "Completion popup: previous item",
-            Command::PopupDown => "Completion popup: next item",
-            Command::PopupAccept => "Completion popup: accept item",
-            Command::PopupDismiss => "Completion popup: dismiss",
-            Command::SnippetAdvance => "Snippet: next tab stop",
-            Command::SnippetCancel => "Snippet: cancel",
-            Command::Undo => "Undo",
-            Command::Redo => "Redo",
-            Command::Open => "Open file",
-            Command::Save => "Save",
-            Command::ToggleComment => "Toggle line comment",
-            Command::DuplicateLine => "Duplicate line",
-            Command::DeleteLine => "Delete line",
-            Command::MoveLineUp => "Move line up",
-            Command::MoveLineDown => "Move line down",
-            Command::Indent => "Indent line",
-            Command::Outdent => "Outdent line",
-            Command::ToggleFoldAtCursor => "Toggle fold at cursor",
-            Command::UnfoldAll => "Unfold all",
-            Command::Find => "Find",
-            Command::GotoLine => "Go to line",
-            Command::GotoDefinition => "Go to definition",
-            Command::ShowShortcuts => "Show keyboard shortcuts",
-            Command::RunTests => "Run tests",
-            Command::SearchInFiles => "Find in files",
-            Command::None => "(no command)",
+            Command::PopupUp => i18n_t("shortcuts.command_popup_up"),
+            Command::PopupDown => i18n_t("shortcuts.command_popup_down"),
+            Command::PopupAccept => i18n_t("shortcuts.command_popup_accept"),
+            Command::PopupDismiss => i18n_t("shortcuts.command_popup_dismiss"),
+            Command::SnippetAdvance => i18n_t("shortcuts.command_snippet_advance"),
+            Command::SnippetCancel => i18n_t("shortcuts.command_snippet_cancel"),
+            Command::Undo => i18n_t("shortcuts.command_undo"),
+            Command::Redo => i18n_t("shortcuts.command_redo"),
+            Command::Open => i18n_t("shortcuts.command_open"),
+            Command::Save => i18n_t("shortcuts.command_save"),
+            Command::ToggleComment => i18n_t("shortcuts.command_toggle_comment"),
+            Command::DuplicateLine => i18n_t("shortcuts.command_duplicate_line"),
+            Command::DeleteLine => i18n_t("shortcuts.command_delete_line"),
+            Command::MoveLineUp => i18n_t("shortcuts.command_move_line_up"),
+            Command::MoveLineDown => i18n_t("shortcuts.command_move_line_down"),
+            Command::Indent => i18n_t("shortcuts.command_indent"),
+            Command::Outdent => i18n_t("shortcuts.command_outdent"),
+            Command::ToggleFoldAtCursor => i18n_t("shortcuts.command_toggle_fold"),
+            Command::UnfoldAll => i18n_t("shortcuts.command_unfold_all"),
+            Command::Find => i18n_t("shortcuts.command_find"),
+            Command::GotoLine => i18n_t("shortcuts.command_goto_line"),
+            Command::GotoDefinition => i18n_t("shortcuts.command_goto_definition"),
+            Command::ShowShortcuts => i18n_t("shortcuts.command_show_shortcuts"),
+            Command::RunTests => i18n_t("shortcuts.command_run_tests"),
+            Command::SearchInFiles => i18n_t("shortcuts.command_search_in_files"),
+            Command::None => i18n_t("shortcuts.command_none"),
         }
     }
 }
@@ -215,8 +216,8 @@ impl Keymap {
     /// a chord prefix (e.g. `Ctrl+K Ctrl+L` and `Ctrl+K Ctrl+J`)
     /// are flattened into a single `Ctrl+K Ctrl+L`-style label. The
     /// order matches the keymap's insertion order.
-    pub fn bindings(&self) -> Vec<(String, Command)> {
-        let mut out: Vec<(String, Command)> = Vec::new();
+    pub fn bindings(&self) -> Vec<(String, String)> {
+        let mut out: Vec<(String, String)> = Vec::new();
         for (matcher, cmd) in &self.entries {
             if matches!(cmd, Command::None) {
                 continue;
@@ -227,7 +228,7 @@ impl Keymap {
                     format!("{} {}", chord_label(*prefix), chord_label(*suffix))
                 }
             };
-            out.push((label, *cmd));
+            out.push((label, cmd.description()));
         }
         out
     }
@@ -728,7 +729,7 @@ mod tests {
         assert!(
             km.bindings()
                 .iter()
-                .any(|(l, c)| l == "F1" && *c == Command::ShowShortcuts),
+                .any(|(l, c)| l == "F1" && c == i18n_t("shortcuts.command_show_shortcuts").as_str()),
             "F1 should map to ShowShortcuts"
         );
     }
@@ -739,7 +740,7 @@ mod tests {
         let matched = km
             .bindings()
             .iter()
-            .any(|(l, c)| l == "Ctrl+Shift+F" && *c == Command::SearchInFiles);
+            .any(|(l, c)| l == "Ctrl+Shift+F" && c == i18n_t("shortcuts.command_search_in_files").as_str());
         assert!(matched, "Ctrl+Shift+F should map to Command::SearchInFiles");
     }
 
@@ -749,7 +750,7 @@ mod tests {
         for (label, cmd) in km.bindings() {
             assert!(!label.is_empty(), "empty label for {:?}", cmd);
             assert!(
-                !cmd.description().is_empty(),
+                !cmd.is_empty(),
                 "empty description for {}",
                 label
             );

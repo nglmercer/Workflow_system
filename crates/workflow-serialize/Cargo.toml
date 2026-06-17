@@ -15,6 +15,7 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 toml = { workspace = true }
 thiserror = { workspace = true }
+workflow-i18n = { path = "../workflow-i18n" }
 tokio = { version = "1", features = ["fs", "rt-multi-thread", "macros"], optional = true }
 
 [dev-dependencies]

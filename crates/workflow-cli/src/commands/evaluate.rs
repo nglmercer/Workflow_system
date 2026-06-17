@@ -46,7 +46,7 @@ pub async fn run(
     }
 
     println!("{}", i18n_tf("cli.evaluate_processing", &[("event", event)]));
-    println!("Data: {}", event_data);
+    println!("{}", i18n_tf("cli.evaluate_data", &[("data", &event_data.to_string())]));
 
     let results = engine
         .process_event_simple(event, event_data, event_vars)
@@ -69,15 +69,15 @@ pub async fn run(
             } else {
                 "✓"
             };
-            println!("  {} Action: {}", action_status, action.action_type);
+            println!("{}", i18n_tf("cli.evaluate_action", &[("status", action_status), ("action_type", &action.action_type)]));
             if let Some(result) = &action.result {
-                println!("    Result: {}", result);
+                println!("{}", i18n_tf("cli.evaluate_action_result", &[("result", &result.to_string())]));
             }
             if let Some(error) = &action.error {
-                eprintln!("    Error: {}", error);
+                eprintln!("{}", i18n_tf("cli.evaluate_action_error", &[("error", error)]));
             }
             if let Some(skipped) = &action.skipped {
-                println!("    Skipped: {}", skipped);
+                println!("{}", i18n_tf("cli.evaluate_action_skipped", &[("skipped", skipped)]));
             }
         }
     }

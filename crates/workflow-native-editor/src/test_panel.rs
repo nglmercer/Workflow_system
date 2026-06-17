@@ -156,7 +156,7 @@ fn format_report(report: &RunReport) -> String {
         if i > 0 {
             out.push('\n');
         }
-        let mark = if t.passed { "PASS" } else { "FAIL" };
+        let mark = if t.passed { i18n_t("test_panel.report_pass") } else { i18n_t("test_panel.report_fail") };
         out.push_str(&format!("{} {} (event {})\n", mark, t.name, t.event));
         for a in &t.asserts {
             let var = if a.var_name.is_empty() {
@@ -164,7 +164,7 @@ fn format_report(report: &RunReport) -> String {
             } else {
                 format!(" {}", a.var_name)
             };
-            let verdict = if a.passed { "ok" } else { "FAIL" };
+            let verdict = if a.passed { i18n_t("test_panel.report_verdict_pass") } else { i18n_t("test_panel.report_verdict_fail") };
             out.push_str(&format!(
                 "    expect {}{} {}  actual={} expected={}\n",
                 a.kind.label(),
@@ -175,9 +175,9 @@ fn format_report(report: &RunReport) -> String {
             ));
         }
     }
-    out.push_str(&format!(
-        "{} passed, {} failed",
-        report.passed, report.failed
+    out.push_str(&i18n_tf(
+        "test_panel.report_summary",
+        &[("passed", &report.passed.to_string()), ("failed", &report.failed.to_string())],
     ));
     out
 }
@@ -232,9 +232,9 @@ mod tests {
             ],
         );
         let text = format_report(&r);
-        assert!(text.contains("PASS T1"));
-        assert!(text.contains("FAIL T1"));
-        assert!(text.contains("1 passed, 1 failed"));
+        assert!(text.contains(&format!("{} T1", i18n_t("test_panel.report_pass"))));
+        assert!(text.contains(&format!("{} T1", i18n_t("test_panel.report_fail"))));
+        assert!(text.contains(&i18n_tf("test_panel.report_summary", &[("passed", "1"), ("failed", "1")])));
     }
 
     #[test]

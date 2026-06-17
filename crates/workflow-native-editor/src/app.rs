@@ -170,7 +170,7 @@ impl Default for EditorApp {
             lsp,
             uri,
             completion: CompletionState::default(),
-            status: "Ready".to_string(),
+            status: i18n_t("app.status_ready"),
             cursor: CursorPosition::new(1, 1),
             hover_text: None,
             hover_pos: None,
@@ -1302,7 +1302,7 @@ impl EditorApp {
     }
 
     /// Build the title-bar label. Shows the file name (or
-    /// "Untitled") with a leading dot when the buffer has unsaved
+    /// i18n_t("editor.title_untitled")) with a leading dot when the buffer has unsaved
     /// edits. We use a Unicode bullet rather than `*` to match the
     /// common "modified" indicator in cross-platform editors.
     fn title_label(&self) -> String {
@@ -1433,9 +1433,9 @@ impl EditorApp {
     /// without touching the buffer.
     fn run_open_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
-            .set_title("Open workflow file")
-            .add_filter("Workflow files", &["flow", "yaml", "yml", "json", "toml"])
-            .add_filter("All files", &["*"]);
+            .set_title(&i18n_t("dialog.open_title"))
+            .add_filter(&i18n_t("dialog.filter_workflow"), &["flow", "yaml", "yml", "json", "toml"])
+            .add_filter(&i18n_t("dialog.filter_all"), &["*"]);
         match dialog.pick_file() {
             Some(path) => {
                 if let Err(e) = self.load_path_into_editor(&path) {
@@ -1511,9 +1511,9 @@ impl EditorApp {
     /// the same file.
     fn save_as_dialog(&mut self) {
         let dialog = rfd::FileDialog::new()
-            .set_title("Save workflow file")
-            .add_filter("Workflow files", &["flow", "yaml", "yml", "json", "toml"])
-            .set_file_name("untitled.flow");
+            .set_title(&i18n_t("dialog.save_title"))
+            .add_filter(&i18n_t("dialog.filter_workflow"), &["flow", "yaml", "yml", "json", "toml"])
+            .set_file_name(&i18n_t("dialog.default_name"));
         let chosen = match dialog.save_file() {
             Some(p) => p,
             None => {

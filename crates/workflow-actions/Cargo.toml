@@ -10,3 +10,4 @@ workflow-engine = { path = "../workflow-engine" }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
+workflow-i18n = { path = "../workflow-i18n" }
