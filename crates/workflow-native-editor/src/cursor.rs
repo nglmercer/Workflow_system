@@ -403,4 +403,40 @@ mod tests {
             galley_pos.x
         );
     }
+
+    #[test]
+    fn char_range_to_byte_range_handles_ascii() {
+        let text = "hello world";
+        assert_eq!(char_range_to_byte_range(text, 0, 5), (0, 5));
+        assert_eq!(char_range_to_byte_range(text, 6, 11), (6, 11));
+        // Empty range at end of text.
+        assert_eq!(char_range_to_byte_range(text, 11, 11), (11, 11));
+    }
+
+    /// Regression: the find bar pre-fill used to slice
+    /// `display_text[char_range]` directly, which is a byte slice
+    /// in Rust. With multi-byte UTF-8 (e.g. accented characters in
+    /// identifiers or comments) that panics or produces a
+    /// corrupted substring. Converting to a byte range first keeps
+    /// the selection intact.
+    #[test]
+    fn char_range_to_byte_range_handles_multibyte() {
+        // "café" — 'é' is 2 bytes (0xC3 0xA9).
+        let text = "café";
+        assert_eq!(text.len(), 5); // 4 chars, 5 bytes
+        assert_eq!(text.chars().count(), 4);
+        // Selecting the whole word: chars [0, 4) → bytes [0, 5).
+        assert_eq!(char_range_to_byte_range(text, 0, 4), (0, 5));
+        // Selecting just "fé": chars [2, 4) → bytes [2, 5).
+        assert_eq!(char_range_to_byte_range(text, 2, 4), (2, 5));
+    }
+
+    /// Selecting past the end of the text clamps to `text.len()`,
+    /// which is what `String` indexing would do anyway.
+    #[test]
+    fn char_range_to_byte_range_clamps_past_end() {
+        let text = "abc";
+        assert_eq!(char_range_to_byte_range(text, 0, 99), (0, 3));
+        assert_eq!(char_range_to_byte_range(text, 5, 10), (3, 3));
+    }
 }

@@ -262,4 +262,47 @@ mod tests {
         state.select_prev();
         assert_eq!(state.index, 1);
     }
+
+    /// End-to-end regression for the user-facing bug: typing a
+    /// partial prefix after `.` and accepting the completion must
+    /// *replace* the prefix, not leave it in place. Before the LSP
+    /// fix, `build_member_completions` emitted a zero-width
+    /// `text_edit.range` at the cursor, so accepting `email` after
+    /// `emai` produced `emaiemail` instead of `email`. This test
+    /// pulls completions from the LSP exactly the way the editor
+    /// does, then runs them through `build_insertion` and asserts
+    /// the resulting insertion covers the partial prefix.
+    #[test]
+    fn build_insertion_replaces_partial_member_prefix() {
+        use workflow_lsp::ServerState;
+
+        let mut state = ServerState::new();
+        let uri = "file:///t.flow";
+        let source = "//@string\nfn f(email) {\n  log(email.emai)\n}\n";
+        state.update_document(uri, source);
+
+        // Cursor at line 2, col 16 (right after the partial `emai`).
+        // The layout matches the LSP-side regression test:
+        //   `  log(email.emai)` — two leading spaces + `log(` + `email`
+        //   + `.` + `emai`, so the cursor at col 16 is right after `i`.
+        let items = workflow_lsp::features::completions_at(&state, uri, 2, 16);
+        let length = items
+            .iter()
+            .find(|c| c.label == "length")
+            .expect("length completion for a string receiver");
+        let cursor = CursorPosition::new(3, 16); // 1-based
+        let ins = build_insertion(length, source, cursor);
+
+        // The insertion must span exactly the partial prefix `emai`.
+        // Char offsets for the source above:
+        //   `//@string`     9 chars
+        //   `\n`            1 char
+        //   `fn f(email) {` 13 chars
+        //   `\n`            1 char
+        //   `  log(email.`  12 chars (two spaces + `log(email.`)
+        //   ──────────── 36 chars total before `emai`
+        assert_eq!(ins.start, 36, "must start at the beginning of `emai`");
+        assert_eq!(ins.end, 40, "must end at the cursor (after `emai`)");
+        assert_eq!(ins.text, "length");
+    }
 }

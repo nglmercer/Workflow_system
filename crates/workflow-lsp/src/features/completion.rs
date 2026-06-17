@@ -568,14 +568,23 @@ fn build_member_completions(
     object_name: &str,
     object_col: usize,
 ) -> Vec<lsp_types::CompletionItem> {
+    // The replacement range spans the partial prefix the user has
+    // already typed after the `.`. `object_col` is the column of the
+    // object's first character, so the `.` sits at
+    // `object_col + object_name.len()` and the prefix begins at
+    // `object_col + object_name.len() + 1`. When the cursor is right
+    // after the `.`, the range collapses to a zero-width insert at
+    // the cursor, which is the correct shape for "no prefix yet".
+    let prefix_start_col = (object_col + object_name.len() + 1) as u32;
+    let cursor_col = position.character.max(prefix_start_col);
     let replace_range = Range {
         start: Position {
             line: position.line,
-            character: position.character,
+            character: prefix_start_col,
         },
         end: Position {
             line: position.line,
-            character: position.character,
+            character: cursor_col,
         },
     };
 
@@ -611,8 +620,8 @@ fn build_member_completions(
     // Fallback for when inference is missing or the type is `Any`:
     // expose the most common members so `foo.|` isn't empty.
     if items.is_empty() {
-        items.push(make_field("length", "number"));
-        items.push(make_field("name", "string"));
+        items.push(make_field("length", "number", replace_range));
+        items.push(make_field("name", "string", replace_range));
     }
 
     items
@@ -668,8 +677,8 @@ fn trailing_word(before: &str) -> String {
     before[start..].to_string()
 }
 
-fn make_field(name: &str, ty: &str) -> lsp_types::CompletionItem {
-    lsp_types::CompletionItem {
+fn make_field(name: &str, ty: &str, replace_range: Range) -> lsp_types::CompletionItem {
+    let mut item = lsp_types::CompletionItem {
         label: name.to_string(),
         kind: Some(lsp_types::CompletionItemKind::PROPERTY),
         detail: Some(format!(": {}", ty)),
@@ -678,7 +687,12 @@ fn make_field(name: &str, ty: &str) -> lsp_types::CompletionItem {
             ty
         ))),
         ..Default::default()
-    }
+    };
+    item.text_edit = Some(LspCompletionTextEdit::Edit(TextEdit {
+        range: replace_range,
+        new_text: name.to_string(),
+    }));
+    item
 }
 
 pub fn into_completion(item: lsp_types::CompletionItem) -> Completion {
@@ -959,6 +973,59 @@ mod tests {
         let l = labels(&items);
         assert!(l.contains(&"length"), "missing length: {:?}", l);
         assert!(l.contains(&"name"), "missing name: {:?}", l);
+    }
+
+    /// Regression: accepting a member completion must replace the
+    /// partial prefix the user has already typed. Previously
+    /// `build_member_completions` emitted a zero-width range at the
+    /// cursor, so accepting "email" after typing `emai` inserted
+    /// `email` after `emai`, yielding `emaiemail` instead of
+    /// `email`. The replacement range must span from the column
+    /// right after the `.` to the cursor.
+    #[test]
+    fn member_completion_replace_range_covers_partial_prefix() {
+        let source = "//@string\nfn f(email) {\n  log(email.emai)\n}\n";
+        // 0: //@string
+        // 1: fn f(email) {
+        // 2:   log(email.emai)
+        // 3: }
+        // The cursor sits right after `emai`. Counting columns on
+        // line 2 (0-based): two leading spaces (0..2), `log(` (2..6),
+        // `email` (6..11), `.` (11), `emai` (12..16). Cursor at 16.
+        let items = completions_at(source, 2, 16);
+        let length = items
+            .iter()
+            .find(|c| c.label == "length")
+            .expect("length completion");
+        let text_edit = length.text_edit.as_ref().expect("text_edit present");
+        assert_eq!(
+            text_edit.range,
+            (2, 12, 2, 16),
+            "expected replace range to cover the partial prefix 'emai'"
+        );
+    }
+
+    /// When the cursor sits right after the `.` with no prefix yet,
+    /// the replacement range collapses to a zero-width insert at the
+    /// cursor. That's the correct shape — the completion is *inserted*
+    /// rather than *replaced*, but the editor's `splice` does the
+    /// right thing in both cases.
+    #[test]
+    fn member_completion_replace_range_empty_when_no_prefix() {
+        let source = "//@string\nfn f(email) {\n  log(email.)\n}\n";
+        // Line 2: `  log(email.)`. Column 12 is the position right
+        // after the `.` (two spaces + `log(` + `email` + `.` = 12).
+        let items = completions_at(source, 2, 12);
+        let length = items
+            .iter()
+            .find(|c| c.label == "length")
+            .expect("length completion");
+        let text_edit = length.text_edit.as_ref().expect("text_edit present");
+        assert_eq!(
+            text_edit.range,
+            (2, 12, 2, 12),
+            "expected zero-width insert right after the dot"
+        );
     }
 
     /// User-defined variables (locals, foreach items, and workflow

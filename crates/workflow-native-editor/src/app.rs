@@ -136,6 +136,11 @@ pub struct EditorApp {
     /// reads this and pushes the cursor into the TextEdit's state
     /// so the visible caret moves to the restored position.
     pub(crate) pending_cursor_char_range: Option<(usize, usize)>,
+    /// Set by `handle_global_keys` when Ctrl+F is pressed. The actual
+    /// `find.open(...)` call is deferred until after `render_editor`
+    /// has run, so the just-captured `selected_text` reflects the
+    /// current selection rather than the previous frame's stale value.
+    pub(crate) pending_find_open: bool,
     /// Global "find in files" panel. Desktop-only because the
     /// `ignore` walker is not designed for `wasm32-unknown-unknown`.
     #[cfg(not(target_arch = "wasm32"))]
@@ -199,6 +204,7 @@ impl Default for EditorApp {
             selected_range: None,
             last_clipboard: None,
             pending_cursor_char_range: None,
+            pending_find_open: false,
             #[cfg(not(target_arch = "wasm32"))]
             search_in_files: SearchInFilesState::default(),
         }
@@ -342,6 +348,19 @@ impl eframe::App for EditorApp {
                     }
                 }
             });
+        }
+
+        // Flush any deferred `Find` request now that the central
+        // panel has rendered. The Ctrl+F handler runs at the top of
+        // the frame, so reading `selected_text` there would yield
+        // the previous frame's value (or `None` if the user just
+        // changed the selection this frame). When the home screen
+        // is showing there is no editor to pre-fill from, so the
+        // find bar opens empty.
+        if self.pending_find_open {
+            self.pending_find_open = false;
+            self.find.open(self.selected_text.as_deref());
+            self.find.update_matches(&self.text);
         }
 
         if let Some(msg) = diagnostics_panel::show(ctx, &self.diagnostics) {

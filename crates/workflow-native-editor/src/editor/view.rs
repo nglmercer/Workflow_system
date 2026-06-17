@@ -113,18 +113,10 @@ impl EditorApp {
             let col_in_line_end = end.saturating_sub(line_byte_start);
             // Use cursor_screen_pos to find the left edge of the row,
             // then step per character.
-            let left_pos = cursor::cursor_screen_pos(
-                galley,
-                galley_pos,
-                display_line,
-                col_in_line_start,
-            );
-            let right_pos = cursor::cursor_screen_pos(
-                galley,
-                galley_pos,
-                display_line,
-                col_in_line_end,
-            );
+            let left_pos =
+                cursor::cursor_screen_pos(galley, galley_pos, display_line, col_in_line_start);
+            let right_pos =
+                cursor::cursor_screen_pos(galley, galley_pos, display_line, col_in_line_end);
             let mut rect = egui::Rect::from_min_max(left_pos, right_pos);
             // Make sure the rect has a sensible height even for empty
             // matches.
@@ -341,10 +333,21 @@ impl EditorApp {
                                 primary.rcursor.column,
                             ));
                         }
-                        // Capture selected text for Find bar pre-fill
+                        // Capture selected text for Find bar pre-fill.
+                        // `range.as_sorted_char_range()` returns char
+                        // indices into `display_text`, but `String`'s
+                        // `Range<usize>` indexing is byte-based, so
+                        // multi-byte UTF-8 selections would panic or
+                        // produce a corrupted substring. Convert to a
+                        // byte range first.
                         if !range.is_empty() {
                             let char_range = range.as_sorted_char_range();
-                            self.selected_text = Some(display_text[char_range].to_string());
+                            let (b_start, b_end) = cursor::char_range_to_byte_range(
+                                &display_text,
+                                char_range.start,
+                                char_range.end,
+                            );
+                            self.selected_text = Some(display_text[b_start..b_end].to_string());
                         } else {
                             self.selected_text = None;
                         }
@@ -395,12 +398,9 @@ impl EditorApp {
 
                     self.update_hover(response.rect, &galley, response.hover_pos());
 
-                    if let Some(current_rect) = self.paint_find_highlights(
-                        ui,
-                        &galley,
-                        output.galley_pos,
-                        response.rect,
-                    ) {
+                    if let Some(current_rect) =
+                        self.paint_find_highlights(ui, &galley, output.galley_pos, response.rect)
+                    {
                         ui.scroll_to_rect(current_rect, Some(egui::Align::Center));
                     }
 

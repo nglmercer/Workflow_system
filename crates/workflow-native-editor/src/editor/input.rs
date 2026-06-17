@@ -106,8 +106,15 @@ impl EditorApp {
                 self.pending_open_dialog = true;
             }
             Command::Find => {
-                self.find.open(self.selected_text.as_deref());
-                self.find.update_matches(&self.text);
+                // Defer the actual `find.open(...)` until after
+                // `render_editor` has captured the live selection
+                // into `self.selected_text`. This handler runs at
+                // the top of the frame, before the TextEdit, so
+                // reading `selected_text` here would yield the
+                // previous frame's value (or `None` if the user
+                // just changed the selection this frame).
+                self.pending_find_open = true;
+                ctx.request_repaint();
             }
             Command::GotoLine => {
                 self.status = i18n_t("goto.not_implemented");
@@ -136,5 +143,70 @@ impl EditorApp {
                 self.search_in_files.open(default_root);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::app::EditorApp;
+    use super::super::super::cursor::SelectionRange;
+    use super::super::super::find_bar::FindState;
+
+    /// Regression: pressing Ctrl+F used to call `find.open(...)`
+    /// immediately, while `handle_global_keys` runs at the top of
+    /// the frame *before* `render_editor` has captured the live
+    /// selection into `self.selected_text`. The result was that the
+    /// find bar opened with the previous frame's selection (often
+    /// empty if the user had just moved the cursor). The Ctrl+F
+    /// arm now sets `pending_find_open` instead; the actual
+    /// `find.open` runs after `render_editor` so it sees the fresh
+    /// value.
+    #[test]
+    fn pending_find_open_uses_fresh_selection() {
+        let mut app = EditorApp {
+            text: "log(message)\nlog(\"other\")".to_string(),
+            ..Default::default()
+        };
+        // Simulate the editor having just captured a selection in
+        // the TextEdit. The flag is what Ctrl+F sets; the open is
+        // what runs later, after `render_editor`.
+        app.selected_text = Some("log".to_string());
+        app.selected_range = Some(SelectionRange {
+            anchor: 0,
+            cursor: 3,
+        });
+        app.pending_find_open = true;
+        // The deferred flush in `update` does exactly this:
+        if app.pending_find_open {
+            app.pending_find_open = false;
+            app.find.open(app.selected_text.as_deref());
+            app.find.update_matches(&app.text);
+        }
+        assert!(app.find.open, "find bar should be open");
+        assert_eq!(app.find.query, "log", "query should match selection");
+        assert_eq!(app.find.total_matches, 2);
+        assert!(!app.pending_find_open, "flag should be cleared");
+    }
+
+    /// When no selection is active, `pending_find_open` should open
+    /// the find bar with an empty query (the same behaviour as
+    /// before — just one frame later).
+    #[test]
+    fn pending_find_open_without_selection_is_empty() {
+        let mut app = EditorApp {
+            text: "hello".to_string(),
+            find: FindState::default(),
+            selected_text: None,
+            pending_find_open: true,
+            ..Default::default()
+        };
+        if app.pending_find_open {
+            app.pending_find_open = false;
+            app.find.open(app.selected_text.as_deref());
+            app.find.update_matches(&app.text);
+        }
+        assert!(app.find.open);
+        assert_eq!(app.find.query, "");
+        assert_eq!(app.find.total_matches, 0);
     }
 }
