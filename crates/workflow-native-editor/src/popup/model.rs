@@ -33,6 +33,8 @@ pub enum HoverKind {
     Error,
     Warning,
     Doc,
+    /// A test report row from the test panel.
+    Test,
 }
 
 impl HoverKind {
@@ -48,6 +50,7 @@ impl HoverKind {
             Self::Error => "@error",
             Self::Warning => "@warn",
             Self::Doc => "@doc",
+            Self::Test => "@test",
         }
     }
 
@@ -65,6 +68,7 @@ impl HoverKind {
             Self::Error => "An error diagnostic surfaced by the LSP or the engine.",
             Self::Warning => "A warning diagnostic (deprecated usage, likely bug, etc.).",
             Self::Doc => "A documentation entry — for symbols with no better kind.",
+            Self::Test => "A test result row from the test panel.",
         })
     }
 
@@ -80,6 +84,7 @@ impl HoverKind {
             Self::Error => "✗",
             Self::Warning => "!",
             Self::Doc => "✦",
+            Self::Test => "✓",
         }
     }
 }

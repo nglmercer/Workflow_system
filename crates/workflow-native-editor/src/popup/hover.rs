@@ -102,6 +102,19 @@ fn render_hover_body(ui: &mut Ui, content: &HoverContent) {
         render_signature(ui, sig);
     }
 
+    // One-sentence doc line for the kind. Rendered in a muted
+    // italic so the user can read it without it competing with
+    // the type table or markdown body below.
+    if let Some(doc) = content.kind.doc() {
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(doc)
+                .italics()
+                .size(11.0)
+                .color(Theme::hover_doc_label()),
+        );
+    }
+
     if let Some(docs) = &content.docs {
         ui.add_space(6.0);
         ui.separator();

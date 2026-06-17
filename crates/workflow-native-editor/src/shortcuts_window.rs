@@ -54,14 +54,15 @@ pub fn show(ctx: &egui::Context, open: &mut bool, keymap: &Keymap) {
                     .spacing([24.0, 4.0])
                     .min_col_width(140.0)
                     .show(ui, |ui| {
-                        for (label, cmd) in keymap.bindings() {
+                        for (label, cmd, long_desc) in keymap.bindings() {
                             ui.label(
-                                RichText::new(label)
+                                RichText::new(&label)
                                     .monospace()
                                     .font(FontId::monospace(13.0))
                                     .color(Theme::chord_label()),
-                            );
-                            ui.label(cmd);
+                            )
+                            .on_hover_text(&long_desc);
+                            ui.label(&cmd).on_hover_text(&long_desc);
                             ui.end_row();
                         }
                     });

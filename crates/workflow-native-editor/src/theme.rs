@@ -51,6 +51,7 @@ impl Theme {
             HoverKind::Error => Color32::from_rgb(190, 60, 60),
             HoverKind::Warning => Color32::from_rgb(200, 160, 50),
             HoverKind::Doc => Color32::from_rgb(110, 110, 130),
+            HoverKind::Test => Color32::from_rgb(80, 170, 110),
         }
     }
 
@@ -78,6 +79,13 @@ impl Theme {
     /// Italic text color (used for `*italic*` markdown spans).
     #[allow(dead_code)]    pub fn hover_italic() -> Color32 {
         Color32::from_gray(180)
+    }
+
+    /// Color for the muted italic one-sentence doc line that
+    /// appears above the markdown body in the hover popup.
+    #[allow(dead_code)]
+    pub fn hover_doc_label() -> Color32 {
+        Color32::from_gray(160)
     }
 
     /// Bold text color (used for `**bold**` markdown spans); the renderer

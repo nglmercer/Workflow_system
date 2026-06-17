@@ -94,6 +94,41 @@ impl Command {
             Command::None => i18n_t("shortcuts.command_none"),
         }
     }
+
+    /// Long-form description of the command. Surfaced as a
+    /// tooltip/hovers line (and as a tooltip in the shortcuts
+    /// window) when the user wants more detail than the one-line
+    /// [`Self::description`].
+    pub fn long_description(self) -> String {
+        match self {
+            Command::PopupUp => i18n_t("shortcuts.command_popup_up_long"),
+            Command::PopupDown => i18n_t("shortcuts.command_popup_down_long"),
+            Command::PopupAccept => i18n_t("shortcuts.command_popup_accept_long"),
+            Command::PopupDismiss => i18n_t("shortcuts.command_popup_dismiss_long"),
+            Command::SnippetAdvance => i18n_t("shortcuts.command_snippet_advance_long"),
+            Command::SnippetCancel => i18n_t("shortcuts.command_snippet_cancel_long"),
+            Command::Undo => i18n_t("shortcuts.command_undo_long"),
+            Command::Redo => i18n_t("shortcuts.command_redo_long"),
+            Command::Open => i18n_t("shortcuts.command_open_long"),
+            Command::Save => i18n_t("shortcuts.command_save_long"),
+            Command::ToggleComment => i18n_t("shortcuts.command_toggle_comment_long"),
+            Command::DuplicateLine => i18n_t("shortcuts.command_duplicate_line_long"),
+            Command::DeleteLine => i18n_t("shortcuts.command_delete_line_long"),
+            Command::MoveLineUp => i18n_t("shortcuts.command_move_line_up_long"),
+            Command::MoveLineDown => i18n_t("shortcuts.command_move_line_down_long"),
+            Command::Indent => i18n_t("shortcuts.command_indent_long"),
+            Command::Outdent => i18n_t("shortcuts.command_outdent_long"),
+            Command::ToggleFoldAtCursor => i18n_t("shortcuts.command_toggle_fold_long"),
+            Command::UnfoldAll => i18n_t("shortcuts.command_unfold_all_long"),
+            Command::Find => i18n_t("shortcuts.command_find_long"),
+            Command::GotoLine => i18n_t("shortcuts.command_goto_line_long"),
+            Command::GotoDefinition => i18n_t("shortcuts.command_goto_definition_long"),
+            Command::ShowShortcuts => i18n_t("shortcuts.command_show_shortcuts_long"),
+            Command::RunTests => i18n_t("shortcuts.command_run_tests_long"),
+            Command::SearchInFiles => i18n_t("shortcuts.command_search_in_files_long"),
+            Command::None => i18n_t("shortcuts.command_none_long"),
+        }
+    }
 }
 
 /// A keyboard chord: a single key with a set of modifiers. The
@@ -215,9 +250,12 @@ impl Keymap {
     /// suitable for rendering in a help window. Entries that share
     /// a chord prefix (e.g. `Ctrl+K Ctrl+L` and `Ctrl+K Ctrl+J`)
     /// are flattened into a single `Ctrl+K Ctrl+L`-style label. The
-    /// order matches the keymap's insertion order.
-    pub fn bindings(&self) -> Vec<(String, String)> {
-        let mut out: Vec<(String, String)> = Vec::new();
+    /// Bindings in `(label, description, long_description)` triples,
+    /// in keymap insertion order. The short description powers the
+    /// shortcuts window; the long description is a tooltip on
+    /// hover.
+    pub fn bindings(&self) -> Vec<(String, String, String)> {
+        let mut out: Vec<(String, String, String)> = Vec::new();
         for (matcher, cmd) in &self.entries {
             if matches!(cmd, Command::None) {
                 continue;
@@ -228,9 +266,31 @@ impl Keymap {
                     format!("{} {}", chord_label(*prefix), chord_label(*suffix))
                 }
             };
-            out.push((label, cmd.description()));
+            out.push((label, cmd.description(), cmd.long_description()));
         }
         out
+    }
+
+    /// Look up the long description for a binding by its label.
+    /// Returns the short description if the label isn't found,
+    /// which keeps the hover behavior safe even if the keymap is
+    /// mutated mid-iteration.
+    pub fn long_description_for(&self, label: &str) -> String {
+        for (matcher, cmd) in &self.entries {
+            if matches!(cmd, Command::None) {
+                continue;
+            }
+            let this_label = match matcher {
+                ChordMatcher::Exact(c) => chord_label(*c),
+                ChordMatcher::Chord { prefix, suffix } => {
+                    format!("{} {}", chord_label(*prefix), chord_label(*suffix))
+                }
+            };
+            if this_label == label {
+                return cmd.long_description();
+            }
+        }
+        String::new()
     }
 
     /// Build the default keymap. New bindings are added here and
@@ -716,7 +776,7 @@ mod tests {
     #[test]
     fn bindings_includes_chord_expansion() {
         let km = Keymap::new();
-        let labels: Vec<String> = km.bindings().into_iter().map(|(l, _)| l).collect();
+        let labels: Vec<String> = km.bindings().into_iter().map(|(l, _, _)| l).collect();
         // The Ctrl+K Ctrl+L fold toggle must surface as a single
         // combined label, not as a bare `Ctrl+K` prefix entry.
         assert!(
@@ -729,10 +789,11 @@ mod tests {
     #[test]
     fn bindings_includes_f1() {
         let km = Keymap::new();
+        let expected = i18n_t("shortcuts.command_show_shortcuts");
         assert!(
             km.bindings()
                 .iter()
-                .any(|(l, c)| l == "F1" && c == i18n_t("shortcuts.command_show_shortcuts").as_str()),
+                .any(|(l, cmd, _)| l == "F1" && cmd == &expected),
             "F1 should map to ShowShortcuts"
         );
     }
@@ -740,18 +801,33 @@ mod tests {
     #[test]
     fn default_keymap_has_search_in_files() {
         let km = Keymap::new();
-        let matched = km.bindings().iter().any(|(l, c)| {
-            l == "Ctrl+Shift+F" && c == i18n_t("shortcuts.command_search_in_files").as_str()
-        });
+        let expected = i18n_t("shortcuts.command_search_in_files");
+        let matched = km
+            .bindings()
+            .iter()
+            .any(|(l, cmd, _)| l == "Ctrl+Shift+F" && cmd == &expected);
         assert!(matched, "Ctrl+Shift+F should map to Command::SearchInFiles");
     }
 
     #[test]
     fn bindings_have_descriptions() {
         let km = Keymap::new();
-        for (label, cmd) in km.bindings() {
-            assert!(!label.is_empty(), "empty label for {:?}", cmd);
+        for (label, cmd, long_desc) in km.bindings() {
+            assert!(!label.is_empty(), "empty label");
             assert!(!cmd.is_empty(), "empty description for {}", label);
+            assert!(!long_desc.is_empty(), "empty long description for {}", label);
         }
+    }
+
+    #[test]
+    fn long_description_for_returns_match() {
+        let km = Keymap::new();
+        let found = km.long_description_for("Ctrl+S");
+        assert!(
+            !found.is_empty(),
+            "long description for Ctrl+S should not be empty"
+        );
+        // Empty lookup returns empty string (defensive).
+        assert_eq!(km.long_description_for("Nonexistent Key"), "");
     }
 }
