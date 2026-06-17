@@ -73,6 +73,7 @@ impl EditorApp {
         &self,
         ui: &egui::Ui,
         galley: &Arc<egui::Galley>,
+        galley_pos: egui::Pos2,
         editor_rect: Rect,
     ) -> Option<Rect> {
         if !self.find.open || self.find.match_offsets.is_empty() {
@@ -97,7 +98,6 @@ impl EditorApp {
             if display_line >= galley.rows.len() {
                 continue;
             }
-            let row = &galley.rows[display_line];
 
             // Use the char index in the display row, computed from the
             // source byte offset. We approximate by computing the
@@ -111,13 +111,20 @@ impl EditorApp {
                 .sum();
             let col_in_line_start = start.saturating_sub(line_byte_start);
             let col_in_line_end = end.saturating_sub(line_byte_start);
-            let row_start_x = row.rect.min.x;
             // Use cursor_screen_pos to find the left edge of the row,
             // then step per character.
-            let left_pos =
-                cursor::cursor_screen_pos(galley, editor_rect, display_line, col_in_line_start);
-            let right_pos =
-                cursor::cursor_screen_pos(galley, editor_rect, display_line, col_in_line_end);
+            let left_pos = cursor::cursor_screen_pos(
+                galley,
+                galley_pos,
+                display_line,
+                col_in_line_start,
+            );
+            let right_pos = cursor::cursor_screen_pos(
+                galley,
+                galley_pos,
+                display_line,
+                col_in_line_end,
+            );
             let mut rect = egui::Rect::from_min_max(left_pos, right_pos);
             // Make sure the rect has a sensible height even for empty
             // matches.
@@ -127,7 +134,6 @@ impl EditorApp {
                     egui::Vec2::new(rect.width().max(2.0), LINE_HEIGHT),
                 );
             }
-            let _ = row_start_x;
             let color = if idx == self.find.current_match {
                 crate::theme::Theme::CURRENT_FIND_MATCH_HIGHLIGHT
             } else {
@@ -321,9 +327,16 @@ impl EditorApp {
                             self.cursor = CursorPosition::new(line, col);
                         }
                         if primary.rcursor.row < galley.rows.len() {
+                            // `galley_pos` is the screen-space origin of the
+                            // galley. `response.rect.min` is the TextEdit's
+                            // outer rect, which sits a few pixels above and
+                            // to the left of the galley (inner margin).
+                            // Using the latter instead of `galley_pos` makes
+                            // the popup drift up and to the left of the
+                            // caret by the size of that margin.
                             self.cursor_screen_pos = Some(cursor_screen_pos(
                                 &galley,
-                                response.rect,
+                                output.galley_pos,
                                 primary.rcursor.row,
                                 primary.rcursor.column,
                             ));
@@ -382,9 +395,12 @@ impl EditorApp {
 
                     self.update_hover(response.rect, &galley, response.hover_pos());
 
-                    if let Some(current_rect) =
-                        self.paint_find_highlights(ui, &galley, response.rect)
-                    {
+                    if let Some(current_rect) = self.paint_find_highlights(
+                        ui,
+                        &galley,
+                        output.galley_pos,
+                        response.rect,
+                    ) {
                         ui.scroll_to_rect(current_rect, Some(egui::Align::Center));
                     }
 

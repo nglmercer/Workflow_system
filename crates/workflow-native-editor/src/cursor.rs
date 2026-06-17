@@ -14,7 +14,7 @@
 //! hand-roll the "walk lines, sum char counts" loop every time it
 //! needs to go from `(line, col)` to a position in the buffer.
 
-use eframe::egui::{self, Pos2, Vec2};
+use eframe::egui::{self, Pos2};
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CursorPosition {
@@ -312,5 +312,95 @@ mod tests {
             cursor: 8,
         };
         assert_eq!(s.normalized(), (2, 8));
+    }
+
+    /// Lay out a tiny two-line galley with the default font context.
+    /// Kept as a helper so the position tests below stay readable.
+    fn two_row_galley() -> std::sync::Arc<egui::Galley> {
+        let ctx = egui::Context::default();
+        // `begin_frame` (called internally by `run`) sets up the font
+        // atlas. Without it, `ctx.fonts` panics with "No fonts
+        // available until first call to Context::run()".
+        ctx.begin_frame(egui::RawInput::default());
+
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            "hi\nworld",
+            0.0,
+            egui::text::TextFormat {
+                font_id: egui::FontId::monospace(13.0),
+                ..Default::default()
+            },
+        );
+        ctx.fonts(|f| f.layout_job(job))
+    }
+
+    #[test]
+    fn cursor_galley_pos_is_local_to_galley_origin() {
+        let galley = two_row_galley();
+        assert!(
+            galley.rows.len() >= 2,
+            "expected at least 2 rows, got {}",
+            galley.rows.len()
+        );
+
+        let row0 = &galley.rows[0];
+        let p0 = cursor_galley_pos(&galley, 0, 0);
+        assert!(
+            (p0.x - row0.rect.min.x).abs() < 0.5,
+            "p0.x={}, row0.rect.min.x={}",
+            p0.x,
+            row0.rect.min.x
+        );
+        assert!((p0.y - row0.rect.min.y).abs() < 0.5);
+
+        let row1 = &galley.rows[1];
+        let p1 = cursor_galley_pos(&galley, 1, 0);
+        assert!((p1.x - row1.rect.min.x).abs() < 0.5);
+        assert!((p1.y - row1.rect.min.y).abs() < 0.5);
+        assert!(p1.y > p0.y, "row 1 must be below row 0");
+
+        // Row past the end falls back to the galley origin.
+        assert_eq!(cursor_galley_pos(&galley, 999, 0), Pos2::ZERO);
+    }
+
+    /// Regression: the old `cursor_screen_pos` did
+    ///     editor_rect.min + Vec2::new(cursor_x - editor_rect.min.x, cursor_y - editor_rect.min.y)
+    /// which is a tautology — the `+` and `-` cancel, so the function
+    /// returned the galley-local position as if it were a screen
+    /// position. The completion popup therefore landed near the galley
+    /// origin (the editor's top-left) instead of at the caret.
+    #[test]
+    fn cursor_screen_pos_adds_galley_pos_not_tautology() {
+        let galley = two_row_galley();
+
+        let galley_pos = Pos2::new(500.0, 200.0);
+        let screen_pos = cursor_screen_pos(&galley, galley_pos, 1, 0);
+
+        let local = cursor_galley_pos(&galley, 1, 0);
+        let expected = galley_pos + local.to_vec2();
+        assert!(
+            (screen_pos.x - expected.x).abs() < 0.5,
+            "screen_pos.x={}, expected.x={}",
+            screen_pos.x,
+            expected.x
+        );
+        assert!(
+            (screen_pos.y - expected.y).abs() < 0.5,
+            "screen_pos.y={}, expected.y={}",
+            screen_pos.y,
+            expected.y
+        );
+
+        // The crucial guarantee: the screen x is at *least* the
+        // galley x. Under the old bug it could be as small as the row's
+        // local origin (~0), which is what put the popup on top of the
+        // gutter.
+        assert!(
+            screen_pos.x >= galley_pos.x,
+            "screen x ({}) must be >= galley x ({})",
+            screen_pos.x,
+            galley_pos.x
+        );
     }
 }
