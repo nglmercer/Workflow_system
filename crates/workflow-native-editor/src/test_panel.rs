@@ -11,10 +11,10 @@
 //! module doesn't need to know about [`EditorApp`]'s state
 //! machine — the integration glue lives in `app.rs`.
 
+use crate::theme::Theme;
 use eframe::egui::{self, Color32, RichText, ScrollArea};
 use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 use workflow_test_runner::RunReport;
-use crate::theme::Theme;
 
 /// Render the test panel. Returns a status-bar message describing
 /// the result of any user action this frame (currently "Copied N
@@ -269,7 +269,6 @@ mod tests {
         assert!(text.contains("actual=null"));
     }
 }
-
 
 #[cfg(test)]
 mod theme_tests {

@@ -844,7 +844,10 @@ mod tests {
         assert!(labels.contains(&"Ctrl+V"), "Ctrl+V should be bound");
         let cmds: Vec<&str> = bindings.iter().map(|(_, c, _)| c.as_str()).collect();
         assert!(cmds.contains(&cut.as_str()), "Cut command should be bound");
-        assert!(cmds.contains(&copy.as_str()), "Copy command should be bound");
+        assert!(
+            cmds.contains(&copy.as_str()),
+            "Copy command should be bound"
+        );
         assert!(
             cmds.contains(&paste.as_str()),
             "Paste command should be bound"
@@ -857,7 +860,11 @@ mod tests {
         for (label, cmd, long_desc) in km.bindings() {
             assert!(!label.is_empty(), "empty label");
             assert!(!cmd.is_empty(), "empty description for {}", label);
-            assert!(!long_desc.is_empty(), "empty long description for {}", label);
+            assert!(
+                !long_desc.is_empty(),
+                "empty long description for {}",
+                label
+            );
         }
     }
 

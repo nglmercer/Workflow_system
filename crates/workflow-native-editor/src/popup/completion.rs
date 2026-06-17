@@ -4,12 +4,12 @@
 //! window near the cursor, with per-item glyph + detail row. Returns
 //! the index of any item the user clicked (or `None`).
 
+use crate::theme::Theme;
 use eframe::egui::{
     self, Align2, Color32, FontId, Pos2, Rect, Response, Rounding, ScrollArea, Sense, Stroke, Ui,
     Vec2,
 };
 use workflow_lsp::features::{Completion, CompletionKind};
-use crate::theme::Theme;
 
 use super::layout::{
     clamp_to_screen, popup_frame, COMPLETION_MAX_HEIGHT, COMPLETION_ROW_HEIGHT, COMPLETION_WIDTH,
@@ -149,8 +149,6 @@ fn kind_glyph(kind: CompletionKind) -> &'static str {
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -159,8 +157,14 @@ mod tests {
 
     #[test]
     fn completion_colors_match_theme() {
-        assert_eq!(Theme::completion(CompletionKind::Keyword), Color32::from_rgb(200, 120, 255));
-        assert_eq!(Theme::completion(CompletionKind::Function), Color32::from_rgb(100, 200, 255));
+        assert_eq!(
+            Theme::completion(CompletionKind::Keyword),
+            Color32::from_rgb(200, 120, 255)
+        );
+        assert_eq!(
+            Theme::completion(CompletionKind::Function),
+            Color32::from_rgb(100, 200, 255)
+        );
     }
 
     #[test]

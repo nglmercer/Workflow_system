@@ -1234,10 +1234,12 @@ impl EditorApp {
     /// state — egui handles both internal and platform clipboards.
     /// Commits the change as a structural history entry.
     fn paste_clipboard(&mut self, ctx: &egui::Context) {
-        let clipboard_text = ctx.input(|i| i.events.iter().find_map(|e| match e {
-            egui::Event::Paste(text) => Some(text.clone()),
-            _ => None,
-        }));
+        let clipboard_text = ctx.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Paste(text) => Some(text.clone()),
+                _ => None,
+            })
+        });
         let clipboard_text = match clipboard_text {
             Some(t) if !t.is_empty() => t,
             // Fall back to whatever we last saw on the OS clipboard
@@ -1251,11 +1253,8 @@ impl EditorApp {
         let (start, end) = match self.selected_range {
             Some(sel) => sel.normalized(),
             None => {
-                let pos = cursor::line_col_to_char(
-                    &self.text,
-                    self.cursor.line - 1,
-                    self.cursor.col - 1,
-                );
+                let pos =
+                    cursor::line_col_to_char(&self.text, self.cursor.line - 1, self.cursor.col - 1);
                 (pos, pos)
             }
         };
@@ -1946,6 +1945,9 @@ mod theme_regression_tests {
     #[test]
     fn find_match_painter_uses_theme_constants() {
         assert!(Theme::CURRENT_FIND_MATCH_HIGHLIGHT.a() >= Theme::FIND_MATCH_HIGHLIGHT.a());
-        assert!(Theme::LAYOUT_CURRENT_FIND_MATCH_HIGHLIGHT.a() >= Theme::LAYOUT_FIND_MATCH_HIGHLIGHT.a());
+        assert!(
+            Theme::LAYOUT_CURRENT_FIND_MATCH_HIGHLIGHT.a()
+                >= Theme::LAYOUT_FIND_MATCH_HIGHLIGHT.a()
+        );
     }
 }

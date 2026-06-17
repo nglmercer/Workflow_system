@@ -57,27 +57,32 @@ impl Theme {
 
     /// Background tint for the small event chip in the hover header.
     /// Same hue as the badge, lower alpha, so it reads as a sub-element.
-    #[allow(dead_code)]    pub fn hover_event_chip_bg(badge: Color32) -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_event_chip_bg(badge: Color32) -> Color32 {
         Color32::from_rgba_unmultiplied(badge.r(), badge.g(), badge.b(), 70)
     }
 
     /// Background tint for a hover type pill (e.g. "Array of", primitive pills).
-    #[allow(dead_code)]    pub fn hover_pill_bg(color: Color32) -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_pill_bg(color: Color32) -> Color32 {
         Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 50)
     }
 
     /// Title text color in the hover header.
-    #[allow(dead_code)]    pub fn hover_title() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_title() -> Color32 {
         Color32::from_gray(235)
     }
 
     /// Default body text color in the hover markdown renderer.
-    #[allow(dead_code)]    pub fn hover_base_text() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_base_text() -> Color32 {
         Color32::from_gray(210)
     }
 
     /// Italic text color (used for `*italic*` markdown spans).
-    #[allow(dead_code)]    pub fn hover_italic() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_italic() -> Color32 {
         Color32::from_gray(180)
     }
 
@@ -90,62 +95,74 @@ impl Theme {
 
     /// Bold text color (used for `**bold**` markdown spans); the renderer
     /// shades the kind's badge color for emphasis.
-    #[allow(dead_code)]    pub fn hover_strong_for(kind: HoverKind) -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_strong_for(kind: HoverKind) -> Color32 {
         Self::hover_badge(kind)
     }
 
     /// Inline code text color.
-    #[allow(dead_code)]    pub fn hover_code_text() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_code_text() -> Color32 {
         Color32::from_rgb(200, 220, 255)
     }
 
     /// Inline code background tint.
-    #[allow(dead_code)]    pub fn hover_code_bg() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_code_bg() -> Color32 {
         Color32::from_rgba_unmultiplied(60, 80, 110, 90)
     }
 
     /// Color for the `HoverSignature::Text` plain-monospace label.
-    #[allow(dead_code)]    pub fn hover_signature_text() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_signature_text() -> Color32 {
         Color32::from_rgb(180, 200, 220)
     }
 
     /// Color for the "returns" label that follows a function-typed signature.
-    #[allow(dead_code)]    pub fn hover_returns_label() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_returns_label() -> Color32 {
         Color32::from_gray(160)
     }
 
     /// Field-name column color in the function/object field table.
-    #[allow(dead_code)]    pub fn hover_field_name() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_field_name() -> Color32 {
         Color32::from_rgb(220, 200, 140)
     }
 
     /// Color of the `:` separator between a field name and its type.
-    #[allow(dead_code)]    pub fn hover_field_colon() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_field_colon() -> Color32 {
         Color32::from_gray(120)
     }
 
     /// Color of the `->` arrow in compact function-type rendering.
-    #[allow(dead_code)]    pub fn hover_arrow() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_arrow() -> Color32 {
         Color32::from_gray(160)
     }
 
     /// "Array of" pill color in `render_type_expr`.
-    #[allow(dead_code)]    pub fn hover_array_pill() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_array_pill() -> Color32 {
         Color32::from_rgb(160, 100, 200)
     }
 
     /// Compact `[]` suffix color in `render_type_compact`.
-    #[allow(dead_code)]    pub fn hover_compact_array() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_compact_array() -> Color32 {
         Color32::from_rgb(160, 100, 200)
     }
 
     /// Compact `object` / `{ ... }` color.
-    #[allow(dead_code)]    pub fn hover_compact_object() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_compact_object() -> Color32 {
         Color32::from_rgb(80, 170, 170)
     }
 
     /// Compact `fn(...) -> T` color.
-    #[allow(dead_code)]    pub fn hover_compact_fn() -> Color32 {
+    #[allow(dead_code)]
+    pub fn hover_compact_fn() -> Color32 {
         Color32::from_rgb(160, 100, 200)
     }
 }
@@ -158,7 +175,8 @@ impl Theme {
     /// Color for a primitive or alias type pill. Unknown / user types
     /// fall back to a soft purple so they read as "library" rather
     /// than as any specific primitive.
-    #[allow(dead_code)]    pub fn type_color(name: &str) -> Color32 {
+    #[allow(dead_code)]
+    pub fn type_color(name: &str) -> Color32 {
         match name {
             "number" => Color32::from_rgb(120, 200, 255),
             "string" => Color32::from_rgb(180, 220, 120),
@@ -178,7 +196,8 @@ impl Theme {
     /// Accent color for a completion item by its kind. The kind enum
     /// already exposes 7 variants, each of which gets a distinct hue
     /// so the completion list reads as a color-coded palette.
-    #[allow(dead_code)]    pub fn completion(kind: CompletionKind) -> Color32 {
+    #[allow(dead_code)]
+    pub fn completion(kind: CompletionKind) -> Color32 {
         match kind {
             CompletionKind::Keyword => Color32::from_rgb(200, 120, 255),
             CompletionKind::Function => Color32::from_rgb(100, 200, 255),
@@ -200,7 +219,8 @@ impl Theme {
     /// are kept distinct (with `Operator` and `Punctuation` sharing a
     /// muted gray family) so a `//@T` annotated line reads as a
     /// well-typed chain of tokens.
-    #[allow(dead_code)]    pub fn token(kind: TokenKind) -> Color32 {
+    #[allow(dead_code)]
+    pub fn token(kind: TokenKind) -> Color32 {
         match kind {
             TokenKind::Keyword => Color32::from_rgb(180, 130, 220),
             TokenKind::String => Color32::from_rgb(180, 220, 120),
@@ -222,7 +242,8 @@ impl Theme {
     /// Color for a diagnostic severity row. `Info` and `Hint` share
     /// `Color32::GRAY` deliberately — they read as "informational"
     /// rather than as distinct severities.
-    #[allow(dead_code)]    pub fn diagnostic_severity(severity: &str) -> Color32 {
+    #[allow(dead_code)]
+    pub fn diagnostic_severity(severity: &str) -> Color32 {
         match severity {
             "error" => Color32::from_rgb(255, 80, 80),
             "warning" => Color32::from_rgb(255, 200, 50),
@@ -232,7 +253,8 @@ impl Theme {
     }
 
     /// Color for a passed / failed test indicator.
-    #[allow(dead_code)]    pub fn test_pass(passed: bool) -> Color32 {
+    #[allow(dead_code)]
+    pub fn test_pass(passed: bool) -> Color32 {
         if passed {
             Color32::from_rgb(80, 200, 120)
         } else {
@@ -275,17 +297,20 @@ impl Theme {
 
 impl Theme {
     /// Right-border vertical rule between the gutter and the editor area.
-    #[allow(dead_code)]    pub fn gutter_border() -> Color32 {
+    #[allow(dead_code)]
+    pub fn gutter_border() -> Color32 {
         Color32::from_gray(60)
     }
 
     /// Line-number text in the gutter.
-    #[allow(dead_code)]    pub fn gutter_text() -> Color32 {
+    #[allow(dead_code)]
+    pub fn gutter_text() -> Color32 {
         Color32::from_gray(140)
     }
 
     /// Hovered line-number text in the gutter.
-    #[allow(dead_code)]    pub fn gutter_text_hover() -> Color32 {
+    #[allow(dead_code)]
+    pub fn gutter_text_hover() -> Color32 {
         Color32::from_gray(240)
     }
 }
@@ -321,7 +346,8 @@ pub fn fold_kind_label(kind: crate::folding::FoldKind) -> &'static str {
 
 impl Theme {
     /// Color for the chord-label column in the shortcuts help window.
-    #[allow(dead_code)]    pub fn chord_label() -> Color32 {
+    #[allow(dead_code)]
+    pub fn chord_label() -> Color32 {
         Color32::from_rgb(220, 220, 255)
     }
 }
@@ -332,17 +358,20 @@ impl Theme {
 
 impl Theme {
     /// Default icon color in the find bar (↑, ↓, ✕, etc.).
-    #[allow(dead_code)]    pub fn find_icon() -> Color32 {
+    #[allow(dead_code)]
+    pub fn find_icon() -> Color32 {
         Color32::from_gray(180)
     }
 
     /// Hovered icon color in the find bar.
-    #[allow(dead_code)]    pub fn find_icon_hover() -> Color32 {
+    #[allow(dead_code)]
+    pub fn find_icon_hover() -> Color32 {
         Color32::from_gray(240)
     }
 
     /// Active (pressed) icon color in the find bar.
-    #[allow(dead_code)]    pub fn find_icon_active() -> Color32 {
+    #[allow(dead_code)]
+    pub fn find_icon_active() -> Color32 {
         Color32::from_rgb(100, 200, 255)
     }
 }
@@ -363,7 +392,8 @@ impl Theme {
 impl Theme {
     /// Accent color for a search-in-files hit. Used for the matched
     /// substring inside each result row.
-    #[allow(dead_code)]    pub fn search_hit() -> Color32 {
+    #[allow(dead_code)]
+    pub fn search_hit() -> Color32 {
         Color32::from_rgb(255, 220, 0)
     }
 }
@@ -492,8 +522,7 @@ mod tests {
         // be stronger than the non-current pair on both sides.
         assert!(Theme::CURRENT_FIND_MATCH_HIGHLIGHT.a() > Theme::FIND_MATCH_HIGHLIGHT.a());
         assert!(
-            Theme::LAYOUT_CURRENT_FIND_MATCH_HIGHLIGHT.a()
-                > Theme::LAYOUT_FIND_MATCH_HIGHLIGHT.a()
+            Theme::LAYOUT_CURRENT_FIND_MATCH_HIGHLIGHT.a() > Theme::LAYOUT_FIND_MATCH_HIGHLIGHT.a()
         );
     }
 

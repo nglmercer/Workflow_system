@@ -4,8 +4,8 @@
 //! `clamp_to_screen` keeps a proposed rect from drifting off the edge
 //! of the window when the editor is resized.
 
-use eframe::egui::{self, epaint, Frame, Margin, Rect, Rounding, Vec2};
 use crate::theme::Theme;
+use eframe::egui::{self, epaint, Frame, Margin, Rect, Rounding, Vec2};
 
 // ---------------------------------------------------------------------------
 // Layout constants

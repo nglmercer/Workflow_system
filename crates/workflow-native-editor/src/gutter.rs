@@ -163,8 +163,8 @@ pub fn prune_stale(collapsed: &mut BTreeSet<usize>, source: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::folding::FoldKind;
+    use super::*;
 
     #[test]
     fn width_scales_with_line_count() {

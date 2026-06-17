@@ -108,16 +108,16 @@ impl History {
     /// Any structural edit resets the coalesce state, so a structural
     /// edit followed by typing within 500 ms is *not* merged.
     pub fn commit_typing(&mut self, snap: Snapshot) {
-        debug_assert!(!snap.structural, "commit_typing called with a structural snapshot");
+        debug_assert!(
+            !snap.structural,
+            "commit_typing called with a structural snapshot"
+        );
         let within_window = self
             .past
             .back()
             .map(|top| {
                 !top.structural
-                    && snap
-                        .last_edit_at_ms
-                        .saturating_sub(top.last_edit_at_ms)
-                        < COALESCE_WINDOW_MS
+                    && snap.last_edit_at_ms.saturating_sub(top.last_edit_at_ms) < COALESCE_WINDOW_MS
             })
             .unwrap_or(false)
             && self.last_typing_in_burst;
@@ -136,7 +136,10 @@ impl History {
     /// Record a *structural* edit. Always pushes a fresh entry —
     /// never coalesces.
     pub fn commit_structural(&mut self, snap: Snapshot) {
-        debug_assert!(snap.structural, "commit_structural called with a typing snapshot");
+        debug_assert!(
+            snap.structural,
+            "commit_structural called with a typing snapshot"
+        );
         self.past.push_back(snap);
         self.trim_to_bound();
         self.future.clear();

@@ -136,13 +136,12 @@ fn make_code_format(color: Color32) -> egui::text::TextFormat {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eframe::egui::Color32;
     use crate::popup::HoverKind;
     use crate::theme::Theme;
+    use eframe::egui::Color32;
 
     /// Helper: build a `LayoutJob` from a one-paragraph markdown
     /// string so we can inspect the colors of the spans without
@@ -164,14 +163,22 @@ mod tests {
                 while j + 1 < chars.len() && !(chars[j] == '*' && chars[j + 1] == '*') {
                     j += 1;
                 }
-                job.append(&chars[i + 2..j].iter().collect::<String>(), 0.0, make_text_format(FontId::monospace(12.0), accent, false));
+                job.append(
+                    &chars[i + 2..j].iter().collect::<String>(),
+                    0.0,
+                    make_text_format(FontId::monospace(12.0), accent, false),
+                );
                 i = j + 2;
             } else if chars[i] == '`' {
                 let mut j = i + 1;
                 while j < chars.len() && chars[j] != '`' {
                     j += 1;
                 }
-                job.append(&chars[i + 1..j].iter().collect::<String>(), 0.0, make_code_format(Theme::hover_code_text()));
+                job.append(
+                    &chars[i + 1..j].iter().collect::<String>(),
+                    0.0,
+                    make_code_format(Theme::hover_code_text()),
+                );
                 i = j + 1;
             } else if chars[i] == '*' {
                 let mut j = i + 1;

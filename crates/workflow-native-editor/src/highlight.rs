@@ -1,6 +1,6 @@
+use crate::theme::Theme;
 use eframe::egui::Color32;
 use std::collections::HashSet;
-use crate::theme::Theme;
 
 #[derive(Clone, Copy, Debug)]
 pub enum TokenKind {

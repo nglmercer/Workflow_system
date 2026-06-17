@@ -130,7 +130,6 @@ pub fn layout_flow(
     ui.fonts(|f| f.layout_job(job))
 }
 
-
 #[cfg(test)]
 mod theme_tests {
     use super::*;

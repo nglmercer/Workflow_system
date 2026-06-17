@@ -13,8 +13,8 @@
 //! is instead shown conditionally on the caller's flag, and the
 //! caller polls [`esc_pressed`] to close on `Esc`.
 
-use eframe::egui::{self, Color32, FontId, RichText, ScrollArea, Vec2};
 use crate::theme::Theme;
+use eframe::egui::{self, Color32, FontId, RichText, ScrollArea, Vec2};
 use workflow_i18n::t as i18n_t;
 
 use super::keybindings::Keymap;

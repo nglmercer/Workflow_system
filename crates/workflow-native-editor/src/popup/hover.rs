@@ -85,8 +85,11 @@ fn render_hover_body(ui: &mut Ui, content: &HoverContent) {
                 Vec2::new(event_chip_width(&chip_text), 18.0),
                 Sense::hover(),
             );
-            ui.painter()
-                .rect_filled(chip_rect, Rounding::same(4.0), Theme::hover_event_chip_bg(badge_color));
+            ui.painter().rect_filled(
+                chip_rect,
+                Rounding::same(4.0),
+                Theme::hover_event_chip_bg(badge_color),
+            );
             ui.painter().text(
                 chip_rect.center(),
                 Align2::CENTER_CENTER,
@@ -275,8 +278,8 @@ fn i18n_t_hovers_returns() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::theme::Theme;
     use crate::popup::HoverKind;
+    use crate::theme::Theme;
 
     /// `hover_event_chip_bg` applies alpha 70 of the badge color.
     /// The RGB channels are gamma-corrected premultiplied values, so

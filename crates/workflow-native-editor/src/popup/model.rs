@@ -406,9 +406,9 @@ fn find_pair(chars: &[char], from: usize, a: char, b: char) -> Option<usize> {
 
 #[cfg(test)]
 mod tests {
-    use eframe::egui::Color32;
-    use crate::theme::Theme;
     use super::*;
+    use crate::theme::Theme;
+    use eframe::egui::Color32;
 
     #[test]
     fn split_paragraphs_keeps_order_and_trims() {
@@ -534,7 +534,11 @@ mod tests {
         ];
         for k in kinds {
             assert!(!k.badge().is_empty(), "empty badge for {:?}", k);
-            assert!(k.badge().starts_with('@'), "badge {:?} should start with @", k);
+            assert!(
+                k.badge().starts_with('@'),
+                "badge {:?} should start with @",
+                k
+            );
         }
     }
 

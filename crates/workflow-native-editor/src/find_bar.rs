@@ -7,8 +7,8 @@
 //! Icons are painted using egui's `Painter` API for consistent
 //! cross-platform rendering (no font dependency).
 
-use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Stroke, TextEdit, Vec2};
 use crate::theme::Theme;
+use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Stroke, TextEdit, Vec2};
 
 /// State for the find bar.
 #[derive(Default)]
