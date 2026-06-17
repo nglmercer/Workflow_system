@@ -202,6 +202,23 @@ impl Chord {
         }
     }
 
+    /// Render the chord as a short human-readable label, e.g.
+    /// `"Ctrl+K"` for a pending prefix. Used by the status bar.
+    pub fn label(&self) -> String {
+        let mut s = String::new();
+        if self.ctrl_or_cmd {
+            s.push_str("Ctrl+");
+        }
+        if self.alt {
+            s.push_str("Alt+");
+        }
+        if self.shift {
+            s.push_str("Shift+");
+        }
+        s.push_str(&format!("{:?}", self.key));
+        s
+    }
+
     /// Does this chord match a `Key` + `Modifiers` pair from egui?
     fn matches(&self, key: Key, mods: Modifiers) -> bool {
         if self.key != key {
@@ -878,5 +895,17 @@ mod tests {
         );
         // Empty lookup returns empty string (defensive).
         assert_eq!(km.long_description_for("Nonexistent Key"), "");
+    }
+
+    #[test]
+    fn pending_label_basic() {
+        let c = Chord::ctrl(Key::K);
+        assert_eq!(c.label(), "Ctrl+K");
+    }
+
+    #[test]
+    fn pending_label_with_shift() {
+        let c = Chord::ctrl_shift(Key::Z);
+        assert_eq!(c.label(), "Ctrl+Shift+Z");
     }
 }

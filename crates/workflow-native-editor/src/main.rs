@@ -1,6 +1,8 @@
 mod app;
 mod completion;
+mod editor;
 mod cursor;
+mod goto_definition;
 mod diagnostics_panel;
 mod file_browser;
 mod file_io;
