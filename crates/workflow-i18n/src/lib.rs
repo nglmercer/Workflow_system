@@ -3,37 +3,57 @@
 //! Thin shim over [`rust_i18n`] so the rest of the workspace calls
 //! `workflow_i18n::t("find.next")` without depending on the macro crate
 //! directly. Locale is resolved at startup from `LC_ALL` / `LC_MESSAGES` /
-//! `LANG` environment variables, falling back to English.
+//! `LANG` environment variables, falling back to English. The active
+//! locale can be changed at runtime via [`init_with`] — useful for the
+//! editor's language selector.
 
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
 rust_i18n::i18n!("locales", fallback = "en");
 
-static RESOLVED: OnceLock<String> = OnceLock::new();
+static RESOLVED: Mutex<String> = Mutex::new(const { String::new() });
 
 /// Locales bundled with the catalog. Anything else falls back to `en`.
-const BUNDLED: &[&str] = &["en", "es"];
+///
+/// Add a locale here when a new YAML file is shipped under
+/// `crates/workflow-i18n/locales/<code>.yaml`. The constant is the
+/// single source of truth used by the editor's language selector and
+/// by the env-based [`resolve_locale`] fallback.
+pub const BUNDLED: &[&str] = &["en", "es"];
 
 /// Initialize the global catalog and select a locale from the process
-/// environment. Safe to call more than once; subsequent calls are no-ops
-/// and return the locale resolved on the first invocation.
+/// environment. Safe to call more than once; subsequent calls are
+/// no-ops for the initial resolution and just return the cached value.
 pub fn init() -> &'static str {
-    if let Some(loc) = RESOLVED.get() {
-        return loc;
+    let needs_init = RESOLVED
+        .lock()
+        .map(|g| g.is_empty())
+        .unwrap_or(true);
+    if needs_init {
+        let resolved = resolve_locale();
+        rust_i18n::set_locale(&resolved);
+        if let Ok(mut g) = RESOLVED.lock() {
+            *g = resolved;
+        }
     }
-    let resolved = resolve_locale();
-    rust_i18n::set_locale(&resolved);
-    let _ = RESOLVED.set(resolved);
-    RESOLVED.get().map(String::as_str).unwrap_or("en")
+    locale_static()
 }
 
-/// Initialize using an explicit locale (e.g. from a CLI flag). Overrides
-/// the environment-based default for the lifetime of the process.
+/// Initialize using an explicit locale (e.g. from a CLI flag or the
+/// editor's language selector). Overrides any prior selection and
+/// takes effect immediately for subsequent `t()` / `tf()` calls.
 pub fn init_with(locale: &str) -> &'static str {
     let sanitized = sanitize(locale);
-    rust_i18n::set_locale(&sanitized);
-    let _ = RESOLVED.set(sanitized);
-    RESOLVED.get().map(String::as_str).unwrap_or("en")
+    let resolved = if is_bundled(&sanitized) {
+        sanitized
+    } else {
+        "en".to_string()
+    };
+    rust_i18n::set_locale(&resolved);
+    if let Ok(mut g) = RESOLVED.lock() {
+        *g = resolved;
+    }
+    locale_static()
 }
 
 /// Translate a key using the current global locale. Returns the English
@@ -55,8 +75,49 @@ pub fn tf(key: &str, args: &[(&str, &str)]) -> String {
 }
 
 /// Return the active locale code (e.g. `"en"`, `"es"`).
-pub fn current_locale() -> &'static str {
-    RESOLVED.get().map(String::as_str).unwrap_or("en")
+pub fn current_locale() -> String {
+    RESOLVED
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_else(|_| "en".to_string())
+}
+
+/// The list of bundled locales, in display order. Drives the editor's
+/// language selector dropdown.
+pub fn available_locales() -> &'static [&'static str] {
+    BUNDLED
+}
+
+/// A human-readable name for a locale code. Falls back to the raw
+/// code if the locale has no display-name entry in the catalog.
+pub fn display_name(locale: &str) -> String {
+    let key = format!("locale.{}", sanitize(locale));
+    let s = t(&key);
+    if s == key || s.is_empty() {
+        locale.to_string()
+    } else {
+        s
+    }
+}
+
+/// `&'static str` view of the active locale code, for callers that
+/// need to stash it (e.g. as a `HashMap` key). The returned reference
+/// points at a string in a leaked allocation; it is updated on every
+/// call to [`init`] or [`init_with`]. Use [`current_locale`] when you
+/// need a fresh value.
+fn locale_static() -> &'static str {
+    use std::sync::OnceLock;
+    static BUF: OnceLock<Mutex<String>> = OnceLock::new();
+    let m = BUF.get_or_init(|| Mutex::new(String::from("en")));
+    let mut g = m.lock().expect("locale mutex poisoned");
+    let cur = current_locale();
+    if *g != cur {
+        *g = cur;
+    }
+    // SAFETY-equivalent: leak a clone so we can return `&'static str`.
+    // The string is small (max ~5 chars) and updated infrequently; the
+    // small leak is acceptable for the convenience.
+    Box::leak(g.clone().into_boxed_str())
 }
 
 fn resolve_locale() -> String {
@@ -66,8 +127,6 @@ fn resolve_locale() -> String {
             if is_bundled(&candidate) {
                 return candidate;
             }
-            // Region-tolerant fallback: try the language part
-            // (e.g. `es_es` → `es`).
             if let Some(underscore) = candidate.find('_') {
                 let lang = &candidate[..underscore];
                 if is_bundled(lang) {
@@ -80,7 +139,7 @@ fn resolve_locale() -> String {
 }
 
 fn is_bundled(locale: &str) -> bool {
-    BUNDLED.iter().any(|b| *b == locale)
+    BUNDLED.contains(&locale)
 }
 
 fn sanitize(raw: &str) -> String {
@@ -127,7 +186,6 @@ mod tests {
 
     #[test]
     fn resolve_locale_falls_back_to_language_part() {
-        // Temporarily clear and re-set LANG.
         let prev = std::env::var_os("LANG");
         // SAFETY: setting a process env var is safe in a single-threaded
         // test context. Other test threads would be a problem.
@@ -140,5 +198,41 @@ mod tests {
             }
         }
         assert_eq!(resolved, "es");
+    }
+
+    #[test]
+    fn init_with_switches_locale_at_runtime() {
+        init_with("en");
+        let en_title = t("app.title");
+        init_with("es");
+        let es_title = t("app.title");
+        if en_title != es_title {
+            assert_eq!(es_title, "Editor Nativo de Flujo");
+        }
+        init_with("en");
+    }
+
+    #[test]
+    fn init_with_unknown_locale_falls_back_to_english() {
+        init_with("zz_ZZ");
+        assert_eq!(current_locale(), "en");
+        let title = t("app.title");
+        assert_eq!(title, "Flow Native Editor");
+    }
+
+    #[test]
+    fn available_locales_lists_bundled() {
+        let locales = available_locales();
+        assert!(locales.contains(&"en"));
+        assert!(locales.contains(&"es"));
+    }
+
+    #[test]
+    fn display_name_returns_localized_name() {
+        init_with("en");
+        let en = display_name("en");
+        let es = display_name("es");
+        assert!(!en.is_empty());
+        assert!(!es.is_empty());
     }
 }

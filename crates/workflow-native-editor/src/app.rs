@@ -41,7 +41,7 @@ use super::gutter;
 use super::history::{History, Snapshot};
 use super::home::{self, HomeAction};
 use super::keybindings::{self, Command, Keymap};
-use super::layouter::{layout_flow, FONT_SIZE, LINE_HEIGHT};
+use super::layouter::{layout_flow, MatchHighlight, FONT_SIZE, LINE_HEIGHT};
 use super::popup;
 use super::recent::RecentList;
 use super::shortcuts_window;
@@ -219,6 +219,23 @@ impl eframe::App for EditorApp {
                     ("line", &self.cursor.line.to_string()),
                     ("col", &self.cursor.col.to_string()),
                 ]));
+                ui.separator();
+                // Language selector. Lists every bundled locale
+                // with its localized display name; selecting one
+                // flips the global i18n catalog and requests a
+                // repaint so the next frame reflects the change.
+                let current = workflow_i18n::current_locale();
+                egui::ComboBox::from_label(i18n_t("toolbar.locale_label"))
+                    .selected_text(workflow_i18n::display_name(&current))
+                    .show_ui(ui, |ui| {
+                        for &code in workflow_i18n::available_locales() {
+                            let label = workflow_i18n::display_name(code);
+                            if ui.selectable_label(code == current, label).clicked() {
+                                workflow_i18n::init_with(code);
+                                ctx.request_repaint();
+                            }
+                        }
+                    });
                 ui.separator();
                 ui.label(&self.status);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
@@ -568,11 +585,24 @@ impl EditorApp {
                         })
                         .unwrap_or_default();
 
+                    // Build search match highlights
+                    let highlights: Vec<MatchHighlight> = if self.find.open && !self.find.query.is_empty() {
+                        self.find.match_offsets.iter().enumerate().map(|(i, &(start, end))| {
+                            MatchHighlight {
+                                start,
+                                end,
+                                is_current: i == self.find.current_match,
+                            }
+                        }).collect()
+                    } else {
+                        Vec::new()
+                    };
+
                     let output = TextEdit::multiline(&mut display_text)
                         .font(FontId::monospace(FONT_SIZE))
                         .desired_width(f32::INFINITY)
                         .layouter(&mut |ui, t, wrap_width| {
-                            layout_flow(ui, t, wrap_width, &known_functions)
+                            layout_flow(ui, t, wrap_width, &known_functions, &highlights)
                         })
                         .show(ui);
 

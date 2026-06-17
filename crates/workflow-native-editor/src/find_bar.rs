@@ -220,7 +220,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
         // Navigation buttons (up/down arrows)
         if ui
             .add(
-                egui::Button::new(RichText::new("▴").small())
+                egui::Button::new(RichText::new("▲").small())
                     .rounding(4.0)
                     .min_size(egui::vec2(24.0, 20.0)),
             )
@@ -230,7 +230,7 @@ pub fn show(ui: &mut egui::Ui, state: &mut FindState) -> FindAction {
         }
         if ui
             .add(
-                egui::Button::new(RichText::new("▾").small())
+                egui::Button::new(RichText::new("▼").small())
                     .rounding(4.0)
                     .min_size(egui::vec2(24.0, 20.0)),
             )

@@ -77,6 +77,11 @@ toolbar:
   save: "Save (Ctrl+S)"
   open: "Open… (Ctrl+O)"
   close_project: "Close Project"
+  locale_label: "Language"
+
+locale:
+  en: "English"
+  es: "Spanish"
 
 cli:
   error_prefix: "Error: {error}"

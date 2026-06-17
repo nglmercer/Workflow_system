@@ -24,6 +24,12 @@ shortcuts:
 
 toolbar:
   clear: "Limpiar"
+  shortcuts: "Atajos (F1)"
   save: "Guardar (Ctrl+S)"
   open: "Abrir… (Ctrl+O)"
   close_project: "Cerrar proyecto"
+  locale_label: "Idioma"
+
+locale:
+  en: "Inglés"
+  es: "Español"

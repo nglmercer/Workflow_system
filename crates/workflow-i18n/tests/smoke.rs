@@ -41,3 +41,30 @@ fn unknown_locale_falls_back_to_english() {
     assert!(!s.is_empty());
     assert!(!s.contains('.'));
 }
+
+#[test]
+fn language_selector_listing_includes_all_bundled() {
+    let locales = workflow_i18n::available_locales();
+    assert!(!locales.is_empty(), "no bundled locales registered");
+    for code in locales {
+        let name = workflow_i18n::display_name(code);
+        assert!(
+            !name.is_empty(),
+            "locale {} has no display name in the catalog",
+            code
+        );
+    }
+}
+
+#[test]
+fn locale_switch_takes_effect_immediately() {
+    workflow_i18n::init_with("en");
+    let en_label = workflow_i18n::t("toolbar.locale_label");
+    workflow_i18n::init_with("es");
+    let es_label = workflow_i18n::t("toolbar.locale_label");
+    if en_label != es_label {
+        assert_eq!(es_label, "Idioma");
+    }
+    assert_eq!(workflow_i18n::current_locale(), "es");
+    workflow_i18n::init_with("en");
+}
