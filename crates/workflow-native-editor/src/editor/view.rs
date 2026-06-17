@@ -398,7 +398,10 @@ impl EditorApp {
     /// Force the TextEdit's cursor to the active snippet stop after
     /// the galley has been laid out for the frame. The `output.state`
     /// is then stored so the change persists into the next frame.
-    pub(crate) fn apply_snippet_cursor(&mut self, output: &egui::widgets::text_edit::TextEditOutput) {
+    pub(crate) fn apply_snippet_cursor(
+        &mut self,
+        output: &egui::widgets::text_edit::TextEditOutput,
+    ) {
         let Some(snippet) = self.pending_snippet.as_ref() else {
             return;
         };

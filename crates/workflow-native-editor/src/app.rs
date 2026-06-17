@@ -457,7 +457,12 @@ impl EditorApp {
     // `self.render_editor(ctx, ui)` resolve to the methods in
     // those modules without any shim here.
 
-    pub(crate) fn update_hover(&mut self, rect: Rect, galley: &Arc<egui::Galley>, hover_pos: Option<Pos2>) {
+    pub(crate) fn update_hover(
+        &mut self,
+        rect: Rect,
+        galley: &Arc<egui::Galley>,
+        hover_pos: Option<Pos2>,
+    ) {
         let pos = match hover_pos {
             Some(p) => p,
             None => {
@@ -485,9 +490,13 @@ impl EditorApp {
         // the generic "imported binding X" text. The fast path
         // lives in `editor::import_hover`; here we just call into
         // it and forward the result.
-        if let Some(import_line) = crate::editor::import_hover::import_at_line(&self.text, line_idx) {
+        if let Some(import_line) = crate::editor::import_hover::import_at_line(&self.text, line_idx)
+        {
             self.hover_text = Some(crate::editor::import_hover::build_import_hover(
-                &self.lsp, &self.uri, &self.text, &import_line,
+                &self.lsp,
+                &self.uri,
+                &self.text,
+                &import_line,
             ));
             self.hover_pos = Some(pos);
             return;
@@ -556,13 +565,11 @@ impl EditorApp {
             if let Some(entry) = inference.registry.get(&word) {
                 if entry.is_user_defined {
                     // Try to find the source file from the import statements
-                    if let Some(source_path) =
-                        crate::goto_definition::find_import_source(
-                            &self.text,
-                            self.file_path.as_deref(),
-                            &word,
-                        )
-                    {
+                    if let Some(source_path) = crate::goto_definition::find_import_source(
+                        &self.text,
+                        self.file_path.as_deref(),
+                        &word,
+                    ) {
                         self.status = i18n_tf("app.status_opening", &[("path", &source_path)]);
                         // Open the source file
                         if let Ok(path) = std::path::Path::new(&source_path).canonicalize() {
@@ -625,11 +632,10 @@ workflow "W" {
             ..Default::default()
         };
         app.lsp.update_document(&app.uri, &app.text);
-        let import = crate::editor::import_hover::import_at_line(&app.text, 0)
-            .expect("import line");
-        let hover = crate::editor::import_hover::build_import_hover(
-            &app.lsp, &app.uri, &app.text, &import,
-        );
+        let import =
+            crate::editor::import_hover::import_at_line(&app.text, 0).expect("import line");
+        let hover =
+            crate::editor::import_hover::build_import_hover(&app.lsp, &app.uri, &app.text, &import);
         assert_eq!(hover.title, "USER_REGISTERED");
         assert_eq!(hover.kind, HoverKind::Import);
         assert!(
@@ -656,8 +662,8 @@ workflow "W" {
     #[test]
     fn build_import_hover_for_real_file_resolves_schema() {
         use crate::popup::{HoverSignature, TypeExpr};
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/advanced.flow");
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/advanced.flow");
         let path = path.canonicalize().unwrap_or(path);
         let source = std::fs::read_to_string(&path).expect("read advanced.flow");
         let mut app = EditorApp::default();
@@ -679,9 +685,8 @@ workflow "W" {
             .count();
         let import = crate::editor::import_hover::import_at_line(&app.text, line_idx)
             .expect("import line for NESTED_DATA");
-        let hover = crate::editor::import_hover::build_import_hover(
-            &app.lsp, &app.uri, &app.text, &import,
-        );
+        let hover =
+            crate::editor::import_hover::build_import_hover(&app.lsp, &app.uri, &app.text, &import);
         assert_eq!(hover.title, "NESTED_DATA");
         match hover.signature {
             Some(HoverSignature::Type(TypeExpr::Object(ref fields))) => {

@@ -169,8 +169,7 @@ mod tests {
     #[test]
     fn import_at_line_recognizes_at_import_keyword() {
         let text = "@import USER_REGISTERED from \"./user_registered.json\"\n";
-        let line = import_at_line(text, 0)
-            .expect("expected an import line to be detected");
+        let line = import_at_line(text, 0).expect("expected an import line to be detected");
         assert_eq!(line.name, "USER_REGISTERED");
         assert!(matches!(
             line.source,
@@ -181,8 +180,7 @@ mod tests {
     #[test]
     fn import_at_line_recognizes_plain_import_keyword() {
         let text = "import utils from \"./shared_utils.flow\"\n";
-        let line = import_at_line(text, 0)
-            .expect("expected an import line to be detected");
+        let line = import_at_line(text, 0).expect("expected an import line to be detected");
         assert_eq!(line.name, "utils");
         assert!(matches!(
             line.source,

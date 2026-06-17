@@ -14,7 +14,7 @@
 //! hand-roll the "walk lines, sum char counts" loop every time it
 //! needs to go from `(line, col)` to a position in the buffer.
 
-use eframe::egui::{self, Pos2, Rect, Vec2};
+use eframe::egui::{self, Pos2, Vec2};
 
 #[derive(Default, Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CursorPosition {
@@ -140,11 +140,26 @@ pub fn splice(text: &str, char_start: usize, char_end: usize, replacement: &str)
 }
 
 /// Compute the screen position of a cursor at `(row, col)` (both
-/// 0-based) inside `galley`, offset by `editor_rect.min`. The galley
-/// must have been laid out for the current frame.
-pub fn cursor_screen_pos(galley: &egui::Galley, editor_rect: Rect, row: usize, col: usize) -> Pos2 {
+/// 0-based) inside `galley`.
+///
+/// `galley_pos` is the galley's top-left in screen coordinates (the
+/// value reported by `TextEditOutput::galley_pos`); it is added to the
+/// row's local offset so the result lands on screen, not in the
+/// galley's own `(0, 0)`-rooted coordinate space.
+///
+/// The galley must have been laid out for the current frame.
+pub fn cursor_screen_pos(galley: &egui::Galley, galley_pos: Pos2, row: usize, col: usize) -> Pos2 {
+    let local = cursor_galley_pos(galley, row, col);
+    galley_pos + local.to_vec2()
+}
+
+/// The cursor's position in the galley's own coordinate system
+/// (galley `(0, 0)` is its top-left). Returns `Pos2::ZERO` if `row` is
+/// past the end of the galley. Used by [`cursor_screen_pos`]; exposed
+/// for testing.
+pub fn cursor_galley_pos(galley: &egui::Galley, row: usize, col: usize) -> Pos2 {
     if row >= galley.rows.len() {
-        return editor_rect.min;
+        return Pos2::ZERO;
     }
     let galley_row = &galley.rows[row];
     let row_min_x = galley_row.rect.min.x;
@@ -156,7 +171,7 @@ pub fn cursor_screen_pos(galley: &egui::Galley, editor_rect: Rect, row: usize, c
         cursor_x = glyph.pos.x + glyph.size.x;
     }
     let cursor_y = galley_row.rect.min.y;
-    editor_rect.min + Vec2::new(cursor_x - editor_rect.min.x, cursor_y - editor_rect.min.y)
+    Pos2::new(cursor_x, cursor_y)
 }
 
 /// Find the row in `galley` whose `rect.min.y` is the largest value

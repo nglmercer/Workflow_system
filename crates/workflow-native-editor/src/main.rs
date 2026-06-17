@@ -1,13 +1,13 @@
 mod app;
 mod completion;
-mod editor;
 mod cursor;
-mod goto_definition;
 mod diagnostics_panel;
+mod editor;
 mod file_browser;
 mod file_io;
 mod find_bar;
 mod folding;
+mod goto_definition;
 mod gutter;
 mod highlight;
 mod history;

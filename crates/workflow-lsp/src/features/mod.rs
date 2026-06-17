@@ -478,9 +478,10 @@ var result = double(num)"#;
     /// surface the schema from `@import USER_REGISTERED`.
     #[test]
     fn hover_on_workflow_event_reports_import_schema() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../examples/advanced.flow");
-        let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/advanced.flow");
+        let source =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
         let mut state = ServerState::new();
         let uri = format!("file://{}", path.to_string_lossy());
         state.update_document(&uri, &source);
@@ -528,7 +529,8 @@ mod import_lookup_regression_tests {
     #[test]
     fn imports_in_examples_have_resolved_types() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/advanced.flow");
-        let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+        let source =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
         let mut state = ServerState::new();
         let uri = format!("file://{}", path.to_string_lossy());
         state.update_document(&uri, &source);
@@ -537,7 +539,9 @@ mod import_lookup_regression_tests {
         for imp in &program.imports {
             let binding = inf
                 .lookup_at_offset(&source, imp.span.start, &imp.name)
-                .unwrap_or_else(|| panic!("import {} not found at offset {}", imp.name, imp.span.start));
+                .unwrap_or_else(|| {
+                    panic!("import {} not found at offset {}", imp.name, imp.span.start)
+                });
             assert!(
                 !matches!(binding.ty, Type::Any),
                 "import {} should resolve to a real schema, got Any",
@@ -558,7 +562,8 @@ mod import_lookup_regression_tests {
     #[test]
     fn workflow_event_bindings_use_import_type() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/advanced.flow");
-        let source = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
+        let source =
+            std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {:?}: {}", path, e));
         let mut state = ServerState::new();
         let uri = format!("file://{}", path.to_string_lossy());
         state.update_document(&uri, &source);

@@ -20,8 +20,8 @@ use eframe::egui;
 
 use super::super::cursor::CursorPosition;
 use super::super::file_io;
-use super::super::home::HomeAction;
 use super::super::history::History;
+use super::super::home::HomeAction;
 use super::super::EditorApp;
 use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 use workflow_lsp::features;

@@ -62,10 +62,7 @@ impl EditorApp {
         // Surface the pending chord in the status bar so the user
         // knows the keymap is waiting for a second key.
         if let Some(pending) = self.keymap.pending() {
-            self.status = i18n_tf(
-                "app.status_chord_pending",
-                &[("label", &pending.label())],
-            );
+            self.status = i18n_tf("app.status_chord_pending", &[("label", &pending.label())]);
         } else if matches!(command, Command::None) {
             // Don't clobber an existing status message just because
             // the user hit an unrelated key.

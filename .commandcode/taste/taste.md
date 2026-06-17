@@ -13,8 +13,11 @@
 - After making code or API changes (new public methods, changed function signatures, new modules), update all related documentation to reflect them — the user expects docs to stay in sync with the code. Confidence: 0.80
 
 # Code Style
-- Modularize code: split large source files (e.g. 600+ line `app.rs`) into focused modules (e.g. `snippet.rs`, `keys.rs`, `completion.rs`) when multiple distinct concerns accumulate. Prefer one file per cohesive responsibility over keeping everything in one module. Confidence: 0.70
+- Modularize code: split large source files (e.g. 600+ line `app.rs`) into focused modules (e.g. `snippet.rs`, `keys.rs`, `completion.rs`) when multiple distinct concerns accumulate. Prefer one file per cohesive responsibility over keeping everything in one module. Confidence: 0.85
 - Place sidecar test files next to their host as `foo.test.<ext>` (e.g. `hello.test.flow` paired with `hello.flow`). The runner's `find_host_for` strips `.test.<ext>` and looks for the matching base file in the same directory. Confidence: 0.80
+- When extracting methods from a struct with private fields into a separate module, define additional `impl Struct` blocks in the new module rather than only free functions. Rust allows `impl` blocks to be split across files within the same crate, so an `impl Struct` in `editor/foo.rs` can be called as `instance.method()` from anywhere without shim methods in the original file. Confidence: 0.80
+- When splitting a struct's methods across files, the new module's `impl` block can only read struct fields that are `pub(crate)` or accessed via `pub(crate)` getters. Make fields `pub(crate)` (rather than adding accessor methods) when the entire crate is the trust boundary — accessors add boilerplate without real encapsulation benefit inside one binary. Confidence: 0.75
+- For methods whose logic is pure data transformation (parsers, builders, type-to-format converters), extract them as free functions taking `&str`/owned data as parameters and keep a one-line `pub(crate)` shim method on the struct that reads its private fields and forwards. The free function is testable without touching the struct; the shim preserves the call site. Confidence: 0.80
 
 # Testing
 - For module-level tests, use the inline `#[cfg(test)] mod tests { use super::*; }` pattern placed at the bottom of the same source file, not a separate `tests/<name>.rs` integration file. Integration tests (`tests/smoke.rs`) are reserved for end-to-end tests that need fixtures on disk or exercise the public API across crate boundaries. Confidence: 0.80
