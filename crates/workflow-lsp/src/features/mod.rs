@@ -136,6 +136,7 @@ pub fn diagnostics_at(state: &ServerState, uri: &str) -> Vec<Diagnostic> {
             inference,
             program,
             disabled: &disabled,
+            plugin_registry: state.plugin_registry(),
         };
         diagnostics.extend(lint::run_all(&cx));
     }

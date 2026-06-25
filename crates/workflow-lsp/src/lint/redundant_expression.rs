@@ -167,6 +167,7 @@ mod tests {
             inference,
             program: &program,
             disabled: &disabled,
+            plugin_registry: state.plugin_registry(),
         };
         RedundantExpression.run(&cx)
     }

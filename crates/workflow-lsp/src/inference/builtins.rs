@@ -1,4 +1,9 @@
-//! Built-in keywords, functions, and their known signatures.
+//! Built-in language keywords and type-inference helpers.
+//!
+//! Only **true language keywords** (`var`, `fn`, `on`, `if`, etc.) are
+//! listed here.  All *function* recognition is handled by the
+//! [`FunctionRegistry`] — if a function isn't registered there the LSP
+//! will correctly report "Unknown function".
 
 use lsp_types::Position;
 
@@ -30,10 +35,11 @@ pub fn builtin_arg_type(name: &str, arity: usize) -> Option<Type> {
     }
 }
 
-/// A snippet for one of the well-known built-in identifiers, used as
-/// fallback when the variable is not in scope.
+/// A snippet for a well-known built-in *keyword*, used as fallback when
+/// the variable is not in scope.  Only true language keywords are
+/// recognised here — function names live in the [`FunctionRegistry`].
 pub fn builtin_for(word: &str) -> Option<InferredBinding> {
-    if !is_builtin_keyword(word) {
+    if !is_language_keyword(word) {
         return None;
     }
     Some(InferredBinding {
@@ -52,132 +58,15 @@ pub fn lookup_builtin_at(source: &str, position: Position) -> Option<InferredBin
     builtin_for(&word)
 }
 
-fn is_builtin_keyword(word: &str) -> bool {
+/// Returns `true` when `word` is a reserved language keyword.
+///
+/// Function names (including `log`, `len`, `type_of`, …) are **not**
+/// keywords — they are registered in the [`FunctionRegistry`] and
+/// should *not* be listed here.
+fn is_language_keyword(word: &str) -> bool {
     matches!(
         word,
-        "var"
-            | "fn"
-            | "workflow"
-            | "on"
-            | "if"
-            | "else"
-            | "foreach"
-            | "in"
-            | "return"
-            | "log"
-            | "len"
-            | "to_string"
-            | "to_number"
-            | "true"
-            | "false"
-            | "null"
-            | "emit"
-            | "formatCurrency"
-            | "validateEmail"
-            | "greet"
-            | "abs"
-            | "ceil"
-            | "floor"
-            | "round"
-            | "max"
-            | "min"
-            | "random"
-            | "now"
-            | "timestamp"
-            | "date"
-            | "time"
-            | "concat"
-            | "join"
-            | "split"
-            | "trim"
-            | "upper"
-            | "lower"
-            | "replace"
-            | "contains"
-            | "starts_with"
-            | "ends_with"
-            | "substr"
-            | "indexOf"
-            | "sort"
-            | "reverse"
-            | "push"
-            | "pop"
-            | "shift"
-            | "unshift"
-            | "splice"
-            | "slice"
-            | "map"
-            | "filter"
-            | "reduce"
-            | "find"
-            | "some"
-            | "every"
-            | "keys"
-            | "values"
-            | "entries"
-            | "has"
-            | "parse"
-            | "stringify"
-            | "type_of"
-            | "is_nan"
-            | "is_finite"
-            | "sleep"
-            | "fetch"
-            | "http_get"
-            | "http_post"
-            | "json_parse"
-            | "json_stringify"
-            | "base64_encode"
-            | "base64_decode"
-            | "hash"
-            | "uuid"
-            | "random_int"
-            | "random_float"
-            | "clamp"
-            | "lerp"
-            | "step"
-            | "smoothstep"
-            | "map_range"
-            | "remap"
-            | "normalize"
-            | "degrees"
-            | "radians"
-            | "sin"
-            | "cos"
-            | "tan"
-            | "asin"
-            | "acos"
-            | "atan"
-            | "atan2"
-            | "pow"
-            | "sqrt"
-            | "exp"
-            | "log2"
-            | "log10"
-            | "sign"
-            | "mod"
-            | "clamp_min"
-            | "clamp_max"
-            | "abs_diff"
-            | "signum"
-            | "hypot"
-            | "cbrt"
-            | "exp2"
-            | "expm1"
-            | "ln_1p"
-            | "log_add_exp"
-            | "log_sum_exp"
-            | "log1p"
-            | "sinh"
-            | "cosh"
-            | "tanh"
-            | "asinh"
-            | "acosh"
-            | "atanh"
-            | "exp_m1"
-            | "powi"
-            | "powf"
-            | "recip"
-            | "mul_add"
+        "var" | "fn" | "workflow" | "on" | "if" | "else" | "foreach" | "in" | "return"
+            | "true" | "false" | "null"
     )
 }

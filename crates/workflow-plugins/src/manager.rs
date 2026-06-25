@@ -52,6 +52,12 @@ impl WorkflowPluginManager {
         &mut self.function_registry
     }
 
+    /// Consume the manager and return the function registry.
+    /// Useful when you only need the registry after loading plugins.
+    pub fn into_registry(self) -> PluginFunctionRegistry {
+        self.function_registry
+    }
+
     /// Discover and load all plugins from the plugin directory.
     /// Returns the names of successfully loaded plugins.
     pub fn load_all(&mut self) -> Vec<String> {

@@ -1323,4 +1323,40 @@ mod tests {
             detail
         );
     }
+
+    #[test]
+    fn plugin_registry_auto_registers_in_new_documents() {
+        use crate::inference::registry::ParamDescriptor;
+        use crate::inference::Type;
+        use workflow_plugins::PluginFunctionRegistry;
+
+        let mut state = ServerState::new();
+
+        // Create a plugin registry with a function
+        let plugin_reg = PluginFunctionRegistry::new();
+        plugin_reg.register_function(
+            "greet",
+            vec!["name".to_string()],
+            "Greets someone",
+            "Social",
+            Box::new(|_| serde_json::json!("hello")),
+        );
+
+        // Set the plugin registry
+        state.set_plugin_registry(plugin_reg);
+
+        // Now update a document - plugin functions should be auto-registered
+        let uri = "file:///test_auto.flow";
+        let source = "workflow \"W\" {\n  on E\n  \n}\n";
+        state.update_document(uri, source);
+
+        // Verify the function appears in completions
+        let items = crate::features::completions_at(&state, uri, 2, 2);
+        let l = labels(&items);
+        assert!(
+            l.contains(&"greet"),
+            "plugin function greet not found in completions after set_plugin_registry: {:?}",
+            l
+        );
+    }
 }

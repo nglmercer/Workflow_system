@@ -94,6 +94,21 @@ impl EditorApp {
         self.pending_snippet = None;
         self.snippet_anchor = 0;
         self.collapsed.clear();
+
+        // Reload plugins from the project directory (next to the
+        // opened file) so plugin functions/objects are available
+        // for completions, hover, and diagnostics.
+        if let Some(parent) = path_buf.parent() {
+            let project_plugin_dir = parent.join("plugins");
+            if project_plugin_dir.exists() {
+                self.plugin_manager =
+                    super::super::plugin_manager::EditorPluginManager::new(&project_plugin_dir);
+                self.plugin_manager.load_all();
+            }
+        }
+
+        self.lsp
+            .set_plugin_registry(self.plugin_manager.function_registry().clone());
         self.lsp.update_document(&self.uri, &self.text);
         self.diagnostics = features::diagnostics_at(&self.lsp, &self.uri);
         self.cursor = CursorPosition::new(1, 1);

@@ -787,6 +787,148 @@ impl FunctionRegistry {
         );
     }
 
+    /// Register the remaining standard library functions that were
+    /// previously suppressed by the hardcoded keyword list.
+    /// These are lightweight `Type::Any` entries — enough for the
+    /// LSP to recognise them, provide completions, and suppress
+    /// "unknown function" diagnostics.
+    pub fn register_remaining_stdlib(&self) {
+        let f = |s: &Self,
+                 name: &str,
+                 params: Vec<&str>,
+                 ret: Type,
+                 cat: FunctionCategory,
+                 desc: &str| {
+            s.register(FunctionEntry {
+                name: name.to_string(),
+                params: params
+                    .into_iter()
+                    .map(|p| ParamDescriptor {
+                        name: p.to_string(),
+                        ty: Type::Any,
+                        optional: false,
+                        default_value: None,
+                    })
+                    .collect(),
+                return_type: ret,
+                description: Some(desc.to_string()),
+                category: cat,
+                is_user_defined: false,
+                plugin_name: None,
+            });
+        };
+
+        // ── String ──────────────────────────────────────────
+        f(self, "starts_with", vec!["string", "prefix"], Type::Bool, FunctionCategory::String, "Check if string starts with prefix");
+        f(self, "ends_with", vec!["string", "suffix"], Type::Bool, FunctionCategory::String, "Check if string ends with suffix");
+        f(self, "indexOf", vec!["string", "substring"], Type::Number, FunctionCategory::String, "Return index of substring (-1 if not found)");
+        f(self, "formatCurrency", vec!["amount", "currency"], Type::String, FunctionCategory::String, "Format a number as currency");
+        f(self, "validateEmail", vec!["email"], Type::Bool, FunctionCategory::String, "Validate an email address");
+
+        // ── Array ───────────────────────────────────────────
+        f(self, "shift", vec!["array"], Type::Any, FunctionCategory::Array, "Remove and return the first element");
+        f(self, "unshift", vec!["array", "element"], Type::Any, FunctionCategory::Array, "Prepend an element to the array");
+        f(self, "splice", vec!["array", "start", "delete_count"], Type::Array(Box::new(Type::Any)), FunctionCategory::Array, "Splice elements from an array");
+        f(self, "slice", vec!["array", "start"], Type::Array(Box::new(Type::Any)), FunctionCategory::Array, "Return a shallow copy of a portion of an array");
+        f(self, "find", vec!["array", "callback"], Type::Any, FunctionCategory::Array, "Find the first element matching a predicate");
+        f(self, "some", vec!["array", "callback"], Type::Bool, FunctionCategory::Array, "Test whether any element passes a predicate");
+        f(self, "every", vec!["array", "callback"], Type::Bool, FunctionCategory::Array, "Test whether all elements pass a predicate");
+        f(self, "keys", vec!["object"], Type::Array(Box::new(Type::String)), FunctionCategory::Core, "Return an object's keys");
+        f(self, "values", vec!["object"], Type::Array(Box::new(Type::Any)), FunctionCategory::Core, "Return an object's values");
+        f(self, "entries", vec!["object"], Type::Array(Box::new(Type::Any)), FunctionCategory::Core, "Return an object's [key, value] pairs");
+        f(self, "has", vec!["object", "key"], Type::Bool, FunctionCategory::Core, "Check if an object has a key");
+
+        // ── Type / number ───────────────────────────────────
+        f(self, "is_nan", vec!["value"], Type::Bool, FunctionCategory::Core, "Check if value is NaN");
+        f(self, "is_finite", vec!["value"], Type::Bool, FunctionCategory::Core, "Check if value is finite");
+
+        // ── Async / IO ──────────────────────────────────────
+        f(self, "sleep", vec!["ms"], Type::Any, FunctionCategory::Core, "Sleep for the given milliseconds");
+        f(self, "fetch", vec!["url"], Type::Any, FunctionCategory::Core, "Fetch a URL");
+
+        // ── HTTP ────────────────────────────────────────────
+        f(self, "http_get", vec!["url"], Type::Any, FunctionCategory::Core, "HTTP GET request");
+        f(self, "http_post", vec!["url", "body"], Type::Any, FunctionCategory::Core, "HTTP POST request");
+
+        // ── JSON (aliases) ──────────────────────────────────
+        f(self, "json_parse", vec!["json"], Type::Any, FunctionCategory::Json, "Parse a JSON string");
+        f(self, "json_stringify", vec!["value"], Type::String, FunctionCategory::Json, "Serialize a value to JSON");
+
+        // ── Encoding ────────────────────────────────────────
+        f(self, "base64_encode", vec!["data"], Type::String, FunctionCategory::Core, "Base64-encode a string");
+        f(self, "base64_decode", vec!["data"], Type::String, FunctionCategory::Core, "Base64-decode a string");
+
+        // ── Crypto / ID ─────────────────────────────────────
+        f(self, "hash", vec!["data", "algorithm"], Type::String, FunctionCategory::Core, "Hash a string");
+        f(self, "uuid", vec![], Type::String, FunctionCategory::Core, "Generate a UUID");
+
+        // ── Random ──────────────────────────────────────────
+        f(self, "random_int", vec!["min", "max"], Type::Number, FunctionCategory::Math, "Random integer in [min, max]");
+        f(self, "random_float", vec![], Type::Number, FunctionCategory::Math, "Random float in [0, 1)");
+
+        // ── Date / time ─────────────────────────────────────
+        f(self, "now", vec![], Type::Number, FunctionCategory::Core, "Current Unix timestamp in milliseconds");
+        f(self, "timestamp", vec![], Type::Number, FunctionCategory::Core, "Alias for now()");
+        f(self, "date", vec![], Type::String, FunctionCategory::Core, "Current date as ISO-8601 string");
+        f(self, "time", vec![], Type::String, FunctionCategory::Core, "Current time as ISO-8601 string");
+
+        // ── Math (extended) ─────────────────────────────────
+        f(self, "clamp", vec!["value", "min", "max"], Type::Number, FunctionCategory::Math, "Clamp value to [min, max]");
+        f(self, "lerp", vec!["a", "b", "t"], Type::Number, FunctionCategory::Math, "Linear interpolation");
+        f(self, "step", vec!["edge", "x"], Type::Number, FunctionCategory::Math, "Step function");
+        f(self, "smoothstep", vec!["edge0", "edge1", "x"], Type::Number, FunctionCategory::Math, "Smooth interpolation");
+        f(self, "map_range", vec!["value", "in_min", "in_max", "out_min", "out_max"], Type::Number, FunctionCategory::Math, "Map value from one range to another");
+        f(self, "remap", vec!["value", "in_min", "in_max", "out_min", "out_max"], Type::Number, FunctionCategory::Math, "Alias for map_range");
+        f(self, "normalize", vec!["value", "min", "max"], Type::Number, FunctionCategory::Math, "Normalize value to [0, 1]");
+        f(self, "degrees", vec!["radians"], Type::Number, FunctionCategory::Math, "Convert radians to degrees");
+        f(self, "radians", vec!["degrees"], Type::Number, FunctionCategory::Math, "Convert degrees to radians");
+
+        // ── Trigonometry ────────────────────────────────────
+        f(self, "sin", vec!["x"], Type::Number, FunctionCategory::Math, "Sine");
+        f(self, "cos", vec!["x"], Type::Number, FunctionCategory::Math, "Cosine");
+        f(self, "tan", vec!["x"], Type::Number, FunctionCategory::Math, "Tangent");
+        f(self, "asin", vec!["x"], Type::Number, FunctionCategory::Math, "Arc sine");
+        f(self, "acos", vec!["x"], Type::Number, FunctionCategory::Math, "Arc cosine");
+        f(self, "atan", vec!["x"], Type::Number, FunctionCategory::Math, "Arc tangent");
+        f(self, "atan2", vec!["y", "x"], Type::Number, FunctionCategory::Math, "Arc tangent of y/x");
+
+        // ── Power / log / misc ──────────────────────────────
+        f(self, "pow", vec!["base", "exp"], Type::Number, FunctionCategory::Math, "Exponentiation");
+        f(self, "sqrt", vec!["x"], Type::Number, FunctionCategory::Math, "Square root");
+        f(self, "exp", vec!["x"], Type::Number, FunctionCategory::Math, "e^x");
+        f(self, "log2", vec!["x"], Type::Number, FunctionCategory::Math, "Base-2 logarithm");
+        f(self, "log10", vec!["x"], Type::Number, FunctionCategory::Math, "Base-10 logarithm");
+        f(self, "sign", vec!["x"], Type::Number, FunctionCategory::Math, "Sign of a number (-1, 0, or 1)");
+        f(self, "mod", vec!["a", "b"], Type::Number, FunctionCategory::Math, "Modulo");
+        f(self, "clamp_min", vec!["value", "min"], Type::Number, FunctionCategory::Math, "Clamp to minimum");
+        f(self, "clamp_max", vec!["value", "max"], Type::Number, FunctionCategory::Math, "Clamp to maximum");
+        f(self, "abs_diff", vec!["a", "b"], Type::Number, FunctionCategory::Math, "Absolute difference");
+        f(self, "signum", vec!["x"], Type::Number, FunctionCategory::Math, "Sign of a number");
+        f(self, "hypot", vec!["x", "y"], Type::Number, FunctionCategory::Math, "Hypotenuse");
+        f(self, "cbrt", vec!["x"], Type::Number, FunctionCategory::Math, "Cube root");
+        f(self, "exp2", vec!["x"], Type::Number, FunctionCategory::Math, "2^x");
+        f(self, "expm1", vec!["x"], Type::Number, FunctionCategory::Math, "e^x − 1");
+        f(self, "ln_1p", vec!["x"], Type::Number, FunctionCategory::Math, "ln(1 + x)");
+        f(self, "log_add_exp", vec!["a", "b"], Type::Number, FunctionCategory::Math, "log(exp(a) + exp(b))");
+        f(self, "log_sum_exp", vec!["a", "b"], Type::Number, FunctionCategory::Math, "Alias for log_add_exp");
+        f(self, "log1p", vec!["x"], Type::Number, FunctionCategory::Math, "ln(1 + x)");
+
+        // ── Hyperbolic ──────────────────────────────────────
+        f(self, "sinh", vec!["x"], Type::Number, FunctionCategory::Math, "Hyperbolic sine");
+        f(self, "cosh", vec!["x"], Type::Number, FunctionCategory::Math, "Hyperbolic cosine");
+        f(self, "tanh", vec!["x"], Type::Number, FunctionCategory::Math, "Hyperbolic tangent");
+        f(self, "asinh", vec!["x"], Type::Number, FunctionCategory::Math, "Inverse hyperbolic sine");
+        f(self, "acosh", vec!["x"], Type::Number, FunctionCategory::Math, "Inverse hyperbolic cosine");
+        f(self, "atanh", vec!["x"], Type::Number, FunctionCategory::Math, "Inverse hyperbolic tangent");
+
+        // ── Low-level float ─────────────────────────────────
+        f(self, "exp_m1", vec!["x"], Type::Number, FunctionCategory::Math, "e^x − 1");
+        f(self, "powi", vec!["x", "n"], Type::Number, FunctionCategory::Math, "Integer power");
+        f(self, "powf", vec!["x", "y"], Type::Number, FunctionCategory::Math, "Float power");
+        f(self, "recip", vec!["x"], Type::Number, FunctionCategory::Math, "1/x");
+        f(self, "mul_add", vec!["a", "b", "c"], Type::Number, FunctionCategory::Math, "a * b + c (fused multiply-add)");
+    }
+
     /// Register a function in the registry.
     pub fn register(&self, entry: FunctionEntry) {
         let mut inner = self.inner.write().unwrap();

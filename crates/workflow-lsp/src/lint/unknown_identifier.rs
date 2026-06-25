@@ -145,6 +145,10 @@ fn is_known(cx: &LintCx, name: &str, after_byte: usize) -> bool {
     if cx.program.imports.iter().any(|i| i.name == name) {
         return true;
     }
+    // Check if the name is a registered plugin object
+    if cx.plugin_registry.has_object(name) {
+        return true;
+    }
     cx.inference
         .lookup_at_offset(cx.source, after_byte, name)
         .is_some()
@@ -227,6 +231,7 @@ mod tests {
             inference,
             program: &program,
             disabled: &disabled,
+            plugin_registry: state.plugin_registry(),
         };
         UnknownIdentifier.run(&cx)
     }
@@ -289,5 +294,49 @@ mod tests {
             "got: {:?}",
             diags
         );
+    }
+
+    #[test]
+    fn plugin_object_is_known() {
+        use crate::state::ServerState;
+        use workflow_plugins::registry::ObjectField;
+        use workflow_plugins::PluginFunctionRegistry;
+
+        let mut state = ServerState::new();
+        // Register a plugin object "hello" with a field "config"
+        let registry = PluginFunctionRegistry::new();
+        registry.register_object(
+            "hello",
+            "Hello plugin",
+            vec![
+                ObjectField {
+                    path: "config".to_string(),
+                    type_desc: "Object".to_string(),
+                    description: "Config object".to_string(),
+                },
+            ],
+            Box::new(|_| None),
+        );
+        state.set_plugin_registry(registry);
+
+        let source = r#"workflow "W" { on E
+  log(hello.config)
+}"#;
+        let uri = "file:///test.flow";
+        state.update_document(uri, source);
+        let analysis = state.get_analysis(uri).expect("analysis");
+        let inference = state.get_inference(uri).expect("inference");
+        let program = FlowParser::parse_flow_program(source).expect("parse");
+        let disabled = parse_disable_directives(source);
+        let cx = LintCx {
+            source,
+            analysis,
+            inference,
+            program: &program,
+            disabled: &disabled,
+            plugin_registry: state.plugin_registry(),
+        };
+        let diags = UnknownIdentifier.run(&cx);
+        assert!(diags.is_empty(), "got: {:?}", diags);
     }
 }

@@ -174,7 +174,6 @@ impl Default for EditorApp {
         let text = EXAMPLE_PROGRAM.to_string();
         let mut lsp = ServerState::new();
         let uri = "file:///example.flow".to_string();
-        lsp.update_document(&uri, &text);
 
         // Initialize plugin manager with default plugin directory
         let plugin_dir = std::env::current_dir()
@@ -182,6 +181,11 @@ impl Default for EditorApp {
             .join("plugins");
         let mut plugin_manager = EditorPluginManager::new(&plugin_dir);
         plugin_manager.load_all();
+
+        // Bridge plugin functions/objects into the LSP so completions,
+        // hover, and diagnostics recognize plugin-provided symbols.
+        lsp.set_plugin_registry(plugin_manager.function_registry().clone());
+        lsp.update_document(&uri, &text);
 
         Self {
             text,
@@ -475,6 +479,9 @@ impl eframe::App for EditorApp {
                     } else {
                         format!("Reloaded {} plugin(s): {}", loaded.len(), loaded.join(", "))
                     };
+                    // Re-register plugin functions in the LSP inference
+                    // so completions/hover/diagnostics reflect the reloaded plugins.
+                    self.lsp.register_plugin_functions(&self.uri);
                 }
                 plugin_panel::PluginAction::TogglePanel => {
                     self.plugin_manager.toggle_panel();

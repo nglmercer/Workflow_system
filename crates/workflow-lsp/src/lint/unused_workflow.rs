@@ -215,6 +215,7 @@ mod tests {
             inference,
             program: &program,
             disabled: &disabled,
+            plugin_registry: state.plugin_registry(),
         };
         UnusedWorkflow.run(&cx)
     }

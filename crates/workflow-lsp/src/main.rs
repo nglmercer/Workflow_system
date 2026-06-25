@@ -14,6 +14,23 @@ fn main() {
 
     let mut state = ServerState::new();
 
+    // Load plugins from FLOW_PLUGIN_DIR environment variable if set
+    if let Ok(plugin_dir) = std::env::var("FLOW_PLUGIN_DIR") {
+        let plugin_path = std::path::Path::new(&plugin_dir);
+        if plugin_path.exists() {
+            eprintln!("Loading plugins from: {}", plugin_dir);
+            let mut manager = workflow_plugins::WorkflowPluginManager::new(plugin_path);
+            let loaded = manager.load_all();
+            if !loaded.is_empty() {
+                eprintln!("Loaded {} plugin(s): {}", loaded.len(), loaded.join(", "));
+                // Copy plugin registry to state
+                state.set_plugin_registry(manager.into_registry());
+            }
+        } else {
+            eprintln!("Plugin directory not found: {}", plugin_dir);
+        }
+    }
+
     eprintln!("{}", workflow_i18n::t("lsp.server_starting"));
     eprintln!("Client capabilities: {:?}", initialize_params.capabilities);
 

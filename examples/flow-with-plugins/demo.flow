@@ -5,7 +5,7 @@
 // Without plugins, plugin functions return null and object access returns null.
 
 workflow "process_user" {
-  on USER_CREATED
+  on USER_CREATED(data)
 
   log("Processing new user: " + data.name)
 

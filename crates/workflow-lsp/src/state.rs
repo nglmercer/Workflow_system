@@ -42,6 +42,12 @@ impl ServerState {
         &self.plugin_registry
     }
 
+    /// Replace the plugin function registry with a new one.
+    /// Used when loading plugins at LSP startup.
+    pub fn set_plugin_registry(&mut self, registry: PluginFunctionRegistry) {
+        self.plugin_registry = registry;
+    }
+
     /// Register all plugin functions from a `PluginFunctionRegistry`
     /// into the LSP's `FunctionRegistry` for each inference in the given
     /// document URI. This bridges plugin registration into the LSP's
@@ -124,6 +130,9 @@ impl ServerState {
         };
         self.analyses.insert(uri.to_string(), analysis);
         self.inferences.insert(uri.to_string(), inference);
+
+        // Register plugin functions in the new inference's registry
+        self.register_plugin_functions(uri);
     }
 
     /// Resolve `import ... from "./other.flow"` statements and load

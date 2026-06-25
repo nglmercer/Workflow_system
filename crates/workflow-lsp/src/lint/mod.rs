@@ -24,6 +24,7 @@ use workflow_parser::ast::FlowProgram;
 use crate::analysis::Analysis;
 use crate::features::{Diagnostic, DiagnosticSeverity};
 use crate::inference::Inference;
+use workflow_plugins::PluginFunctionRegistry;
 
 mod redundant_expression;
 mod unknown_identifier;
@@ -42,6 +43,8 @@ pub struct LintCx<'a> {
     /// The set is built by [`parse_disable_directives`] from
     /// `// flow-lint:disable=lint-a,lint-b` comments.
     pub disabled: &'a DisabledSet,
+    /// Shared plugin function registry for checking plugin functions/objects.
+    pub plugin_registry: &'a PluginFunctionRegistry,
 }
 
 /// A set of `(lint_name, line)` suppression pairs. The set is queried
