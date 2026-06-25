@@ -69,9 +69,10 @@ impl WorkflowPluginManager {
                 .plugin_manager
                 .load_plugin_from_loader(loader.as_ref(), &name)
             {
-                Ok(name) => {
-                    log::info!("Loaded workflow plugin: {}", name);
-                    loaded.push(name);
+                Ok(actual_name) => {
+                    log::info!("Loaded workflow plugin: {}", actual_name);
+                    self.register_plugin_functions(&actual_name);
+                    loaded.push(actual_name);
                 }
                 Err(e) => {
                     log::error!("Failed to load plugin '{}': {}", name, e);
@@ -83,8 +84,107 @@ impl WorkflowPluginManager {
     }
 
     /// Load a single plugin by path.
-    pub fn load_plugin(&mut self, path: impl AsRef<Path>) -> Result<String, plugin_system::PluginError> {
-        self.plugin_manager.load_plugin(path)
+    pub fn load_plugin(
+        &mut self,
+        path: impl AsRef<Path>,
+    ) -> Result<String, plugin_system::PluginError> {
+        let name = self.plugin_manager.load_plugin(path)?;
+        self.register_plugin_functions(&name);
+        Ok(name)
+    }
+
+    fn register_plugin_functions(&mut self, plugin_name: &str) {
+        let plugin_arc = match self.plugin_manager.get_plugin_arc(plugin_name) {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+
+        let interface_data = {
+            let plugin = plugin_arc.read().unwrap();
+            plugin.interface_data()
+        };
+
+        if let Some(data) = interface_data {
+            // Register commands as native functions
+            if let Some(commands) = data.get("commands").and_then(|v| v.as_array()) {
+                for cmd in commands {
+                    if let Some(name) = cmd.get("name").and_then(|v| v.as_str()) {
+                        let param_names: Vec<String> = cmd
+                            .get("params")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+
+                        let plugin_name_clone = plugin_name.to_string();
+                        let method_name = name.to_string();
+                        let plugin_manager_registry = self.plugin_manager.registry();
+                        let captured_params = param_names.clone();
+
+                        let plugin_name_captured = plugin_name_clone.clone();
+                        let method_name_captured = method_name.clone();
+
+                        self.function_registry.register_function(
+                            &method_name,
+                            param_names,
+                            &format!("Plugin command {} from {}", method_name, plugin_name_clone),
+                            &plugin_name_clone,
+                            Box::new(move |args| {
+                                let registry = plugin_manager_registry.read().unwrap();
+                                if let Some(plugin_arc) = registry.get_by_name(&plugin_name_captured)
+                                {
+                                    let mut plugin = plugin_arc.write().unwrap();
+                                    let mut args_obj = serde_json::Map::new();
+                                    for (i, param_name) in captured_params.iter().enumerate() {
+                                        if let Some(val) = args.get(i) {
+                                            args_obj.insert(param_name.clone(), val.clone());
+                                        }
+                                    }
+                                    return plugin
+                                        .handle_command(
+                                            &method_name_captured,
+                                            serde_json::Value::Object(args_obj),
+                                        )
+                                        .unwrap_or(serde_json::Value::Null);
+                                }
+                                serde_json::Value::Null
+                            }),
+                        );
+                    }
+                }
+            }
+
+            // Register objects
+            if let Some(objects) = data.get("objects").and_then(|v| v.as_object()) {
+                for (obj_name, obj_data) in objects {
+                    let plugin_name_clone = plugin_name.to_string();
+                    let obj_data_clone = obj_data.clone();
+
+                    self.function_registry.register_object(
+                        obj_name,
+                        &format!("Plugin object {} from {}", obj_name, plugin_name_clone),
+                        vec![], // We could extract fields from obj_data if we wanted more detail
+                        Box::new(move |path| {
+                            if path.is_empty() {
+                                return Some(obj_data_clone.clone());
+                            }
+                            let mut current = &obj_data_clone;
+                            for part in path.split('.') {
+                                if let Some(val) = current.get(part) {
+                                    current = val;
+                                } else {
+                                    return None;
+                                }
+                            }
+                            Some(current.clone())
+                        }),
+                    );
+                }
+            }
+        }
     }
 
     /// Unload a plugin by name.
