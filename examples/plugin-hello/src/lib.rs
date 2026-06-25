@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 pub struct HelloPlugin {
     messages: HashMap<String, String>,
+    config: HashMap<String, String>,
 }
 
 impl Default for HelloPlugin {
@@ -14,8 +15,14 @@ impl Default for HelloPlugin {
 #[plugin_system::plugin_export]
 impl HelloPlugin {
     pub fn new() -> Self {
+        let mut config = HashMap::new();
+        config.insert("greeting".to_string(), "Hello".to_string());
+        config.insert("version".to_string(), "1.0.0".to_string());
+        config.insert("author".to_string(), "Workflow System".to_string());
+
         Self {
             messages: HashMap::new(),
+            config,
         }
     }
 
@@ -68,6 +75,12 @@ impl HelloPlugin {
     pub fn echo(&self, message: String) -> String {
         message
     }
+
+    /// Get a config value by key.
+    #[plugin_system::command("get_config")]
+    pub fn get_config(&self, key: &str) -> Option<String> {
+        self.config.get(key).cloned()
+    }
 }
 
 #[cfg(test)]
@@ -105,5 +118,12 @@ mod tests {
         let plugin = HelloPlugin::new();
         let result = plugin.echo("test message".to_string());
         assert_eq!(result, "test message");
+    }
+
+    #[test]
+    fn config_values() {
+        let plugin = HelloPlugin::new();
+        assert_eq!(plugin.get_config("greeting"), Some("Hello".to_string()));
+        assert_eq!(plugin.get_config("version"), Some("1.0.0".to_string()));
     }
 }

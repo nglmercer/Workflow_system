@@ -109,13 +109,14 @@ pub fn build_completions(
         }
     }
 
-    // Add functions from the dynamic registry (built-in + user-defined + imported)
+    // Add functions from the dynamic registry (built-in + user-defined + imported + plugin)
     if let Some(inf) = inference {
         for entry in inf
             .registry
             .builtin_functions()
             .iter()
             .chain(inf.registry.user_functions().iter())
+            .chain(inf.registry.plugin_functions().iter())
         {
             // Skip keywords we already added
             if keyword_items().iter().any(|k| k.label == entry.name) {
@@ -129,10 +130,21 @@ pub fn build_completions(
                     format!("{}($1)$0", entry.name)
                 };
                 let detail = if entry.params.is_empty() {
-                    workflow_i18n::tf(
-                        "lsp.completion_function_detail_no_params",
-                        &[("ret", &entry.return_type.label())],
-                    )
+                    if let Some(ref plugin) = entry.plugin_name {
+                        format!(
+                            "({}) {}",
+                            plugin,
+                            workflow_i18n::tf(
+                                "lsp.completion_function_detail_no_params",
+                                &[("ret", &entry.return_type.label())],
+                            )
+                        )
+                    } else {
+                        workflow_i18n::tf(
+                            "lsp.completion_function_detail_no_params",
+                            &[("ret", &entry.return_type.label())],
+                        )
+                    }
                 } else {
                     let params: Vec<String> = entry
                         .params
@@ -145,13 +157,27 @@ pub fn build_completions(
                             }
                         })
                         .collect();
-                    workflow_i18n::tf(
-                        "lsp.completion_function_detail",
-                        &[
-                            ("params", &params.join(", ")),
-                            ("ret", &entry.return_type.label()),
-                        ],
-                    )
+                    if let Some(ref plugin) = entry.plugin_name {
+                        format!(
+                            "({}) {}",
+                            plugin,
+                            workflow_i18n::tf(
+                                "lsp.completion_function_detail",
+                                &[
+                                    ("params", &params.join(", ")),
+                                    ("ret", &entry.return_type.label()),
+                                ],
+                            )
+                        )
+                    } else {
+                        workflow_i18n::tf(
+                            "lsp.completion_function_detail",
+                            &[
+                                ("params", &params.join(", ")),
+                                ("ret", &entry.return_type.label()),
+                            ],
+                        )
+                    }
                 };
                 items.push(lsp_types::CompletionItem {
                     label: entry.name.clone(),
@@ -1251,6 +1277,50 @@ mod tests {
             !l.contains(&"name"),
             "should not suggest fields for non-object: {:?}",
             l
+        );
+    }
+
+    #[test]
+    fn plugin_functions_appear_in_completions() {
+        use crate::inference::registry::{ParamDescriptor};
+        use crate::inference::Type;
+
+        let mut state = ServerState::new();
+        let uri = "file:///test_plugin.flow";
+        let source = "workflow \"W\" {\n  on E\n  \n}\n";
+        state.update_document(uri, source);
+
+        // Register a plugin function
+        if let Some(inference) = state.get_inference(uri) {
+            inference.registry.register_plugin(
+                "http_get",
+                vec![ParamDescriptor {
+                    name: "url".to_string(),
+                    ty: Type::String,
+                    optional: false,
+                    default_value: None,
+                }],
+                Type::Any,
+                Some("Performs an HTTP GET request".to_string()),
+                "http_plugin",
+            );
+        }
+
+        let items = crate::features::completions_at(&state, uri, 2, 2);
+        let l = labels(&items);
+        assert!(
+            l.contains(&"http_get"),
+            "plugin function http_get not found in completions: {:?}",
+            l
+        );
+
+        // Verify the detail includes the plugin name
+        let http_get = items.iter().find(|c| c.label == "http_get").unwrap();
+        let detail = http_get.detail.as_ref().unwrap();
+        assert!(
+            detail.contains("http_plugin"),
+            "plugin name not in completion detail: {}",
+            detail
         );
     }
 }

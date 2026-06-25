@@ -36,6 +36,8 @@ pub struct FunctionEntry {
     /// Whether this function was defined in user code (imported from .flow files)
     /// vs being a built-in provided by the runtime.
     pub is_user_defined: bool,
+    /// The name of the plugin that registered this function, if any.
+    pub plugin_name: Option<String>,
 }
 
 /// Categories for organizing functions in completion/hover UI.
@@ -134,6 +136,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.message.description")),
                 category: FunctionCategory::Core,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -151,6 +154,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Core,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -168,6 +172,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Conversion,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -185,6 +190,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Conversion,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -202,6 +208,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.event.description")),
                 category: FunctionCategory::Core,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -220,6 +227,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.strings.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -245,6 +253,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.separator.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -270,6 +279,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.separator.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -287,6 +297,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.string.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -304,6 +315,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.string.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -321,6 +333,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.string.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -352,6 +365,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.to.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -377,6 +391,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.substring.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -408,6 +423,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.length.description")),
                 category: FunctionCategory::String,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -426,6 +442,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Math,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -443,6 +460,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Math,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -460,6 +478,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Math,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -477,6 +496,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Math,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -502,6 +522,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.b.description")),
                 category: FunctionCategory::Math,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -527,6 +548,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.b.description")),
                 category: FunctionCategory::Math,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -539,6 +561,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.random.description")),
                 category: FunctionCategory::Math,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -557,6 +580,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.array.description")),
                 category: FunctionCategory::Array,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -574,6 +598,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.array.description")),
                 category: FunctionCategory::Array,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -599,6 +624,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.element.description")),
                 category: FunctionCategory::Array,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -616,6 +642,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.array.description")),
                 category: FunctionCategory::Array,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -641,6 +668,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.callback.description")),
                 category: FunctionCategory::Array,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -666,6 +694,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.callback.description")),
                 category: FunctionCategory::Array,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -697,6 +726,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.initial.description")),
                 category: FunctionCategory::Array,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -715,6 +745,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.json.description")),
                 category: FunctionCategory::Json,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -732,6 +763,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Json,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
 
@@ -750,6 +782,7 @@ impl FunctionRegistry {
                 description: Some(workflow_i18n::t("lsp.fn.value.description")),
                 category: FunctionCategory::Core,
                 is_user_defined: false,
+                plugin_name: None,
             },
         );
     }
@@ -783,8 +816,57 @@ impl FunctionRegistry {
                 FunctionCategory::Core
             },
             is_user_defined,
+            plugin_name: None,
         };
         self.register(entry);
+    }
+
+    /// Register a plugin function with metadata.
+    ///
+    /// Plugin functions are registered with `category: FunctionCategory::Custom`
+    /// and `is_user_defined: false`. The `plugin_name` field identifies which
+    /// plugin registered the function.
+    pub fn register_plugin(
+        &self,
+        name: &str,
+        params: Vec<ParamDescriptor>,
+        return_type: Type,
+        description: Option<String>,
+        plugin_name: &str,
+    ) {
+        let entry = FunctionEntry {
+            name: name.to_string(),
+            params,
+            return_type,
+            description,
+            category: FunctionCategory::Custom,
+            is_user_defined: false,
+            plugin_name: Some(plugin_name.to_string()),
+        };
+        self.register(entry);
+    }
+
+    /// Register multiple plugin functions in a single lock acquisition.
+    pub fn register_plugin_batch(
+        &self,
+        plugin_name: &str,
+        entries: Vec<FunctionEntry>,
+    ) {
+        let mut inner = self.inner.write().unwrap();
+        for mut entry in entries {
+            entry.category = FunctionCategory::Custom;
+            entry.is_user_defined = false;
+            entry.plugin_name = Some(plugin_name.to_string());
+            inner.functions.insert(entry.name.clone(), entry);
+        }
+    }
+
+    /// Unregister all functions from a specific plugin.
+    pub fn unregister_plugin(&self, plugin_name: &str) {
+        let mut inner = self.inner.write().unwrap();
+        inner
+            .functions
+            .retain(|_, entry| entry.plugin_name.as_deref() != Some(plugin_name));
     }
 
     /// Look up a function by name.
@@ -847,6 +929,17 @@ impl FunctionRegistry {
         inner.builtins.values().cloned().collect()
     }
 
+    /// Get all plugin-registered functions (category == Custom and plugin_name is Some).
+    pub fn plugin_functions(&self) -> Vec<FunctionEntry> {
+        let inner = self.inner.read().unwrap();
+        inner
+            .functions
+            .values()
+            .filter(|f| f.plugin_name.is_some())
+            .cloned()
+            .collect()
+    }
+
     /// Clear all user-defined functions (but keep builtins).
     pub fn clear_user_functions(&self) {
         let mut inner = self.inner.write().unwrap();
@@ -892,6 +985,7 @@ mod tests {
             description: Some(workflow_i18n::t("lsp.fn.x.description")),
             category: FunctionCategory::UserDefined,
             is_user_defined: true,
+                plugin_name: None,
         };
         registry.register(entry);
         assert!(registry.contains("my_func"));
@@ -908,6 +1002,7 @@ mod tests {
             description: None,
             category: FunctionCategory::UserDefined,
             is_user_defined: true,
+                plugin_name: None,
         };
         registry.register(entry);
         let user_fns = registry.user_functions();

@@ -14,6 +14,7 @@ plugin-system.workspace = true
 plugin-macros.workspace = true
 workflow-domain = { path = "../workflow-domain" }
 workflow-engine = { path = "../workflow-engine" }
+workflow-parser = { path = "../workflow-parser" }
 serde_json.workspace = true
 async-trait.workspace = true
 log.workspace = true

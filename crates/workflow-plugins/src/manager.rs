@@ -2,15 +2,19 @@ use std::path::Path;
 
 use plugin_system::PluginManager;
 use workflow_engine::RuleEngine;
+use workflow_parser::evaluator::FlowEvaluator;
 
 use crate::adapter::PluginActionHandler;
 use crate::loader::WorkflowPluginLoader;
+use crate::registry::PluginFunctionRegistry;
 
 /// High-level manager that loads workflow plugins and bridges them into
-/// the `RuleEngine` as `ActionHandler` implementations.
+/// the `RuleEngine` as `ActionHandler` implementations, and into the
+/// `FlowEvaluator` as native functions and object getters.
 pub struct WorkflowPluginManager {
     plugin_manager: PluginManager,
     loader: WorkflowPluginLoader,
+    function_registry: PluginFunctionRegistry,
 }
 
 impl WorkflowPluginManager {
@@ -19,6 +23,7 @@ impl WorkflowPluginManager {
         Self {
             plugin_manager: PluginManager::new(),
             loader: WorkflowPluginLoader::new(plugin_dir),
+            function_registry: PluginFunctionRegistry::new(),
         }
     }
 
@@ -35,6 +40,16 @@ impl WorkflowPluginManager {
     /// Returns the plugin directory path.
     pub fn plugin_dir(&self) -> &Path {
         self.loader.dir()
+    }
+
+    /// Returns a reference to the shared function registry.
+    pub fn function_registry(&self) -> &PluginFunctionRegistry {
+        &self.function_registry
+    }
+
+    /// Returns a mutable reference to the shared function registry.
+    pub fn function_registry_mut(&mut self) -> &mut PluginFunctionRegistry {
+        &mut self.function_registry
     }
 
     /// Discover and load all plugins from the plugin directory.
@@ -62,10 +77,7 @@ impl WorkflowPluginManager {
     }
 
     /// Load a single plugin by path.
-    pub fn load_plugin(
-        &mut self,
-        path: impl AsRef<Path>,
-    ) -> Result<String, plugin_system::PluginError> {
+    pub fn load_plugin(&mut self, path: impl AsRef<Path>) -> Result<String, plugin_system::PluginError> {
         self.plugin_manager.load_plugin(path)
     }
 
@@ -107,6 +119,46 @@ impl WorkflowPluginManager {
         }
     }
 
+    /// Inject all registered native functions and object getters into a
+    /// `FlowEvaluator`. This makes plugin-provided functions callable
+    /// from `.flow` files and plugin objects accessible via `${}`.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut evaluator = FlowEvaluator::new();
+    /// plugin_manager.inject_into_evaluator(&mut evaluator);
+    ///
+    /// // Now .flow files can call:
+    /// // let response = http_get("https://api.example.com")
+    /// // let base_url = ${config.base_url}
+    /// ```
+    pub fn inject_into_evaluator(&self, evaluator: &mut FlowEvaluator) {
+        let func_names = self.function_registry.function_names();
+        let obj_names = self.function_registry.object_names();
+
+        // Inject native functions
+        for name in &func_names {
+            let registry = self.function_registry.clone();
+            let name_clone = name.clone();
+            let func: workflow_parser::evaluator::NativeFunction = Box::new(move |args| {
+                registry.call_function(&name_clone, args).unwrap_or_default()
+            });
+            evaluator.register_native_function(name, func);
+            log::info!("Injected plugin function '{}' into evaluator", name);
+        }
+
+        // Inject object getters
+        for name in &obj_names {
+            let registry = self.function_registry.clone();
+            let name_clone = name.clone();
+            let getter: workflow_parser::evaluator::ObjectGetter = Box::new(move |path| {
+                registry.get_object(&name_clone, path)
+            });
+            evaluator.register_object_getter(name, getter);
+            log::info!("Injected plugin object '{}' into evaluator", name);
+        }
+    }
+
     /// Execute a command on a loaded plugin.
     pub fn call_plugin(
         &self,
@@ -114,8 +166,9 @@ impl WorkflowPluginManager {
         method: &str,
         args: serde_json::Value,
     ) -> Result<Option<serde_json::Value>, plugin_system::PluginError> {
-        self.plugin_manager
-            .with_plugin_mut(name, |plugin| plugin.handle_command(method, args))
+        self.plugin_manager.with_plugin_mut(name, |plugin| {
+            plugin.handle_command(method, args)
+        })
     }
 
     /// Reload a plugin by name (unload + load from original path).

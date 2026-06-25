@@ -269,7 +269,9 @@ pub fn hover_at(state: &ServerState, uri: &str, line: usize, character: usize) -
             }
             // Check registry functions
             if let Some(entry) = inference.registry.get(&word) {
-                let mut body = if entry.is_user_defined {
+                let mut body = if let Some(ref plugin) = entry.plugin_name {
+                    workflow_i18n::tf("lsp.hover_fn_plugin", &[("name", &word), ("plugin", plugin)])
+                } else if entry.is_user_defined {
                     workflow_i18n::tf("lsp.hover_fn_imported", &[("name", &word)])
                 } else {
                     workflow_i18n::tf("lsp.hover_fn_builtin", &[("name", &word)])

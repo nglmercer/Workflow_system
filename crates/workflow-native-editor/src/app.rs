@@ -31,6 +31,8 @@ use super::find_bar::{self, FindState};
 use super::history::{History, Snapshot};
 use super::home;
 use super::keybindings::Keymap;
+use super::plugin_manager::EditorPluginManager;
+use super::plugin_panel;
 use super::popup;
 use super::recent::RecentList;
 #[cfg(not(target_arch = "wasm32"))]
@@ -145,6 +147,8 @@ pub struct EditorApp {
     /// `ignore` walker is not designed for `wasm32-unknown-unknown`.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) search_in_files: SearchInFilesState,
+    /// Plugin manager with hot-reload support.
+    pub(crate) plugin_manager: EditorPluginManager,
 }
 
 const EXAMPLE_PROGRAM: &str = r#"workflow "Native Example" {
@@ -171,6 +175,13 @@ impl Default for EditorApp {
         let mut lsp = ServerState::new();
         let uri = "file:///example.flow".to_string();
         lsp.update_document(&uri, &text);
+
+        // Initialize plugin manager with default plugin directory
+        let plugin_dir = std::env::current_dir()
+            .unwrap_or_default()
+            .join("plugins");
+        let mut plugin_manager = EditorPluginManager::new(&plugin_dir);
+        plugin_manager.load_all();
 
         Self {
             text,
@@ -207,6 +218,7 @@ impl Default for EditorApp {
             pending_find_open: false,
             #[cfg(not(target_arch = "wasm32"))]
             search_in_files: SearchInFilesState::default(),
+            plugin_manager,
         }
     }
 }
@@ -214,6 +226,11 @@ impl Default for EditorApp {
 impl eframe::App for EditorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.handle_global_keys(ctx);
+
+        // Poll plugin file watcher events
+        if self.plugin_manager.poll_events() {
+            ctx.request_repaint();
+        }
 
         // Run any deferred native file dialog now that we're at
         // the top of the frame, outside the egui scope-stack that
@@ -444,6 +461,23 @@ impl eframe::App for EditorApp {
                             self.open_search_result(ctx, m.clone());
                         }
                     }
+                }
+            }
+        }
+
+        // Show plugin panel
+        if let Some(action) = plugin_panel::show(ctx, &self.plugin_manager) {
+            match action {
+                plugin_panel::PluginAction::ReloadAll => {
+                    let loaded = self.plugin_manager.reload_all();
+                    self.status = if loaded.is_empty() {
+                        "No plugins loaded".to_string()
+                    } else {
+                        format!("Reloaded {} plugin(s): {}", loaded.len(), loaded.join(", "))
+                    };
+                }
+                plugin_panel::PluginAction::TogglePanel => {
+                    self.plugin_manager.toggle_panel();
                 }
             }
         }

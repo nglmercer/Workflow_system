@@ -14,6 +14,8 @@ mod history;
 mod home;
 mod keybindings;
 mod layouter;
+mod plugin_manager;
+mod plugin_panel;
 mod popup;
 mod recent;
 #[cfg(not(target_arch = "wasm32"))]

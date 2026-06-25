@@ -4,7 +4,7 @@ use crate::ast::*;
 use workflow_domain::{TriggerContext, WorkflowResult};
 
 /// Runtime value
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     String(String),
     Number(f64),
@@ -111,10 +111,22 @@ pub struct WorkflowOutcome {
     pub scope: HashMap<String, Value>,
 }
 
+/// A native function callable from `.flow` files.
+/// Receives arguments as `serde_json::Value` and returns a value.
+pub type NativeFunction = Box<dyn Fn(&[serde_json::Value]) -> serde_json::Value + Send + Sync>;
+
+/// An object getter for `${plugin_name.path}` access in `.flow` files.
+/// Receives a dot-separated path and returns the value at that path.
+pub type ObjectGetter = Box<dyn Fn(&str) -> Option<serde_json::Value> + Send + Sync>;
+
 /// Evaluator for .flow programs
 pub struct FlowEvaluator {
     globals: HashMap<String, Value>,
     functions: HashMap<String, FunctionDef>,
+    /// Native functions registered by plugins (e.g., `http_get`, `csv_parse`).
+    native_functions: HashMap<String, NativeFunction>,
+    /// Object getters registered by plugins (e.g., `config` for `${config.base_url}`).
+    object_getters: HashMap<String, ObjectGetter>,
     logs: Vec<String>,
     emitted: Vec<String>,
 }
@@ -124,9 +136,55 @@ impl FlowEvaluator {
         Self {
             globals: HashMap::new(),
             functions: HashMap::new(),
+            native_functions: HashMap::new(),
+            object_getters: HashMap::new(),
             logs: Vec::new(),
             emitted: Vec::new(),
         }
+    }
+
+    /// Register a native function callable from `.flow` files.
+    ///
+    /// # Example
+    /// ```ignore
+    /// evaluator.register_native_function(
+    ///     "http_get",
+    ///     Box::new(|args| {
+    ///         let url = args.first().unwrap().as_str().unwrap_or("");
+    ///         serde_json::json!({ "status": 200, "body": "..." })
+    ///     }),
+    /// );
+    /// ```
+    pub fn register_native_function(&mut self, name: &str, func: NativeFunction) {
+        self.native_functions.insert(name.to_string(), func);
+    }
+
+    /// Register an object getter for `${plugin_name.path}` access.
+    ///
+    /// # Example
+    /// ```ignore
+    /// evaluator.register_object_getter(
+    ///     "config",
+    ///     Box::new(|path| {
+    ///         match path {
+    ///             "base_url" => Some(serde_json::json!("https://api.example.com")),
+    ///             _ => None,
+    ///         }
+    ///     }),
+    /// );
+    /// ```
+    pub fn register_object_getter(&mut self, plugin_name: &str, getter: ObjectGetter) {
+        self.object_getters.insert(plugin_name.to_string(), getter);
+    }
+
+    /// Set multiple native functions at once.
+    pub fn set_native_functions(&mut self, functions: HashMap<String, NativeFunction>) {
+        self.native_functions.extend(functions);
+    }
+
+    /// Set multiple object getters at once.
+    pub fn set_object_getters(&mut self, getters: HashMap<String, ObjectGetter>) {
+        self.object_getters.extend(getters);
     }
 
     pub fn load_program(&mut self, program: &FlowProgram) {
@@ -338,9 +396,33 @@ impl FlowEvaluator {
                 .get(name)
                 .or_else(|| self.globals.get(name))
                 .cloned()
+                .or_else(|| {
+                    // Check object getters: `${plugin_name}` resolves to the
+                    // getter's root object. If the getter returns a value,
+                    // wrap it in a Value; otherwise return Null.
+                    if let Some(getter) = self.object_getters.get(name) {
+                        getter("").map(|val| Value::from_json(&val))
+                    } else {
+                        None
+                    }
+                })
                 .unwrap_or(Value::Null),
             Expr::Member { object, property } => {
                 let obj = self.eval_expr(object, vars);
+
+                // If the object is a string variable name matching a registered
+                // plugin, try to resolve via the object getter.
+                // e.g., `${config.base_url}` -> Expr::Member(Var("config"), "base_url")
+                if let Expr::Var(name) = object.as_ref() {
+                    if self.object_getters.contains_key(name) {
+                        if let Some(getter) = self.object_getters.get(name) {
+                            if let Some(val) = getter(property) {
+                                return Value::from_json(&val);
+                            }
+                        }
+                    }
+                }
+
                 match &obj {
                     Value::Object(map) => {
                         // `meta.length` on an object returns the
@@ -482,6 +564,14 @@ impl FlowEvaluator {
     }
 
     fn call_function(&mut self, name: &str, args: &[Value]) -> Value {
+        // First check native functions registered by plugins
+        if let Some(getter) = self.native_functions.get(name) {
+            // Convert Value args to serde_json::Value for the native function
+            let json_args: Vec<serde_json::Value> = args.iter().map(|v| v.to_json()).collect();
+            let result = getter(&json_args);
+            return Value::from_json(&result);
+        }
+
         match name {
             "log" => {
                 if let Some(val) = args.first() {
@@ -754,5 +844,168 @@ mod tests {
         let args = vec![Value::String("World".to_string())];
         evaluator.call_function("greet", &args);
         assert_eq!(evaluator.get_logs(), &["Original"]);
+    }
+
+    // ---- Native function tests ----
+
+    #[test]
+    fn test_register_native_function_and_call() {
+        let mut evaluator = FlowEvaluator::new();
+        evaluator.register_native_function(
+            "add",
+            Box::new(|args| {
+                let a = args[0].as_f64().unwrap_or(0.0);
+                let b = args[1].as_f64().unwrap_or(0.0);
+                serde_json::json!(a + b)
+            }),
+        );
+
+        let args = vec![Value::Number(10.0), Value::Number(20.0)];
+        let result = evaluator.call_function("add", &args);
+        assert!(matches!(result, Value::Number(30.0)));
+    }
+
+    #[test]
+    fn test_native_function_replaces_builtin() {
+        let mut evaluator = FlowEvaluator::new();
+        // Override the built-in `len` with a custom one
+        evaluator.register_native_function(
+            "len",
+            Box::new(|_| serde_json::json!(42)),
+        );
+
+        let args = vec![Value::String("short".to_string())];
+        let result = evaluator.call_function("len", &args);
+        // Our custom `len` returns 42, not 5
+        assert!(matches!(result, Value::Number(42.0)));
+    }
+
+    #[test]
+    fn test_native_function_returns_json_types() {
+        let mut evaluator = FlowEvaluator::new();
+        evaluator.register_native_function(
+            "get_config",
+            Box::new(|_| serde_json::json!({"enabled": true, "count": 5})),
+        );
+
+        let result = evaluator.call_function("get_config", &[]);
+        match result {
+            Value::Object(map) => {
+                assert_eq!(map.get("enabled"), Some(&Value::Bool(true)));
+                assert_eq!(map.get("count"), Some(&Value::Number(5.0)));
+            }
+            _ => panic!("expected Object, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_set_native_functions_batch() {
+        let mut evaluator = FlowEvaluator::new();
+        let mut funcs = HashMap::new();
+        funcs.insert(
+            "double".to_string(),
+            Box::new(|args: &[serde_json::Value]| {
+                let n = args[0].as_f64().unwrap_or(0.0);
+                serde_json::json!(n * 2.0)
+            }) as NativeFunction,
+        );
+        funcs.insert(
+            "triple".to_string(),
+            Box::new(|args: &[serde_json::Value]| {
+                let n = args[0].as_f64().unwrap_or(0.0);
+                serde_json::json!(n * 3.0)
+            }) as NativeFunction,
+        );
+        evaluator.set_native_functions(funcs);
+
+        let args = vec![Value::Number(5.0)];
+        assert!(matches!(evaluator.call_function("double", &args), Value::Number(10.0)));
+        assert!(matches!(evaluator.call_function("triple", &args), Value::Number(15.0)));
+    }
+
+    // ---- Object getter tests ----
+
+    #[test]
+    fn test_register_object_getter_var() {
+        let mut evaluator = FlowEvaluator::new();
+        evaluator.register_object_getter(
+            "config",
+            Box::new(|path| match path {
+                "" => Some(serde_json::json!({"base_url": "https://api.example.com"})),
+                "base_url" => Some(serde_json::json!("https://api.example.com")),
+                _ => None,
+            }),
+        );
+
+        // `config` (root) should resolve via getter
+        let vars = HashMap::new();
+        let expr = Expr::var("config");
+        let result = evaluator.eval_expr(&expr, &vars);
+        match result {
+            Value::Object(map) => {
+                assert_eq!(
+                    map.get("base_url"),
+                    Some(&Value::String("https://api.example.com".to_string()))
+                );
+            }
+            _ => panic!("expected Object for config root, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_register_object_getter_member() {
+        let mut evaluator = FlowEvaluator::new();
+        evaluator.register_object_getter(
+            "config",
+            Box::new(|path| match path {
+                "base_url" => Some(serde_json::json!("https://api.example.com")),
+                "timeout" => Some(serde_json::json!(30)),
+                _ => None,
+            }),
+        );
+
+        // `config.base_url` should resolve via getter
+        let vars = HashMap::new();
+        let expr = Expr::member(Expr::var("config"), "base_url");
+        let result = evaluator.eval_expr(&expr, &vars);
+        assert!(matches!(result, Value::String(s) if s == "https://api.example.com"));
+
+        // `config.timeout` should return a number
+        let expr2 = Expr::member(Expr::var("config"), "timeout");
+        let result2 = evaluator.eval_expr(&expr2, &vars);
+        assert!(matches!(result2, Value::Number(30.0)));
+
+        // `config.nonexistent` should fall through to Null
+        let expr3 = Expr::member(Expr::var("config"), "nonexistent");
+        let result3 = evaluator.eval_expr(&expr3, &vars);
+        assert!(matches!(result3, Value::Null));
+    }
+
+    #[test]
+    fn test_object_getter_not_found_returns_null() {
+        let mut evaluator = FlowEvaluator::new();
+        // No getter registered for "unknown"
+        let vars = HashMap::new();
+        let expr = Expr::var("unknown");
+        let result = evaluator.eval_expr(&expr, &vars);
+        assert!(matches!(result, Value::Null));
+    }
+
+    #[test]
+    fn test_native_function_called_from_expression() {
+        let mut evaluator = FlowEvaluator::new();
+        evaluator.register_native_function(
+            "square",
+            Box::new(|args| {
+                let n = args[0].as_f64().unwrap_or(0.0);
+                serde_json::json!(n * n)
+            }),
+        );
+
+        // Simulate: var result = square(5)
+        let vars = HashMap::new();
+        let call_expr = Expr::call("square", vec![Expr::number(5.0)]);
+        let result = evaluator.eval_expr(&call_expr, &vars);
+        assert!(matches!(result, Value::Number(25.0)));
     }
 }

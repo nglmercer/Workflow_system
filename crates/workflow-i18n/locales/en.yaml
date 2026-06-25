@@ -72,6 +72,7 @@ shortcuts:
   command_show_shortcuts: "Show keyboard shortcuts"
   command_run_tests: "Run tests"
   command_search_in_files: "Find in files"
+  command_toggle_plugins: "Toggle plugin panel"
   command_popup_up_long: "Move up in the completion popup."
   command_popup_down_long: "Move down in the completion popup."
   command_popup_accept_long: "Insert the highlighted completion."
@@ -100,6 +101,7 @@ shortcuts:
   command_show_shortcuts_long: "Open the keyboard shortcuts help window."
   command_run_tests_long: "Run every *.test.flow file in the current project."
   command_search_in_files_long: "Open the project-wide find in files panel."
+  command_toggle_plugins_long: "Toggle the plugin panel to manage loaded plugins."
   command_none_long: "Reserved sentinel — no command is bound here."
 
 diagnostics:
@@ -209,6 +211,7 @@ lsp:
   hover_fn_label: "**fn** `{name}`\n\n"
   hover_fn_imported: "**fn** `{name}` (imported)\n\n"
   hover_fn_builtin: "**fn** `{name}` (built-in)\n\n"
+  hover_fn_plugin: "**fn** `{name}` (plugin: {plugin})\n\n"
   hover_category_label: "**category:** {category}\n\n"
   hover_event_label: "**event** `{name}`\n\n"
   hover_event_external: "**type:** external (SCREAMING_SNAKE_CASE)\n\n"
@@ -408,3 +411,14 @@ cli:
   evaluate_action_result: "    Result: {result}"
   evaluate_action_error: "    Error: {error}"
   evaluate_action_skipped: "    Skipped: {skipped}"
+
+plugins:
+  title: "Plugins"
+  directory: "Directory: {path}"
+  reload_all: "Reload All Plugins"
+  no_plugins: "No plugins loaded"
+  place_hint: "Place .so/.dylib/.dll files in the plugins/ directory"
+  loaded_count: "{count} plugin(s) loaded"
+  available_api: "Available API"
+  functions: "Functions"
+  objects: "Objects"

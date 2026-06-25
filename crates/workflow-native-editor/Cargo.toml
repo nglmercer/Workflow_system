@@ -18,6 +18,9 @@ workflow-lsp = { path = "../workflow-lsp" }
 workflow-parser = { path = "../workflow-parser" }
 workflow-test-runner = { path = "../workflow-test-runner" }
 workflow-i18n = { path = "../workflow-i18n" }
+workflow-plugins = { path = "../workflow-plugins" }
 thiserror = { workspace = true }
 ignore = { workspace = true }
 regex = { workspace = true }
+log = { workspace = true }
+notify = "6"

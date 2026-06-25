@@ -16,6 +16,7 @@ workflow-serialize = { path = "../workflow-serialize" }
 workflow-test-runner = { path = "../workflow-test-runner" }
 workflow-i18n = { path = "../workflow-i18n" }
 workflow-plugins = { path = "../workflow-plugins" }
+workflow-parser = { path = "../workflow-parser" }
 serde_json = { workspace = true }
 clap = { workspace = true }
 thiserror = { workspace = true }

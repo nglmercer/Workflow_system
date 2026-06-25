@@ -1,0 +1,45 @@
+// Tests for demo.flow — exercises plugin functions and objects.
+// Run with:
+//   cargo run -p workflow-cli -- --plugins examples/plugin-hello target/examples/plugin-hello test examples/flow-with-plugins/demo.test.flow
+//
+// Without plugins, plugin functions return null. These tests verify
+// the workflow structure and log output with null plugin results.
+
+test "process_user greets and processes name" {
+  on USER_CREATED with { name: "Alice" }
+  expect logs [
+    "Processing new user: Alice",
+    "null",
+    "42 + 58 = null",
+    "Name in uppercase: null",
+    "Plugin version: null",
+    "Plugin author: null"
+  ]
+}
+
+test "process_user with different name" {
+  on USER_CREATED with { name: "Bob" }
+  expect logs [
+    "Processing new user: Bob",
+    "null",
+    "42 + 58 = null",
+    "Name in uppercase: null",
+    "Plugin version: null",
+    "Plugin author: null"
+  ]
+}
+
+test "test_add computes sum" {
+  on TEST_ADD with { a: 10, b: 20 }
+  expect logs ["Sum: null"]
+}
+
+test "test_add with negative numbers" {
+  on TEST_ADD with { a: -5, b: 15 }
+  expect logs ["Sum: null"]
+}
+
+test "test_add with zeros" {
+  on TEST_ADD with { a: 0, b: 0 }
+  expect logs ["Sum: null"]
+}

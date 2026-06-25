@@ -1,0 +1,40 @@
+// Plugin demo: demonstrates plugin functions and object access.
+// Run with plugins:
+//   cargo run -p workflow-cli -- --plugins examples/plugin-hello target/examples/plugin-hello evaluate --event USER_CREATED --data '{"name": "Alice"}' examples/flow-with-plugins/demo.flow
+//
+// Without plugins, plugin functions return null and object access returns null.
+
+workflow "process_user" {
+  on USER_CREATED
+
+  log("Processing new user: " + data.name)
+
+  // Call plugin functions (flat namespace with prefix)
+  // These return null without the --plugins flag
+  var greeting = greet(data.name)
+  log(greeting)
+
+  var doubled = add(42, 58)
+  log("42 + 58 = " + doubled)
+
+  var upper = uppercase(data.name)
+  log("Name in uppercase: " + upper)
+
+  // Access plugin objects via regular member access
+  // These return null without the --plugins flag
+  var version = hello.config.version
+  log("Plugin version: " + version)
+
+  var author = hello.config.author
+  log("Plugin author: " + author)
+
+  return greeting
+}
+
+workflow "test_add" {
+  on TEST_ADD
+
+  var result = add(data.a, data.b)
+  log("Sum: " + result)
+  return result
+}

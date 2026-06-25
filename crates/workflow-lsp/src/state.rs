@@ -5,6 +5,7 @@ use lsp_types::Position;
 
 use crate::analysis::Analysis;
 use crate::inference::Inference;
+use workflow_plugins::PluginFunctionRegistry;
 
 pub struct ServerState {
     pub documents: HashMap<String, String>,
@@ -18,6 +19,10 @@ pub struct ServerState {
     /// Used to avoid re-reading and re-parsing the same file
     /// multiple times when multiple documents import it.
     external_flow_cache: HashMap<PathBuf, HashMap<String, crate::inference::FunctionSig>>,
+    /// Shared plugin function registry from the workflow-plugins crate.
+    /// When plugins are loaded, their functions are registered here so
+    /// the LSP can provide completions and hover info for plugin functions.
+    plugin_registry: PluginFunctionRegistry,
 }
 
 impl ServerState {
@@ -28,6 +33,69 @@ impl ServerState {
             inferences: HashMap::new(),
             versions: HashMap::new(),
             external_flow_cache: HashMap::new(),
+            plugin_registry: PluginFunctionRegistry::new(),
+        }
+    }
+
+    /// Returns a reference to the shared plugin function registry.
+    pub fn plugin_registry(&self) -> &PluginFunctionRegistry {
+        &self.plugin_registry
+    }
+
+    /// Register all plugin functions from a `PluginFunctionRegistry`
+    /// into the LSP's `FunctionRegistry` for each inference in the given
+    /// document URI. This bridges plugin registration into the LSP's
+    /// completion and hover systems.
+    pub fn register_plugin_functions(&self, uri: &str) {
+        let Some(inference) = self.inferences.get(uri) else {
+            return;
+        };
+        self.register_plugin_functions_into(&inference.registry);
+    }
+
+    /// Register plugin functions into a specific FunctionRegistry directly.
+    /// Useful when you have a reference to a registry outside of a document context.
+    pub fn register_plugin_functions_into(
+        &self,
+        registry: &crate::inference::registry::FunctionRegistry,
+    ) {
+        for sig in self.plugin_registry.function_signatures() {
+            let params: Vec<crate::inference::ParamDescriptor> = sig
+                .params
+                .iter()
+                .map(|name| crate::inference::ParamDescriptor {
+                    name: name.clone(),
+                    ty: crate::inference::Type::Any,
+                    optional: false,
+                    default_value: None,
+                })
+                .collect();
+            registry.register_plugin(
+                &sig.name,
+                params,
+                crate::inference::Type::Any,
+                Some(sig.description),
+                &sig.category,
+            );
+        }
+        for obj_sig in self.plugin_registry.object_signatures() {
+            let params: Vec<crate::inference::ParamDescriptor> = obj_sig
+                .fields
+                .iter()
+                .map(|field| crate::inference::ParamDescriptor {
+                    name: field.path.clone(),
+                    ty: crate::inference::Type::Any,
+                    optional: false,
+                    default_value: None,
+                })
+                .collect();
+            registry.register_plugin(
+                &obj_sig.plugin_name,
+                params,
+                crate::inference::Type::Any,
+                Some(obj_sig.description),
+                &obj_sig.plugin_name,
+            );
         }
     }
 

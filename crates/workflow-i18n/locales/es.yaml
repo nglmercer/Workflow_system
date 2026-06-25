@@ -61,6 +61,7 @@ shortcuts:
   command_show_shortcuts: "Mostrar atajos de teclado"
   command_run_tests: "Ejecutar pruebas"
   command_search_in_files: "Buscar en archivos"
+  command_toggle_plugins: "Alternar panel de plugins"
   command_popup_up_long: "Sube en el popup de autocompletado."
   command_popup_down_long: "Baja en el popup de autocompletado."
   command_popup_accept_long: "Inserta el elemento resaltado del popup."
@@ -89,6 +90,7 @@ shortcuts:
   command_show_shortcuts_long: "Abre la ventana de atajos de teclado."
   command_run_tests_long: "Ejecuta cada *.test.flow del proyecto."
   command_search_in_files_long: "Abre el panel de búsqueda en archivos del proyecto."
+  command_toggle_plugins_long: "Alternar el panel de plugins para gestionar plugins cargados."
   command_none_long: "Reservado — no hay comando enlazado aquí."
 
 diagnostics:
@@ -300,6 +302,17 @@ cli:
   evaluate_action_error: "    Error: {error}"
   evaluate_action_skipped: "    Omitida: {skipped}"
 
+plugins:
+  title: "Plugins"
+  directory: "Directorio: {path}"
+  reload_all: "Recargar Todos los Plugins"
+  no_plugins: "No hay plugins cargados"
+  place_hint: "Coloca archivos .so/.dylib/.dll en el directorio plugins/"
+  loaded_count: "{count} plugin(s) cargados"
+  available_api: "API Disponible"
+  functions: "Funciones"
+  objects: "Objetos"
+
 lsp:
   hover_returns_label: "**retorna:** `{type}`\n\n"
   hover_params_label: "**parámetros:** `({params})`\n\n"
@@ -308,6 +321,7 @@ lsp:
   hover_fn_label: "**fn** `{name}`\n\n"
   hover_fn_imported: "**fn** `{name}` (importada)\n\n"
   hover_fn_builtin: "**fn** `{name}` (integrada)\n\n"
+  hover_fn_plugin: "**fn** `{name}` (plugin: {plugin})\n\n"
   hover_category_label: "**categoría:** {category}\n\n"
   hover_event_label: "**evento** `{name}`\n\n"
   hover_event_external: "**tipo:** externo (SCREAMING_SNAKE_CASE)\n\n"

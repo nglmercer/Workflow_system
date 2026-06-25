@@ -58,3 +58,64 @@ impl ActionHandler for PluginActionHandler {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_handler(name: &str) -> PluginActionHandler {
+        let plugin: Arc<RwLock<Box<dyn Plugin>>> = Arc::new(RwLock::new(Box::new(MockPlugin {
+            name: name.to_string(),
+        })));
+        PluginActionHandler::new(name.to_string(), plugin)
+    }
+
+    #[test]
+    fn action_type_returns_plugin_name() {
+        let handler = make_handler("my_plugin");
+        assert_eq!(handler.action_type(), "my_plugin");
+    }
+
+    #[test]
+    fn handler_stores_plugin_name() {
+        let handler = make_handler("test_plugin");
+        assert_eq!(handler.plugin_name, "test_plugin");
+    }
+
+    // MockPlugin is a minimal Plugin implementation for testing.
+    // We test at the unit level rather than integration level
+    // because the Plugin trait requires a full runtime context.
+    struct MockPlugin {
+        name: String,
+    }
+
+    impl Plugin for MockPlugin {
+        fn metadata(&self) -> plugin_system::PluginMetadata {
+            plugin_system::PluginMetadata {
+                name: self.name.clone(),
+                version: "0.1.0".to_string(),
+                authors: vec!["test".to_string()],
+                dependencies: vec![],
+            }
+        }
+
+        fn on_load(&mut self, _ctx: &plugin_system::context::PluginContext) {}
+        fn on_unload(&mut self) {}
+        fn plugin_type_name(&self) -> &'static str { "mock" }
+
+        fn handle_command(
+            &mut self,
+            method: &str,
+            args: serde_json::Value,
+        ) -> Option<serde_json::Value> {
+            match method {
+                "echo" => Some(args),
+                "greet" => {
+                    let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("world");
+                    Some(serde_json::json!(format!("Hello, {}!", name)))
+                }
+                _ => None,
+            }
+        }
+    }
+}

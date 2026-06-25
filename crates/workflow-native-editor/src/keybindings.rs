@@ -63,6 +63,8 @@ pub enum Command {
     RunTests,
     /// Open the global "find in files" panel.
     SearchInFiles,
+    /// Toggle the plugin panel.
+    TogglePlugins,
     /// No command was triggered.
     None,
 }
@@ -97,6 +99,7 @@ impl Command {
             Command::ShowShortcuts => i18n_t("shortcuts.command_show_shortcuts"),
             Command::RunTests => i18n_t("shortcuts.command_run_tests"),
             Command::SearchInFiles => i18n_t("shortcuts.command_search_in_files"),
+            Command::TogglePlugins => i18n_t("shortcuts.command_toggle_plugins"),
             Command::Cut => i18n_t("shortcuts.command_cut"),
             Command::Copy => i18n_t("shortcuts.command_copy"),
             Command::Paste => i18n_t("shortcuts.command_paste"),
@@ -135,6 +138,7 @@ impl Command {
             Command::ShowShortcuts => i18n_t("shortcuts.command_show_shortcuts_long"),
             Command::RunTests => i18n_t("shortcuts.command_run_tests_long"),
             Command::SearchInFiles => i18n_t("shortcuts.command_search_in_files_long"),
+            Command::TogglePlugins => i18n_t("shortcuts.command_toggle_plugins_long"),
             Command::Cut => i18n_t("shortcuts.command_cut_long"),
             Command::Copy => i18n_t("shortcuts.command_copy_long"),
             Command::Paste => i18n_t("shortcuts.command_paste_long"),
@@ -438,6 +442,11 @@ impl Keymap {
             (
                 ChordMatcher::Exact(Chord::ctrl_shift(Key::F)),
                 Command::SearchInFiles,
+            ),
+            // --- Plugin panel ---
+            (
+                ChordMatcher::Exact(Chord::ctrl_shift(Key::P)),
+                Command::TogglePlugins,
             ),
             // --- Go to definition (F12 or Ctrl+Click) ---
             (

@@ -133,6 +133,7 @@ impl EditorApp {
             Command::UnfoldAll => self.collapsed.clear(),
             Command::RunTests => self.run_tests(),
             Command::GotoDefinition => self.goto_definition_at_cursor(),
+            Command::TogglePlugins => self.plugin_manager.toggle_panel(),
             #[cfg(not(target_arch = "wasm32"))]
             Command::SearchInFiles => {
                 let default_root = self
