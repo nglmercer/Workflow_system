@@ -155,13 +155,9 @@ fn is_known(cx: &LintCx, name: &str, after_byte: usize) -> bool {
 }
 
 fn is_known_function(cx: &LintCx, name: &str) -> bool {
-    if crate::inference::builtins::builtin_for(name).is_some() {
-        return true;
-    }
     if cx.inference.functions.contains_key(name) {
         return true;
     }
-    // Check the dynamic registry
     if cx.inference.registry.contains(name) {
         return true;
     }

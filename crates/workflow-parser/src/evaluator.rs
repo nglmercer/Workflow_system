@@ -109,6 +109,8 @@ pub struct WorkflowOutcome {
     /// `var` declared anywhere in the body (including inside
     /// `if`/`foreach` branches that ran).
     pub scope: HashMap<String, Value>,
+    /// Errors collected during execution (e.g., undefined function calls).
+    pub errors: Vec<String>,
 }
 
 /// A native function callable from `.flow` files.
@@ -129,6 +131,8 @@ pub struct FlowEvaluator {
     object_getters: HashMap<String, ObjectGetter>,
     logs: Vec<String>,
     emitted: Vec<String>,
+    /// Errors collected during execution (e.g., undefined function calls).
+    errors: Vec<String>,
 }
 
 impl FlowEvaluator {
@@ -140,6 +144,7 @@ impl FlowEvaluator {
             object_getters: HashMap::new(),
             logs: Vec::new(),
             emitted: Vec::new(),
+            errors: Vec::new(),
         }
     }
 
@@ -292,6 +297,7 @@ impl FlowEvaluator {
             emitted: self.emitted.clone(),
             return_value: ret.unwrap_or(Value::Null),
             scope: vars,
+            errors: self.errors.clone(),
         })
     }
 
@@ -633,6 +639,11 @@ impl FlowEvaluator {
                     }
                     result
                 } else {
+                    self.errors.push(format!(
+                        "Undefined function '{}' — it is not a built-in, \
+                         user-defined, or registered plugin function",
+                        name
+                    ));
                     Value::Null
                 }
             }
@@ -645,6 +656,12 @@ impl FlowEvaluator {
 
     pub fn get_emitted(&self) -> &[String] {
         &self.emitted
+    }
+
+    /// Returns errors collected during execution (e.g., undefined
+    /// function calls).  An empty Vec means no errors occurred.
+    pub fn get_errors(&self) -> &[String] {
+        &self.errors
     }
 
     /// Merge another program's globals and functions into this

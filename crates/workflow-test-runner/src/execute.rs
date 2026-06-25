@@ -115,6 +115,7 @@ pub fn execute_test(
     // what users expect when two workflows both set `greeting`).
     let mut combined_logs: Vec<String> = Vec::new();
     let mut combined_emitted: Vec<String> = Vec::new();
+    let mut combined_errors: Vec<String> = Vec::new();
     let mut combined_scope = std::collections::HashMap::new();
     let mut combined_return = Value::Null;
 
@@ -142,6 +143,7 @@ pub fn execute_test(
         };
         combined_logs.extend(outcome.logs);
         combined_emitted.extend(outcome.emitted);
+        combined_errors.extend(outcome.errors);
         for (k, v) in outcome.scope {
             combined_scope.insert(k, v);
         }
@@ -156,12 +158,24 @@ pub fn execute_test(
         emitted: combined_emitted,
         return_value: combined_return,
         scope: combined_scope,
+        errors: combined_errors,
     };
 
     for clause in &test.expects {
         if let Some(result) = evaluate(clause, &combined) {
             asserts.push(result);
         }
+    }
+
+    // Report execution errors (e.g., undefined function calls) as
+    // test failures so the user knows exactly what went wrong.
+    for err in &combined.errors {
+        asserts.push(AssertResult::fail(
+            AssertKind::Logs,
+            "",
+            String::new(),
+            err.clone(),
+        ));
     }
 
     let passed = asserts.iter().all(|a| a.passed);

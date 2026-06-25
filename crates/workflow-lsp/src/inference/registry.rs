@@ -113,6 +113,7 @@ impl FunctionRegistry {
     pub fn with_builtins() -> Self {
         let registry = Self::new();
         registry.register_standard_builtins();
+        registry.register_remaining_stdlib();
         registry
     }
 

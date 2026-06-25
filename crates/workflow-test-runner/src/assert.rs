@@ -251,6 +251,7 @@ mod tests {
             emitted: Vec::new(),
             return_value: ret,
             scope,
+            errors: Vec::new(),
         }
     }
 
