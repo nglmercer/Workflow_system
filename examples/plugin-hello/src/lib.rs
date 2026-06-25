@@ -44,11 +44,41 @@ impl HelloPlugin {
     }
 
     /// Say hello with an optional custom message.
-    #[plugin_system::command("say_hello")]
-    pub fn say_hello(&mut self, name: String) -> String {
+    #[plugin_system::command("greet")]
+    pub fn greet(&mut self, name: String) -> String {
         let greeting = format!("Hello, {}!", name);
         log::info!("{}", greeting);
         greeting
+    }
+
+    /// Add two numbers.
+    #[plugin_system::command("add")]
+    pub fn add(&self, a: f64, b: f64) -> f64 {
+        a + b
+    }
+
+    /// Convert a string to uppercase.
+    #[plugin_system::command("uppercase")]
+    pub fn uppercase(&self, s: String) -> String {
+        s.to_uppercase()
+    }
+
+    /// Custom interface data to expose the config object.
+    pub fn interface_data(&self) -> Option<serde_json::Value> {
+        let mut commands = Vec::new();
+        // Manually include commands since we're overriding interface_data
+        commands.push(serde_json::json!({ "name": "greet", "params": ["name"] }));
+        commands.push(serde_json::json!({ "name": "add", "params": ["a", "b"] }));
+        commands.push(serde_json::json!({ "name": "uppercase", "params": ["s"] }));
+
+        Some(serde_json::json!({
+            "commands": commands,
+            "objects": {
+                "hello": {
+                    "config": self.config
+                }
+            }
+        }))
     }
 
     /// Store a message for later retrieval.
@@ -60,8 +90,8 @@ impl HelloPlugin {
 
     /// Retrieve a stored message by key.
     #[plugin_system::command("get_message")]
-    pub fn get_message(&self, key: &str) -> Option<String> {
-        self.messages.get(key).cloned()
+    pub fn get_message(&self, key: String) -> Option<String> {
+        self.messages.get(&key).cloned()
     }
 
     /// List all stored message keys.
@@ -78,8 +108,8 @@ impl HelloPlugin {
 
     /// Get a config value by key.
     #[plugin_system::command("get_config")]
-    pub fn get_config(&self, key: &str) -> Option<String> {
-        self.config.get(key).cloned()
+    pub fn get_config(&self, key: String) -> Option<String> {
+        self.config.get(&key).cloned()
     }
 }
 
@@ -97,9 +127,9 @@ mod tests {
     }
 
     #[test]
-    fn say_hello_works() {
+    fn greet_works() {
         let mut plugin = HelloPlugin::new();
-        let result = plugin.say_hello("World".to_string());
+        let result = plugin.greet("World".to_string());
         assert_eq!(result, "Hello, World!");
     }
 
@@ -108,7 +138,7 @@ mod tests {
         let mut plugin = HelloPlugin::new();
         plugin.store_message("greeting".to_string(), "Hi there!".to_string());
         assert_eq!(
-            plugin.get_message("greeting"),
+            plugin.get_message("greeting".to_string()),
             Some("Hi there!".to_string())
         );
     }
@@ -123,7 +153,7 @@ mod tests {
     #[test]
     fn config_values() {
         let plugin = HelloPlugin::new();
-        assert_eq!(plugin.get_config("greeting"), Some("Hello".to_string()));
-        assert_eq!(plugin.get_config("version"), Some("1.0.0".to_string()));
+        assert_eq!(plugin.get_config("greeting".to_string()), Some("Hello".to_string()));
+        assert_eq!(plugin.get_config("version".to_string()), Some("1.0.0".to_string()));
     }
 }
