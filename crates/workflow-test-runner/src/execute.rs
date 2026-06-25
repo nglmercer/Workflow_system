@@ -27,6 +27,7 @@ use workflow_domain::TriggerContext;
 use workflow_parser::ast::{FlowProgram, ImportSource, ImportStmt, OnClause, TestDef, WorkflowDef};
 use workflow_parser::evaluator::{FlowEvaluator, Value, WorkflowOutcome};
 use workflow_parser::FlowParser;
+use workflow_plugins::WorkflowPluginManager;
 
 use crate::assert::{evaluate, AssertKind, AssertResult};
 use crate::report::{RunReport, TestReport};
@@ -43,6 +44,7 @@ pub fn execute_test(
     host: &FlowProgram,
     host_source_dir: &Path,
     source_path: &str,
+    plugin_manager: Option<&WorkflowPluginManager>,
 ) -> TestReport {
     let matches: Vec<&WorkflowDef> = host
         .workflows
@@ -125,6 +127,7 @@ pub fn execute_test(
             host,
             &import_resolution.globals,
             &import_resolution.flow_programs,
+            plugin_manager,
         );
         let outcome = match evaluator.execute_workflow_with_result(workflow, &ctx) {
             Ok(out) => out,
@@ -195,11 +198,15 @@ pub fn execute_test(
 /// source and the host — sidecar test files that include the
 /// workflows they exercise inline, plus the editor's "run on
 /// buffer" path, both hit this.
-pub fn execute_tests_for_program(program: &FlowProgram, root_path: &str) -> RunReport {
+pub fn execute_tests_for_program(
+    program: &FlowProgram,
+    root_path: &str,
+    plugin_manager: Option<&WorkflowPluginManager>,
+) -> RunReport {
     let tests: Vec<TestReport> = program
         .tests
         .iter()
-        .map(|t| execute_test(t, program, Path::new(""), root_path))
+        .map(|t| execute_test(t, program, Path::new(""), root_path, plugin_manager))
         .collect();
     RunReport::from_tests(root_path, tests)
 }
@@ -212,12 +219,16 @@ fn new_evaluator_with_program(
     host: &FlowProgram,
     imported_globals: &HashMap<String, Value>,
     flow_programs: &[FlowProgram],
+    plugin_manager: Option<&WorkflowPluginManager>,
 ) -> FlowEvaluator {
     let mut ev = FlowEvaluator::new();
     ev.load_program(host);
     ev.populate_globals(imported_globals.clone());
     for program in flow_programs {
         ev.merge_program(program);
+    }
+    if let Some(pm) = plugin_manager {
+        pm.inject_into_evaluator(&mut ev);
     }
     ev
 }
@@ -422,7 +433,7 @@ mod tests {
   expect logs ["hi Ada"]
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow", None);
         assert!(report.passed, "report: {:#?}", report);
         assert_eq!(report.matched_workflow_count, 1);
     }
@@ -436,7 +447,7 @@ mod tests {
   expect logs []
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow", None);
         assert!(!report.passed);
         assert_eq!(report.matched_workflow_count, 0);
     }
@@ -455,7 +466,7 @@ mod tests {
   expect logs ["bye"]
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "host.flow", None);
         assert!(!report.passed);
     }
 
@@ -473,7 +484,7 @@ mod tests {
   expect var total == 12
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow", None);
         assert!(report.passed, "{:#?}", report);
     }
 
@@ -491,7 +502,7 @@ mod tests {
   expect return 42
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow", None);
         assert!(report.passed, "{:#?}", report);
     }
 
@@ -519,7 +530,7 @@ mod tests {
   expect logs ["Hi ada@example.com"]
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow", None);
         assert!(report.passed, "report: {:#?}", report);
     }
 
@@ -547,7 +558,7 @@ mod tests {
   expect logs ["Hi ada@example.com"]
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new("."), "h.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new("."), "h.flow", None);
         assert!(!report.passed);
         // The failure is in the synthetic import-resolution
         // assertion, not in the logs assertion, but both
@@ -581,7 +592,7 @@ mod tests {
   expect logs ["done"]
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow", None);
         assert!(report.passed, "report: {:#?}", report);
     }
 
@@ -606,7 +617,7 @@ mod tests {
   expect logs ["premium"]
 }"#,
         );
-        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow");
+        let report = execute_test(&program.tests[0], &host, Path::new(""), "h.flow", None);
         assert!(report.passed, "report: {:#?}", report);
     }
 }

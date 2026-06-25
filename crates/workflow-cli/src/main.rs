@@ -91,10 +91,8 @@ async fn main() {
             .map(|_| 0)
             .map_err(|e| e.to_string()),
         Commands::Test { path, filter, json } => {
-            // The test subcommand has its own pass/fail exit
-            // code (0 on success, 1 on any failure), distinct
-            // from the error path below.
-            match commands::test_runner::run(&path, filter.as_deref(), json) {
+            let plugin_dir = cli.plugins.as_deref();
+            match commands::test_runner::run(&path, filter.as_deref(), json, plugin_dir) {
                 Ok(code) if code == std::process::ExitCode::SUCCESS => std::process::exit(0),
                 Ok(_) => std::process::exit(1),
                 Err(e) => {

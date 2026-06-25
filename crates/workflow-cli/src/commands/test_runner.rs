@@ -20,9 +20,15 @@ pub enum TestCmdError {
     Serde(#[from] serde_json::Error),
 }
 
-pub fn run(path: &str, filter: Option<&str>, json: bool) -> Result<ExitCode, TestCmdError> {
+pub fn run(
+    path: &str,
+    filter: Option<&str>,
+    json: bool,
+    plugin_dir: Option<&str>,
+) -> Result<ExitCode, TestCmdError> {
     let config = TestRunnerConfig {
         name_filter: filter.map(str::to_string),
+        plugin_dir: plugin_dir.map(str::to_string),
     };
     let runner = TestRunner::new(config);
     let report = runner.run_path(Path::new(path))?;

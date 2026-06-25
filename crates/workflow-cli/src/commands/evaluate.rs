@@ -27,8 +27,14 @@ pub async fn run(
         None => None,
     };
 
-    // Build a plugin manager if a plugin directory was provided
-    let plugin_manager = plugin_dir.map(workflow_plugins::WorkflowPluginManager::new);
+    let plugin_manager = plugin_dir.map(|dir| {
+        let mut pm = workflow_plugins::WorkflowPluginManager::new(dir);
+        let loaded = pm.load_all();
+        if !loaded.is_empty() {
+            println!("Loaded {} plugin(s): {}", loaded.len(), loaded.join(", "));
+        }
+        pm
+    });
 
     // Check if the input is a .flow file
     let is_flow_file = std::path::Path::new(path)

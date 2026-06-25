@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 workflow-parser = { path = "../workflow-parser" }
 workflow-domain = { path = "../workflow-domain" }
+workflow-plugins = { path = "../workflow-plugins" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 use workflow_parser::FlowParser;
+use workflow_plugins::WorkflowPluginManager;
 
 use crate::discovery::{discover, DiscoverEntry, DiscoverError};
 use crate::execute::execute_test;
@@ -50,15 +51,27 @@ pub struct TestRunnerConfig {
     /// as "skipped" with zero assertions. Defaults to `None` (run
     /// everything).
     pub name_filter: Option<String>,
+    /// If set, plugins are loaded from this directory before
+    /// running tests. Defaults to `None` (no plugins).
+    pub plugin_dir: Option<String>,
 }
 
 pub struct TestRunner {
     config: TestRunnerConfig,
+    plugin_manager: Option<WorkflowPluginManager>,
 }
 
 impl TestRunner {
     pub fn new(config: TestRunnerConfig) -> Self {
-        Self { config }
+        let plugin_manager = config.plugin_dir.as_ref().map(|dir| {
+            let mut pm = WorkflowPluginManager::new(dir);
+            pm.load_all();
+            pm
+        });
+        Self {
+            config,
+            plugin_manager,
+        }
     }
 
     pub fn with_default_config() -> Self {
@@ -92,7 +105,15 @@ impl TestRunner {
             .tests
             .iter()
             .filter(|t| self.name_matches(&t.name))
-            .map(|t| execute_test(t, &program, Path::new(""), virtual_path))
+            .map(|t| {
+                execute_test(
+                    t,
+                    &program,
+                    Path::new(""),
+                    virtual_path,
+                    self.plugin_manager.as_ref(),
+                )
+            })
             .collect();
         Ok(RunReport::from_tests(virtual_path, tests))
     }
@@ -141,7 +162,15 @@ impl TestRunner {
             .tests
             .iter()
             .filter(|t| self.name_matches(&t.name))
-            .map(|t| execute_test(t, host, &host_dir, test_path))
+            .map(|t| {
+                execute_test(
+                    t,
+                    host,
+                    &host_dir,
+                    test_path,
+                    self.plugin_manager.as_ref(),
+                )
+            })
             .collect();
         Ok(RunReport::from_tests(test_path, tests))
     }
@@ -208,6 +237,7 @@ impl TestRunner {
                     host,
                     host_dir,
                     &entry.test_file.to_string_lossy(),
+                    self.plugin_manager.as_ref(),
                 ));
             }
         }
