@@ -308,6 +308,7 @@ domain:
   error_cooldown_active: "Cooldown active for rule: {rule}"
   error_rule_disabled: "Rule disabled: {rule}"
   error_invalid_transition: "Invalid state transition: {state}"
+  error_plugin: "Plugin error: {error}"
   validation_id_empty: "Rule ID cannot be empty"
   validation_event_empty: "Event name cannot be empty"
   validation_cooldown_zero: "Cooldown must be greater than 0"

@@ -12,6 +12,10 @@ members = [
     "crates/workflow-native-editor",
     "crates/workflow-test-runner",
     "crates/workflow-i18n",
+    "crates/workflow-plugins",
+]
+exclude = [
+    "examples/plugin-hello",
 ]
 
 [workspace.package]
@@ -39,6 +43,11 @@ pest = "2"
 pest_derive = "2"
 rust-i18n = "3"
 ignore = "0.4"
+log = "0.4"
+
+# Plugin system (from plugin-system-rs submodule)
+plugin-system = { path = "vendor/plugin-system-rs/crates/plugin-system" }
+plugin-macros = { path = "vendor/plugin-system-rs/crates/plugin-macros" }
 
 [profile.release]
 lto = "thin"

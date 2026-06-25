@@ -199,6 +199,7 @@ domain:
   error_cooldown_active: "Cooldown activo para la regla: {rule}"
   error_rule_disabled: "Regla deshabilitada: {rule}"
   error_invalid_transition: "Transición de estado inválida: {state}"
+  error_plugin: "Error de plugin: {error}"
   validation_id_empty: "El ID de regla no puede estar vacío"
   validation_event_empty: "El nombre del evento no puede estar vacío"
   validation_cooldown_zero: "El cooldown debe ser mayor que 0"

@@ -10,6 +10,10 @@ use workflow_i18n::{t as i18n_t, tf as i18n_tf};
 struct Cli {
     #[command(subcommand)]
     command: Commands,
+
+    /// Path to a directory containing plugin shared libraries (.so/.dylib/.dll)
+    #[arg(long, global = true)]
+    plugins: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -71,10 +75,15 @@ enum Commands {
         #[arg(short, long)]
         data: Option<String>,
     },
+    /// List loaded plugins
+    Plugins,
 }
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
+    workflow_i18n::init();
+
     let cli = Cli::parse();
 
     let exit_code: Result<i32, String> = match cli.command {
@@ -102,19 +111,26 @@ async fn main() {
             event,
             data,
             vars,
-        } => commands::evaluate::run(&path, &event, data.as_deref(), vars.as_deref())
-            .await
-            .map(|_| 0)
-            .map_err(|e| e.to_string()),
-        Commands::Export { input, output } => commands::export::run(&input, &output)
-            .map(|_| 0)
-            .map_err(|e| e.to_string()),
-        Commands::Watch { path, event, data } => {
-            commands::watch::run(&path, &event, data.as_deref())
+        } => {
+            let plugin_dir = cli.plugins.as_deref();
+            commands::evaluate::run(&path, &event, data.as_deref(), vars.as_deref(), plugin_dir)
                 .await
                 .map(|_| 0)
                 .map_err(|e| e.to_string())
         }
+        Commands::Export { input, output } => commands::export::run(&input, &output)
+            .map(|_| 0)
+            .map_err(|e| e.to_string()),
+        Commands::Watch { path, event, data } => {
+            let plugin_dir = cli.plugins.as_deref();
+            commands::watch::run(&path, &event, data.as_deref(), plugin_dir)
+                .await
+                .map(|_| 0)
+                .map_err(|e| e.to_string())
+        }
+        Commands::Plugins => commands::plugins::run(cli.plugins.as_deref())
+            .map(|_| 0)
+            .map_err(|e| e.to_string()),
     };
 
     match exit_code {

@@ -9,6 +9,7 @@ pub async fn run(
     event: &str,
     data: Option<&str>,
     vars: Option<&str>,
+    plugin_dir: Option<&str>,
 ) -> WorkflowResult<()> {
     let rules = if std::path::Path::new(path).is_dir() {
         TriggerLoader::load_rules_from_dir(path)?
@@ -43,6 +44,16 @@ pub async fn run(
 
     for handler in builtin_handlers() {
         engine.register_handler(handler);
+    }
+
+    // Load plugins if a plugin directory was provided
+    if let Some(dir) = plugin_dir {
+        let mut plugin_manager = workflow_plugins::WorkflowPluginManager::new(dir);
+        let loaded = plugin_manager.load_all();
+        if !loaded.is_empty() {
+            println!("Loaded {} plugin(s): {}", loaded.len(), loaded.join(", "));
+            plugin_manager.register_handlers(&mut engine);
+        }
     }
 
     println!(

@@ -1,0 +1,19 @@
+[package]
+name = "workflow-plugins"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["file-loader"]
+url-loader = ["plugin-system/url-loader"]
+file-loader = ["plugin-system/file-loader"]
+
+[dependencies]
+plugin-system.workspace = true
+plugin-macros.workspace = true
+workflow-domain = { path = "../workflow-domain" }
+workflow-engine = { path = "../workflow-engine" }
+serde_json.workspace = true
+async-trait.workspace = true
+log.workspace = true

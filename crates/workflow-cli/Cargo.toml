@@ -15,7 +15,10 @@ workflow-actions = { path = "../workflow-actions" }
 workflow-serialize = { path = "../workflow-serialize" }
 workflow-test-runner = { path = "../workflow-test-runner" }
 workflow-i18n = { path = "../workflow-i18n" }
+workflow-plugins = { path = "../workflow-plugins" }
 serde_json = { workspace = true }
 clap = { workspace = true }
 thiserror = { workspace = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "time", "signal"] }
+log = { workspace = true }
+env_logger = "0.11"

@@ -40,6 +40,9 @@ pub enum WorkflowError {
 
     #[error("Invalid state transition: {0}")]
     InvalidTransition(String),
+
+    #[error("Plugin error: {0}")]
+    Plugin(String),
 }
 
 impl WorkflowError {
@@ -82,6 +85,7 @@ impl WorkflowError {
             WorkflowError::InvalidTransition(inner) => {
                 i18n_tf("domain.error_invalid_transition", &[("state", inner)])
             }
+            WorkflowError::Plugin(inner) => i18n_tf("domain.error_plugin", &[("error", inner)]),
         }
     }
 }

@@ -7,13 +7,27 @@ use workflow_domain::{GlobalSettings, RuleEngineConfig, WorkflowResult};
 use workflow_engine::RuleEngine;
 use workflow_serialize::TriggerLoader;
 
-pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<()> {
+pub async fn run(
+    path: &str,
+    event: &str,
+    data: Option<&str>,
+    plugin_dir: Option<&str>,
+) -> WorkflowResult<()> {
     let event_data: serde_json::Value = match data {
         Some(d) => {
             serde_json::from_str(d).map_err(workflow_domain::WorkflowError::Serialization)?
         }
         None => serde_json::json!({}),
     };
+
+    // Pre-load plugins once if a directory was provided
+    let mut plugin_manager = plugin_dir.map(workflow_plugins::WorkflowPluginManager::new);
+    if let Some(ref mut pm) = plugin_manager {
+        let loaded = pm.load_all();
+        if !loaded.is_empty() {
+            println!("Loaded {} plugin(s): {}", loaded.len(), loaded.join(", "));
+        }
+    }
 
     println!("{}", i18n_tf("cli.watching", &[("path", path)]));
     println!("Press Ctrl+C to stop.\n");
@@ -78,6 +92,11 @@ pub async fn run(path: &str, event: &str, data: Option<&str>) -> WorkflowResult<
             let mut engine = RuleEngine::new(config);
             for handler in builtin_handlers() {
                 engine.register_handler(handler);
+            }
+
+            // Register plugin handlers if available
+            if let Some(ref pm) = plugin_manager {
+                pm.register_handlers(&mut engine);
             }
 
             match engine
